@@ -1,1 +1,1 @@
-{"$schema":"../schemas/toolkit-config.schema.json","optionalTools":["dotnet-trace","dotnet-dump","dotnet-counters","dotnet-gcdump","dotnet-monitor"],"enabledIntegrations":["dotnet-skills"],"version":"2.0.0"}
+{"$schema":"../schemas/toolkit-config.schema.json","optionalTools":["dotnet-trace","dotnet-dump","dotnet-counters","dotnet-gcdump","dotnet-monitor"],"enabledIntegrations":["dotnet-skills"],"version":"3.0.0"}

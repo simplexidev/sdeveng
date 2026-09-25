@@ -4,6 +4,15 @@
   "humanDocumentationRepository": "simplexidev/codex-toolkit-docs",
   "metricsRepository": "simplexidev/codex-toolkit-metrics",
   "metricsPagesUrl": "https://simplexidev.github.io/codex-toolkit-metrics/",
+  "productVersionLine": "3.0.0",
+  "integrationBranch": "develop/v3.0.0",
+  "repositoryRoles": {
+    "product": "sdeveng",
+    "documentation": "sdeveng-docs",
+    "metricsTooling": "sdeveng-metrics-tooling",
+    "metricsData": "sdeveng-metrics-data",
+    "metricsDashboard": "sdeveng-metrics-dashboard"
+  },
   "pluginPath": "plugins/codex-toolkit",
   "templatePath": "templates/project",
   "siblingRepositoriesAreRuntimeDependencies": false,

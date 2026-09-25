@@ -9,6 +9,9 @@
     "humanDocumentationRepository",
     "metricsRepository",
     "metricsPagesUrl",
+    "productVersionLine",
+    "integrationBranch",
+    "repositoryRoles",
     "pluginPath",
     "templatePath",
     "siblingRepositoriesAreRuntimeDependencies",
@@ -20,6 +23,20 @@
     "humanDocumentationRepository": { "const": "simplexidev/codex-toolkit-docs" },
     "metricsRepository": { "const": "simplexidev/codex-toolkit-metrics" },
     "metricsPagesUrl": { "const": "https://simplexidev.github.io/codex-toolkit-metrics/" },
+    "productVersionLine": { "const": "3.0.0" },
+    "integrationBranch": { "const": "develop/v3.0.0" },
+    "repositoryRoles": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["product", "documentation", "metricsTooling", "metricsData", "metricsDashboard"],
+      "properties": {
+        "product": { "const": "sdeveng" },
+        "documentation": { "const": "sdeveng-docs" },
+        "metricsTooling": { "const": "sdeveng-metrics-tooling" },
+        "metricsData": { "const": "sdeveng-metrics-data" },
+        "metricsDashboard": { "const": "sdeveng-metrics-dashboard" }
+      }
+    },
     "pluginPath": { "const": "plugins/codex-toolkit" },
     "templatePath": { "const": "templates/project" },
     "siblingRepositoriesAreRuntimeDependencies": { "const": false },
