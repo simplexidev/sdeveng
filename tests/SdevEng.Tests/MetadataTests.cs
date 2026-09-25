@@ -45,10 +45,11 @@ public class MetadataTests
         var contract = JsonNode.Parse(File.ReadAllText(Path.Combine(Root, "config/ecosystem.json")))!;
         Assert.Equal("sdeveng", contract["productId"]!.GetValue<string>());
         Assert.Equal("SimplexiDev Engineering Toolkit", contract["productName"]!.GetValue<string>());
-        Assert.Equal("simplexidev/codex-toolkit", contract["productRepository"]!.GetValue<string>());
-        Assert.Equal("simplexidev/codex-toolkit-docs", contract["humanDocumentationRepository"]!.GetValue<string>());
-        Assert.Equal("simplexidev/codex-toolkit-metrics", contract["metricsRepository"]!.GetValue<string>());
-        Assert.Equal("https://simplexidev.github.io/codex-toolkit-metrics/", contract["metricsPagesUrl"]!.GetValue<string>());
+        Assert.Equal("simplexidev/sdeveng", contract["productRepository"]!.GetValue<string>());
+        Assert.Equal("simplexidev/sdeveng-docs", contract["humanDocumentationRepository"]!.GetValue<string>());
+        Assert.Equal("simplexidev/sdeveng-metrics-tooling", contract["metricsRepository"]!.GetValue<string>());
+        Assert.Equal("https://simplexidev.github.io/sdeveng-metrics-dashboard/", contract["metricsPagesUrl"]!.GetValue<string>());
+        Assert.Equal("simplexidev/codex-toolkit", contract["legacyLocations"]!["productRepository"]!.GetValue<string>());
         Assert.False(contract["siblingRepositoriesAreRuntimeDependencies"]!.GetValue<bool>());
         Assert.Equal("product", contract["agentRuntimeReferencesOwner"]!.GetValue<string>());
         Assert.Equal(new[] { "sdeveng" }, Directory.GetDirectories(Path.Combine(Root, "plugins")).Select(Path.GetFileName).Order());

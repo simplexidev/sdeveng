@@ -1,13 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "codex-toolkit agent audit and metrics candidate manifest",
+  "title": "sdeveng agent audit and metrics candidate manifest",
   "type": "object",
   "additionalProperties": false,
   "required": ["$schema", "manifestVersion", "owner", "asOf", "detectedSystem", "policy", "evidence", "builtInRoles", "toolkitRoles", "candidateRoles", "scenarios"],
   "properties": {
     "$schema": { "type": "string" },
     "manifestVersion": { "const": 1 },
-    "owner": { "const": "simplexidev/codex-toolkit" },
+    "owner": { "const": "simplexidev/sdeveng" },
     "asOf": { "type": "string", "format": "date" },
     "detectedSystem": { "$ref": "#/$defs/detectedSystem" },
     "policy": { "$ref": "#/$defs/policy" },

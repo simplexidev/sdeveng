@@ -2,10 +2,16 @@
   "$schema": "../schemas/ecosystem.schema.json",
   "productId": "sdeveng",
   "productName": "SimplexiDev Engineering Toolkit",
-  "productRepository": "simplexidev/codex-toolkit",
-  "humanDocumentationRepository": "simplexidev/codex-toolkit-docs",
-  "metricsRepository": "simplexidev/codex-toolkit-metrics",
-  "metricsPagesUrl": "https://simplexidev.github.io/codex-toolkit-metrics/",
+  "productRepository": "simplexidev/sdeveng",
+  "humanDocumentationRepository": "simplexidev/sdeveng-docs",
+  "metricsRepository": "simplexidev/sdeveng-metrics-tooling",
+  "metricsPagesUrl": "https://simplexidev.github.io/sdeveng-metrics-dashboard/",
+  "legacyLocations": {
+    "productRepository": "simplexidev/codex-toolkit",
+    "humanDocumentationRepository": "simplexidev/codex-toolkit-docs",
+    "metricsRepository": "simplexidev/codex-toolkit-metrics",
+    "metricsPagesUrl": "https://simplexidev.github.io/codex-toolkit-metrics/"
+  },
   "productVersionLine": "3.0.0",
   "integrationBranch": "develop/v3.0.0",
   "repositoryRoles": {

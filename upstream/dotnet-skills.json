@@ -11,7 +11,7 @@
     "license": { "spdx": "MIT", "path": "LICENSE", "copyright": ".NET Foundation and Contributors" }
   },
   "policy": {
-    "integration": "One codex-toolkit plugin only. Upstream plugins remain separately installable references and are never bundled as additional toolkit plugins.",
+    "integration": "One sdeveng plugin only. Upstream plugins remain separately installable references and are never bundled as additional toolkit plugins.",
     "context": "Use decision records as routing metadata; load an upstream skill or compact local reference only after a narrow trigger.",
     "vendor": "Repository guidance forbids vendoring upstream .NET skill content, so VENDOR_UNCHANGED and VENDOR_OPTIMIZE are intentionally unused.",
     "install": "Do not install the entire upstream marketplace. Select a pinned upstream plugin only for an explicit task that benefits from it."

@@ -1,7 +1,7 @@
 {
   "$schema": "../schemas/agent-candidates.schema.json",
   "manifestVersion": 1,
-  "owner": "simplexidev/codex-toolkit",
+  "owner": "simplexidev/sdeveng",
   "asOf": "2026-09-23",
   "detectedSystem": {
     "cliVersion": "0.155.1",
@@ -83,7 +83,7 @@
     {
       "id": "agent-capability-evaluation-2026-09-23",
       "kind": "metrics",
-      "locator": "https://simplexidev.github.io/codex-toolkit-metrics/data/public/agent-capability-evaluation.json",
+      "locator": "https://simplexidev.github.io/sdeveng-metrics-dashboard/data/public/agent-capability-evaluation.json",
       "supports": ["The current reviewer matched generic quality on the bounded security diff.", "The historical code mapper underperformed generic bounded delegation.", "The broad historical log analyzer and every proposed specialist had no measured quality advantage sufficient for a persistent custom role."]
     }
   ],

@@ -4,8 +4,10 @@ The runtime product for SimplexiDev Engineering Toolkit: one unified plugin, one
 AgentTool, runtime skills and references, and one evidence-backed native agent. The
 toolkit prefers deterministic tooling, then bounded JEV judgment, then Codex reasoning.
 
-Human documentation lives in
-[`simplexidev/codex-toolkit-docs`](https://github.com/simplexidev/codex-toolkit-docs).
+Human documentation is owned by `simplexidev/sdeveng-docs`. Until the repository-rename
+phase, it is served from the legacy
+[`simplexidev/codex-toolkit-docs`](https://github.com/simplexidev/codex-toolkit-docs)
+location.
 Start with its [installation guide](https://github.com/simplexidev/codex-toolkit-docs/blob/main/docs/getting-started/install.md),
 then see [usage and configuration](https://github.com/simplexidev/codex-toolkit-docs/tree/main/docs/guides),
 the [reference](https://github.com/simplexidev/codex-toolkit-docs/tree/main/docs/reference),
@@ -40,7 +42,8 @@ Runtime skills never depend on the documentation repository.
 - `tests/` and `evals/` — automated checks and smoke evaluation inputs.
 
 For architecture, security, examples, development, and contributor guidance, use the
-[human documentation repository](https://github.com/simplexidev/codex-toolkit-docs).
+human documentation repository (currently served from the legacy
+[`codex-toolkit-docs`](https://github.com/simplexidev/codex-toolkit-docs) location).
 Release history stays canonical in [CHANGELOG.md](CHANGELOG.md), and vulnerability
 reporting guidance remains in [SECURITY.md](SECURITY.md).
 

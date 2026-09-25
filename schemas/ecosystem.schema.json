@@ -11,6 +11,7 @@
     "humanDocumentationRepository",
     "metricsRepository",
     "metricsPagesUrl",
+    "legacyLocations",
     "productVersionLine",
     "integrationBranch",
     "repositoryRoles",
@@ -23,10 +24,21 @@
     "$schema": { "type": "string" },
     "productId": { "const": "sdeveng" },
     "productName": { "const": "SimplexiDev Engineering Toolkit" },
-    "productRepository": { "const": "simplexidev/codex-toolkit" },
-    "humanDocumentationRepository": { "const": "simplexidev/codex-toolkit-docs" },
-    "metricsRepository": { "const": "simplexidev/codex-toolkit-metrics" },
-    "metricsPagesUrl": { "const": "https://simplexidev.github.io/codex-toolkit-metrics/" },
+    "productRepository": { "const": "simplexidev/sdeveng" },
+    "humanDocumentationRepository": { "const": "simplexidev/sdeveng-docs" },
+    "metricsRepository": { "const": "simplexidev/sdeveng-metrics-tooling" },
+    "metricsPagesUrl": { "const": "https://simplexidev.github.io/sdeveng-metrics-dashboard/" },
+    "legacyLocations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["productRepository", "humanDocumentationRepository", "metricsRepository", "metricsPagesUrl"],
+      "properties": {
+        "productRepository": { "const": "simplexidev/codex-toolkit" },
+        "humanDocumentationRepository": { "const": "simplexidev/codex-toolkit-docs" },
+        "metricsRepository": { "const": "simplexidev/codex-toolkit-metrics" },
+        "metricsPagesUrl": { "const": "https://simplexidev.github.io/codex-toolkit-metrics/" }
+      }
+    },
     "productVersionLine": { "const": "3.0.0" },
     "integrationBranch": { "const": "develop/v3.0.0" },
     "repositoryRoles": {

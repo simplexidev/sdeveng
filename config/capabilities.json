@@ -1,7 +1,7 @@
 {
   "$schema": "../schemas/capabilities.schema.json",
   "manifestVersion": 1,
-  "owner": "simplexidev/codex-toolkit",
+  "owner": "simplexidev/sdeveng",
   "generatedFrom": "develop/v2.0.0 capability audit",
   "layerOrder": ["deterministic", "jev", "agent", "stronger-agent"],
   "summary": { "total": 31, "supported": 12, "partial": 18, "gap": 1 },

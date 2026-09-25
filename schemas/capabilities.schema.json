@@ -1,13 +1,13 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "codex-toolkit capability manifest",
+  "title": "sdeveng capability manifest",
   "type": "object",
   "additionalProperties": false,
   "required": ["$schema", "manifestVersion", "owner", "generatedFrom", "layerOrder", "summary", "capabilities"],
   "properties": {
     "$schema": { "type": "string" },
     "manifestVersion": { "const": 1 },
-    "owner": { "const": "simplexidev/codex-toolkit" },
+    "owner": { "const": "simplexidev/sdeveng" },
     "generatedFrom": { "type": "string", "minLength": 1 },
     "layerOrder": {
       "const": ["deterministic", "jev", "agent", "stronger-agent"]
