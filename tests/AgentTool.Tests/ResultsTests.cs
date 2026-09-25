@@ -58,13 +58,14 @@ public class ResultsTests
     }
 
     [Fact]
-    public async Task GitIgnoreAndDiscoveryExcludeOnlyTransientResults()
+    public async Task GitIgnoreAndDiscoveryExcludeAgentResults()
     {
         using var repo = new TemporaryGitRepository();
-        File.AppendAllText(Path.Combine(repo.Root, ".gitignore"), ".agent-results/logs/\n"); Results.Init(repo.Root);
+        File.AppendAllText(Path.Combine(repo.Root, ".gitignore"), ".agent-results/\n"); Results.Init(repo.Root);
         File.WriteAllText(Path.Combine(repo.Root, ".agent-results", "reports", "kept.md"), "durable"); File.WriteAllText(Path.Combine(repo.Root, ".agent-results", "logs", "ignored.log"), "transient");
+        var reportIgnored = await Processes.Run("git", ["check-ignore", ".agent-results/reports/kept.md"], repo.Root); Assert.Equal(0, reportIgnored.ExitCode);
         var ignored = await Processes.Run("git", ["check-ignore", ".agent-results/logs/ignored.log"], repo.Root); Assert.Equal(0, ignored.ExitCode);
-        var files = await Git.Files(repo.Root); Assert.Contains(".agent-results/reports/kept.md", files); Assert.DoesNotContain(files, x => x.StartsWith(".agent-results/logs/", StringComparison.Ordinal));
+        var files = await Git.Files(repo.Root); Assert.DoesNotContain(files, x => x.StartsWith(".agent-results/", StringComparison.Ordinal));
         Assert.DoesNotContain(SafeFiles.Enumerate(repo.Root), x => x.Contains(".agent-results", StringComparison.Ordinal));
     }
 }

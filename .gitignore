@@ -1,13 +1,8 @@
 **/bin/
 **/obj/
 .agent-tool/
-.agent-results/evals/generated/
-.agent-results/logs/
-.agent-results/traces/
-.agent-results/sarif/
-.agent-results/binlogs/
-.agent-results/test-results/
-.agent-results/tmp/
+.agent-tools/
+.agent-results/
 TestResults/
 artifacts/
 *.binlog
