@@ -14,5 +14,5 @@ jobs:
       - uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
-      - run: dotnet test tests/AgentTool.Tests/AgentTool.Tests.csproj --filter FullyQualifiedName~MetadataTests
+      - run: dotnet test tests/SdevEng.Tests/SdevEng.Tests.csproj --filter FullyQualifiedName~MetadataTests
       - run: dotnet tools/AgentTool.cs validate

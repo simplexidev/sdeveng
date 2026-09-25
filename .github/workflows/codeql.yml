@@ -23,7 +23,7 @@ jobs:
         with:
           languages: csharp
           build-mode: manual
-      - run: dotnet build tests/AgentTool.Tests/AgentTool.Tests.csproj --no-incremental -p:UseSharedCompilation=false
+      - run: dotnet build tests/SdevEng.Tests/SdevEng.Tests.csproj --no-incremental -p:UseSharedCompilation=false
       - uses: github/codeql-action/analyze@v4
   unavailable:
     if: github.event.repository.private
