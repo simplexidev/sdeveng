@@ -20,11 +20,15 @@ namespace SdevEng;
 
 public static class AgentTool
 {
+    public const string Product = "sdeveng";
+    public const string CliVersion = "3.0.0";
+    public const int ResultSchemaVersion = 1;
     public static readonly JsonSerializerOptions Json = new() { WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase, PropertyNameCaseInsensitive = true };
     public const string Help = """
         sdeveng — SimplexiDev Engineering Toolkit deterministic → JEV → Codex
-        dotnet tools/AgentTool.cs -- <command> [options]
+        sdeveng <command> [options]
 
+        version | --version
         install | update [--home DIR] [--codex-home DIR] [--dry-run] [--bin]
         uninstall [--home DIR] [--codex-home DIR] [--dry-run]
         doctor
@@ -51,7 +55,7 @@ public static class AgentTool
         results list [audit|handoff|review|report] [--json] | latest <type> [--json]
         results context <type> [--json] | clean [--dry-run]
 
-        Common: --root DIR (target repository), --toolkit DIR, --json, --help
+        Common: --root DIR (target repository), --toolkit DIR, --json (schema-versioned output), --help
         JEV input: {"capability":"configured-id","purpose":"allowed-purpose","deterministicNarrowed":true,"state":"sanitized excerpt","instructions":"bounded question","criteria":...}
         Screen input: same routing metadata plus {"query":"question","candidates":[{"id":"path","text":"safe excerpt"}]}
         JEV defaults to auto; missing/invalid/uncertain answers return REVIEW for Codex.
@@ -60,24 +64,68 @@ public static class AgentTool
 
     public static async Task<int> Main(string[] args)
     {
+        var json = args.Contains("--json", StringComparer.Ordinal);
+        var command = "unknown";
         try
         {
             var c = Cli.Parse(args);
-            if (c.Flag("help") || c.Words.Count == 0 || c.Words[0] == "help") { Console.WriteLine(Help); return 0; }
+            command = c.Command;
+            if (c.Flag("version") || command == "version")
+            {
+                var version = Result.Ok(new { kind = "cli-version", schemaVersion = 1, product = Product, version = CliVersion, resultSchemaVersion = ResultSchemaVersion });
+                Console.WriteLine(json ? RenderJson(version, "version", Environment.CurrentDirectory, new()) : $"{Product} {CliVersion}");
+                return 0;
+            }
+            if (c.Flag("help") || c.Words.Count == 0 || command == "help")
+            {
+                Console.WriteLine(json ? RenderJson(Result.Ok(new { help = Help }), "help", Environment.CurrentDirectory, new()) : Help);
+                return 0;
+            }
             var toolkit = FindToolkit(c.Get("toolkit"));
             var root = Path.GetFullPath(c.Get("root") ?? Environment.CurrentDirectory);
-            var command = c.Words.FirstOrDefault() is "results" ? string.Join(' ', c.Words.Take(2)) : c.Words.FirstOrDefault() == "upstream" && c.Words.ElementAtOrDefault(1) == "dotnet-skills" ? string.Join(' ', c.Words.Take(2)) : string.Join(' ', c.Words);
             var settings = Settings.LoadFor(toolkit, command);
             var result = await Execute(c, toolkit, root, settings);
-            Console.WriteLine(Render(result, root, settings.Output));
+            Console.WriteLine(json ? RenderJson(result, command, root, settings.Output) : Render(result, root, settings.Output));
             return result.ExitCode;
         }
         catch (Exception e) when (e is ArgumentException or IOException or InvalidDataException or UnauthorizedAccessException or InvalidOperationException or PlatformNotSupportedException or JsonException or FormatException or System.Xml.XmlException or System.ComponentModel.Win32Exception)
         {
-            Console.Error.WriteLine(JsonSerializer.Serialize(new { status = "error", message = Secrets.Redact(e.Message) }, Json));
+            var result = new Result("error", null, 2);
+            Console.Error.WriteLine(json
+                ? SerializeEnvelope(result, command, new { code = "invalid-invocation", message = Secrets.Redact(e.Message) })
+                : $"sdeveng: {Secrets.Redact(e.Message)}");
             return 2;
         }
+        catch (Exception e)
+        {
+            var result = new Result("error", null, 70);
+            Console.Error.WriteLine(json
+                ? SerializeEnvelope(result, command, new { code = "internal-error", message = Secrets.Redact(e.Message) })
+                : $"sdeveng: internal error: {Secrets.Redact(e.Message)}");
+            return 70;
+        }
     }
+
+    public static string RenderJson(Result result, string command, string root, OutputSettings output)
+    {
+        var rendered = SerializeEnvelope(result, command, null);
+        if (rendered.Length <= output.MaxOutputChars) return rendered;
+        var report = Path.Combine(root, ".agent-tool", $"result-{Guid.NewGuid():N}.json");
+        SafeFiles.Atomic(report, rendered);
+        return SerializeEnvelope(new(result.Status, new { truncated = true, characters = rendered.Length, artifact = report }, result.ExitCode), command, null);
+    }
+
+    public static string SerializeEnvelope(Result result, string command, object? error) => Secrets.RedactJson(JsonSerializer.Serialize(new
+    {
+        schemaVersion = ResultSchemaVersion,
+        product = Product,
+        cliVersion = CliVersion,
+        command,
+        result.Status,
+        result.ExitCode,
+        data = result.Data,
+        error
+    }, Json));
 
     public static string Render(Result result, string root, OutputSettings output)
     {
@@ -107,7 +155,7 @@ public static class AgentTool
 
     public static async Task<Result> Execute(Cli c, string toolkit, string root, Settings settings)
     {
-        var command = c.Words.FirstOrDefault() is "results" ? string.Join(' ', c.Words.Take(2)) : c.Words.FirstOrDefault() == "upstream" && c.Words.ElementAtOrDefault(1) == "dotnet-skills" ? string.Join(' ', c.Words.Take(2)) : string.Join(' ', c.Words);
+        var command = c.Command;
         c.ValidateCommand(command);
         var artifacts = Path.Combine(root, ".agent-tool");
         switch (command)
@@ -455,9 +503,13 @@ public static class DotnetSkillsDrift
 
 public sealed class Cli
 {
+    public string Command => Words.FirstOrDefault() is "results" ? string.Join(' ', Words.Take(2))
+        : Words.FirstOrDefault() == "upstream" && Words.ElementAtOrDefault(1) == "dotnet-skills" ? string.Join(' ', Words.Take(2))
+        : string.Join(' ', Words);
+
     public void ValidateCommand(string command)
     {
-        var allowed = new HashSet<string>(new[] { "root", "toolkit", "json", "help" });
+        var allowed = new HashSet<string>(new[] { "root", "toolkit", "json", "help", "version" });
         string[] specific = command switch
         {
             "install" or "update" => ["home", "codex-home", "dry-run", "bin"],
@@ -492,7 +544,7 @@ public sealed class Cli
     }
     public List<string> Words { get; } = [];
     public Dictionary<string, string?> Options { get; } = new(StringComparer.Ordinal);
-    static readonly HashSet<string> Flags = ["json", "help", "dry-run", "bin", "apply", "safe-input", "binlog", "failed-logs"];
+    static readonly HashSet<string> Flags = ["json", "help", "version", "dry-run", "bin", "apply", "safe-input", "binlog", "failed-logs"];
     static readonly HashSet<string> Values = ["root", "toolkit", "home", "codex-home", "base", "baseline", "query", "issue", "branch", "pr", "run-id", "project", "file", "sha256", "input", "output", "skill", "results", "configuration", "test", "class", "category", "filter", "process-id", "signal", "duration-seconds"];
     public string? Get(string name) => Options.GetValueOrDefault(name);
     public bool Flag(string name) => Options.ContainsKey(name);
@@ -505,6 +557,7 @@ public sealed class Cli
         {
             var arg = args[i];
             if (arg == "-h") arg = "--help";
+            if (arg == "-V") arg = "--version";
             if (!arg.StartsWith('-')) { result.Words.Add(arg); continue; }
             if (!arg.StartsWith("--", StringComparison.Ordinal)) throw new ArgumentException("Only long options are supported.");
             var parts = arg[2..].Split('=', 2); var name = parts[0];

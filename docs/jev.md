@@ -7,8 +7,8 @@ levels. Responses are type/range/distribution checked before use. No live API ca
 part of the tests or bootstrap validation.
 
 `TYPESAFE_API_KEY` is the only application-level secret input. Deliberately inject it
-into the specific AgentTool process or narrowly scoped terminal session used for live JEV
-work. Secret storage and injection are outside AgentTool and the toolkit. Do not place it
+into the specific `sdeveng` process or narrowly scoped terminal session used for live JEV
+work. Secret storage and injection are outside `sdeveng` and the toolkit. Do not place it
 in arguments, files, JSON, `.env`, shell profiles, `environment.d`, keyrings, desktop
 credential stores, or a desktop-session-wide environment. Optional non-secret overrides
 are defined in `config/jev.json` and its schema. `doctor` reports only
@@ -33,7 +33,7 @@ Create a small sanitized JSON input. `capability`, `purpose`, and
 {"capability":"relevance","purpose":"docs-impact","deterministicNarrowed":true,"state":"README describes build setup","instructions":"Is this relevant to build documentation?"}
 ```
 
-Run dotnet tools/AgentTool.cs jev noul --input safe.json --dry-run.
+Run `sdeveng jev noul --input safe.json --dry-run --json`.
 To transmit this exact reviewed input, omit --dry-run and add --safe-input. This flag
 asserts caller review of the payload, not a guarantee of automated secret detection.
 Never send .env content, credentials, complete private repositories or oversized excerpts.

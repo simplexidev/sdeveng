@@ -23,15 +23,15 @@ jobs:
       - uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
-      - run: dotnet tools/AgentTool.cs eval
+      - run: dotnet tools/AgentTool.cs eval --json
       - name: Compare measured runs when supplied
         if: inputs.results != '' && inputs.skill != ''
         env:
           RESULTS: ${{ inputs.results }}
           SKILL: ${{ inputs.skill }}
-        run: dotnet tools/AgentTool.cs eval --results "$RESULTS" --skill "$SKILL"
+        run: dotnet tools/AgentTool.cs eval --results "$RESULTS" --skill "$SKILL" --json
       - name: Compare complete measured suite
         if: inputs.results != '' && inputs.skill == ''
         env:
           RESULTS: ${{ inputs.results }}
-        run: dotnet tools/AgentTool.cs eval --results "$RESULTS"
+        run: dotnet tools/AgentTool.cs eval --results "$RESULTS" --json

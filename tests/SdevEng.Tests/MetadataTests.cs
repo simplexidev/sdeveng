@@ -107,17 +107,41 @@ public class MetadataTests
         Assert.True(File.Exists(Path.Combine(Root, "plugins/sdeveng/references/capability-coverage.md")));
     }
     [Fact]
-    public void AgentToolContractsAreUniqueAndMatchTheCliSurface()
+    public void SdevengContractsAreVersionedUniqueAndMatchTheCliSurface()
     {
         var manifest = JsonNode.Parse(File.ReadAllText(Path.Combine(Root, "config/agent-tool-contracts.json")))!;
+        Assert.Equal("sdeveng", manifest["cli"]!.GetValue<string>());
+        Assert.Equal(AgentTool.CliVersion, manifest["cliVersion"]!.GetValue<string>());
+        Assert.Equal(AgentTool.ResultSchemaVersion, manifest["resultSchemaVersion"]!.GetValue<int>());
+        Assert.Equal(AgentTool.CliVersion, JsonNode.Parse(File.ReadAllText(Path.Combine(Root, "config/toolkit.json")))!["version"]!.GetValue<string>());
         var contracts = manifest["contracts"]!.AsArray();
         var commands = contracts.Select(contract => contract!["command"]!.GetValue<string>()).ToArray();
         var kinds = contracts.Select(contract => contract!["kind"]!.GetValue<string>()).ToArray();
         Assert.Equal(commands.Length, commands.Distinct(StringComparer.Ordinal).Count());
         Assert.Equal(1, contracts.Select(contract => contract!["schemaVersion"]!.GetValue<int>()).Distinct().Single());
         var source = File.ReadAllText(Path.Combine(Root, "tools/AgentTool.cs"));
-        Assert.All(commands, command => Assert.Contains($"case \"{command}\"", source, StringComparison.Ordinal));
+        Assert.All(commands.Where(command => command != "version"), command => Assert.Contains($"case \"{command}\"", source, StringComparison.Ordinal));
+        Assert.Contains("command == \"version\"", source, StringComparison.Ordinal);
         Assert.All(kinds.Distinct(StringComparer.Ordinal), kind => Assert.Contains($"kind = \"{kind}\"", source, StringComparison.Ordinal));
+    }
+    [Fact]
+    public void CliResultEnvelopesConformToThePublishedSchema()
+    {
+        var schema = JsonSchema.FromFile(Path.Combine(Root, "schemas/cli-result.schema.json"));
+        var success = JsonNode.Parse(AgentTool.SerializeEnvelope(Result.Ok(new { kind = "repository-summary" }), "repo summary", null))!;
+        var failure = JsonNode.Parse(AgentTool.SerializeEnvelope(new("error", null, 2), "repo locate", new { code = "invalid-invocation", message = "--query is required." }))!;
+        Assert.True(schema.Evaluate(success, new() { OutputFormat = OutputFormat.List }).IsValid);
+        Assert.True(schema.Evaluate(failure, new() { OutputFormat = OutputFormat.List }).IsValid);
+    }
+    [Fact]
+    public void SkillsUseTheCanonicalStructuredCliContract()
+    {
+        foreach (var file in Directory.GetFiles(Path.Combine(Root, "plugins/sdeveng/skills"), "SKILL.md", SearchOption.AllDirectories))
+        {
+            var text = File.ReadAllText(file);
+            if (text.Contains("sdeveng ", StringComparison.Ordinal)) Assert.Contains("--json", text, StringComparison.Ordinal);
+            Assert.DoesNotContain("AgentTool `", text, StringComparison.Ordinal);
+        }
     }
     [Fact]
     public void DotnetSkillsProvenanceIsPinnedCompleteAndReferenceOnly()

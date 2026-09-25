@@ -6,8 +6,8 @@ description: Add or revise focused .NET tests for a concrete behavior using the 
 # Write .NET Tests
 
 Inspect the production contract, its callers, the test project, and a few nearby
-tests. Use AgentTool `dotnet inspect` for project/framework facts and
-`dotnet test-plan --project <path>` for the verification command. Preserve the
+tests. Use `sdeveng dotnet inspect --json` for project/framework facts and
+`sdeveng dotnet test-plan --project <path> --json` for the verification command. Preserve the
 installed framework, package versions, naming, fixtures, assertion library, and
 data patterns; do not scaffold or upgrade a test project unless requested.
 

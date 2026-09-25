@@ -4,6 +4,8 @@
 
 - Rename the active product identity to SimplexiDev Engineering Toolkit (`sdeveng`).
 - Preserve v2 installation manifests, `CODEX_TOOLKIT_ROOT`, and `codex-agent-tool` as migration aliases.
+- Make `sdeveng` the canonical CLI with version reporting, a schema-versioned `--json`
+  result envelope, documented exit codes, and structured skill invocations.
 
 ## 2.0.0
 

@@ -1,7 +1,7 @@
 # SimplexiDev Engineering Toolkit (`sdeveng`)
 
 The runtime product for SimplexiDev Engineering Toolkit: one unified plugin, one project template,
-AgentTool, runtime skills and references, and one evidence-backed native agent. The
+the `sdeveng` deterministic runtime, skills and references, and one evidence-backed native agent. The
 toolkit prefers deterministic tooling, then bounded JEV judgment, then Codex reasoning.
 
 Human documentation is owned by `simplexidev/sdeveng-docs`.
@@ -17,12 +17,15 @@ Requires the .NET 10 SDK and Git. From this checkout:
 ```text
 dotnet tools/AgentTool.cs install --dry-run
 dotnet tools/AgentTool.cs install --bin
-dotnet tools/AgentTool.cs doctor
+sdeveng doctor
+sdeveng version
 ```
 
-AgentTool installs links without overwriting user configuration. It never commits,
-pushes, merges, or creates remote repositories. Run `dotnet tools/AgentTool.cs help`
-for the bounded command surface.
+The installer links the canonical `sdeveng` command without overwriting user
+configuration and retains `codex-agent-tool` as a v2 migration alias. The runtime
+never commits, pushes, merges, or creates remote repositories. Run `sdeveng help`
+for the bounded command surface and pass `--json` for the documented
+[versioned result contract](docs/cli-contract.md).
 
 JEV is optional. Its compact, agent-consumed operating reference remains product-local
 at [docs/jev.md](docs/jev.md); broader explanation belongs in the human
@@ -31,7 +34,7 @@ Runtime skills never depend on the documentation repository.
 
 ## Repository map
 
-- `tools/AgentTool.cs` — the .NET 10 file-based runtime utility.
+- `tools/AgentTool.cs` — the single-file .NET 10 implementation behind `sdeveng`.
 - `plugins/sdeveng/` — the unified plugin, skills, and runtime references.
 - `templates/project/` — the project integration template.
 - `agents/` and `global/` — native-agent and installed instruction definitions.
@@ -46,9 +49,9 @@ reporting guidance remains in [SECURITY.md](SECURITY.md).
 ## Validate
 
 ```text
-dotnet test tests/AgentTool.Tests/AgentTool.Tests.csproj
-dotnet tools/AgentTool.cs validate
-dotnet tools/AgentTool.cs eval
+dotnet test tests/SdevEng.Tests/SdevEng.Tests.csproj
+sdeveng validate --json
+sdeveng eval --json
 ```
 
 Tests use temporary homes and fake JEV HTTP responses. Normal validation makes no live,

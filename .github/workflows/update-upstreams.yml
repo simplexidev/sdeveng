@@ -14,10 +14,10 @@ jobs:
       - uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
-      - run: dotnet tools/AgentTool.cs upstream update
+      - run: dotnet tools/AgentTool.cs upstream update --json
         env:
           GH_TOKEN: ${{ github.token }}
-      - run: dotnet tools/AgentTool.cs upstream dotnet-skills check
+      - run: dotnet tools/AgentTool.cs upstream dotnet-skills check --json
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}

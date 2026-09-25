@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://simplexidev.github.io/sdeveng/schemas/cli-result.schema.json",
+  "title": "sdeveng CLI result envelope v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "product", "cliVersion", "command", "status", "exitCode", "data", "error"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "product": { "const": "sdeveng" },
+    "cliVersion": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "command": { "type": "string", "minLength": 1 },
+    "status": { "type": "string", "minLength": 1 },
+    "exitCode": { "enum": [0, 1, 2, 3, 70] },
+    "data": true,
+    "error": {
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "message"],
+          "properties": {
+            "code": { "enum": ["invalid-invocation", "internal-error"] },
+            "message": { "type": "string", "minLength": 1 }
+          }
+        }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "exitCode": { "enum": [2, 70] } }, "required": ["exitCode"] },
+      "then": { "properties": { "status": { "const": "error" }, "data": { "type": "null" }, "error": { "type": "object" } } },
+      "else": { "properties": { "error": { "type": "null" } } }
+    }
+  ]
+}

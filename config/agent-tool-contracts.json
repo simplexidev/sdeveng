@@ -1,7 +1,20 @@
 {
   "$schema": "../schemas/agent-tool-contracts.schema.json",
-  "manifestVersion": 1,
+  "manifestVersion": 2,
+  "cli": "sdeveng",
+  "cliVersion": "3.0.0",
+  "resultSchema": "../schemas/cli-result.schema.json",
+  "resultSchemaVersion": 1,
+  "exitCodes": {
+    "success": 0,
+    "commandOutcome": 1,
+    "invalidInvocation": 2,
+    "requiredDependencyUnavailable": 3,
+    "internalError": 70
+  },
+  "legacyInvocations": ["dotnet tools/AgentTool.cs", "codex-agent-tool"],
   "contracts": [
+    { "command": "version", "kind": "cli-version", "schemaVersion": 1, "mode": "facts" },
     { "command": "repo summary", "kind": "repository-summary", "schemaVersion": 1, "mode": "summary" },
     { "command": "repo hygiene", "kind": "repository-hygiene", "schemaVersion": 1, "mode": "summary" },
     { "command": "git summary", "kind": "repository-summary", "schemaVersion": 1, "mode": "summary" },

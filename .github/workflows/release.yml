@@ -15,14 +15,14 @@ jobs:
       - uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
-      - run: dotnet test tests/AgentTool.Tests/AgentTool.Tests.csproj
-      - run: dotnet tools/AgentTool.cs validate
+      - run: dotnet test tests/SdevEng.Tests/SdevEng.Tests.csproj
+      - run: dotnet tools/AgentTool.cs validate --json
       - name: Verify tag matches packaged identity
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         run: test "$RELEASE_TAG" = "v$(jq -r .version config/toolkit.json)"
-      - run: dotnet tools/AgentTool.cs eval
-      - run: dotnet tools/AgentTool.cs release --output artifacts/sdeveng.zip
+      - run: dotnet tools/AgentTool.cs eval --json
+      - run: dotnet tools/AgentTool.cs release --output artifacts/sdeveng.zip --json
       - run: (cd artifacts && sha256sum sdeveng.zip > SHA256SUMS)
       - name: Create draft for human review
         env:

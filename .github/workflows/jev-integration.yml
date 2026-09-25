@@ -26,4 +26,4 @@ jobs:
           input="$(mktemp)"
           trap 'rm -f "$input"' EXIT
           printf '%s\n' '{"capability":"relevance","purpose":"candidate-relevance","deterministicNarrowed":true,"state":"Synthetic CI smoke-check state.","instructions":"Is this a synthetic integration request?"}' > "$input"
-          dotnet tools/AgentTool.cs jev noul --input "$input" --safe-input
+          dotnet tools/AgentTool.cs jev noul --input "$input" --safe-input --json

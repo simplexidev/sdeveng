@@ -7,11 +7,11 @@ description: Collect or interpret targeted .NET coverage evidence without treati
 
 Use this skill only for supplied coverage evidence or an explicit coverage
 request. If a Cobertura or OpenCover file exists, summarize it first with
-AgentTool `coverage summarize`; do not rerun tests, install tools, or generate a
+`sdeveng coverage summarize --file PATH --json`; do not rerun tests, install tools, or generate a
 report merely to restate available facts.
 
 For collection, start with the smallest requested or affected test project from
-AgentTool `dotnet test-plan`. Prefer the repository's existing coverage command
+`sdeveng dotnet test-plan --json`. Prefer the repository's existing coverage command
 and provider. If platform-specific collection syntax is not established, read
 [`test-platform-edge-cases.md`](../../references/test-platform-edge-cases.md)
 and stop rather than adding/upgrading packages without authorization. Widen

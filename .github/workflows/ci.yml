@@ -23,7 +23,7 @@ jobs:
           global-json-file: global.json
       - run: dotnet tools/AgentTool.cs help
       - run: dotnet test tests/SdevEng.Tests/SdevEng.Tests.csproj --logger trx --results-directory TestResults
-      - run: dotnet tools/AgentTool.cs validate
+      - run: dotnet tools/AgentTool.cs validate --json
       - run: dotnet format tests/SdevEng.Tests/SdevEng.Tests.csproj --no-restore --verify-no-changes
       - run: git diff --check
       - uses: actions/upload-artifact@v7

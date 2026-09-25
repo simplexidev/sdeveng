@@ -1,6 +1,7 @@
 # Toolkit development
 
-All production executable logic belongs in `tools/AgentTool.cs`, a .NET 10 file-based app.
+All production executable logic belongs in `tools/AgentTool.cs`, the single-file .NET 10
+implementation behind the public `sdeveng` command and legacy `codex-agent-tool` alias.
 Keep commands composable and output bounded. Use BCL APIs unless a dependency has a
 written correctness/interoperability justification. Tests may use established test and parser libraries.
 Do not introduce helper scripts in other languages. Skills must have narrow triggers,

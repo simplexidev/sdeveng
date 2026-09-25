@@ -1,12 +1,34 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "AgentTool structured output contracts",
+  "title": "sdeveng structured output contracts",
   "type": "object",
   "additionalProperties": false,
-  "required": ["$schema", "manifestVersion", "contracts"],
+  "required": ["$schema", "manifestVersion", "cli", "cliVersion", "resultSchema", "resultSchemaVersion", "exitCodes", "legacyInvocations", "contracts"],
   "properties": {
     "$schema": { "type": "string" },
-    "manifestVersion": { "const": 1 },
+    "manifestVersion": { "const": 2 },
+    "cli": { "const": "sdeveng" },
+    "cliVersion": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+    "resultSchema": { "const": "../schemas/cli-result.schema.json" },
+    "resultSchemaVersion": { "const": 1 },
+    "exitCodes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["success", "commandOutcome", "invalidInvocation", "requiredDependencyUnavailable", "internalError"],
+      "properties": {
+        "success": { "const": 0 },
+        "commandOutcome": { "const": 1 },
+        "invalidInvocation": { "const": 2 },
+        "requiredDependencyUnavailable": { "const": 3 },
+        "internalError": { "const": 70 }
+      }
+    },
+    "legacyInvocations": {
+      "type": "array",
+      "minItems": 2,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
     "contracts": {
       "type": "array",
       "minItems": 1,
