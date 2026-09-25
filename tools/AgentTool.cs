@@ -16,13 +16,13 @@ using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
 
-namespace CodexToolkit;
+namespace SdevEng;
 
 public static class AgentTool
 {
     public static readonly JsonSerializerOptions Json = new() { WriteIndented = true, PropertyNamingPolicy = JsonNamingPolicy.CamelCase, PropertyNameCaseInsensitive = true };
     public const string Help = """
-        codex-agent-tool — deterministic → JEV → Codex
+        sdeveng — SimplexiDev Engineering Toolkit deterministic → JEV → Codex
         dotnet tools/AgentTool.cs -- <command> [options]
 
         install | update [--home DIR] [--codex-home DIR] [--dry-run] [--bin]
@@ -90,7 +90,7 @@ public static class AgentTool
 
     public static string FindToolkit(string? explicitRoot = null, [System.Runtime.CompilerServices.CallerFilePath] string source = "")
     {
-        var path = explicitRoot ?? Environment.GetEnvironmentVariable("CODEX_TOOLKIT_ROOT");
+        var path = explicitRoot ?? Environment.GetEnvironmentVariable("SDEVENG_ROOT") ?? Environment.GetEnvironmentVariable("CODEX_TOOLKIT_ROOT");
         if (path is null)
         {
             if (File.Exists(source)) source = File.ResolveLinkTarget(source, true)?.FullName ?? source;
@@ -101,7 +101,7 @@ public static class AgentTool
         }
         path ??= Environment.CurrentDirectory;
         path = Path.GetFullPath(path);
-        if (!File.Exists(Path.Combine(path, "config", "toolkit.json"))) throw new ArgumentException("Toolkit root not found; pass --toolkit DIR or CODEX_TOOLKIT_ROOT.");
+        if (!File.Exists(Path.Combine(path, "config", "toolkit.json"))) throw new ArgumentException("Toolkit root not found; pass --toolkit DIR, SDEVENG_ROOT, or legacy CODEX_TOOLKIT_ROOT.");
         return path;
     }
 
@@ -1688,7 +1688,8 @@ public record InstallEntry(string Destination, string Source, bool Directory);
 public record InstallManifest(string Toolkit, string Home, string CodexHome, List<InstallEntry> Entries);
 public static class Installer
 {
-    static string ManifestPath(string codex) => Path.Combine(codex, "codex-toolkit-install.json");
+    static string ManifestPath(string codex) => Path.Combine(codex, "sdeveng-install.json");
+    static string LegacyManifestPath(string codex) => Path.Combine(codex, "codex-toolkit-install.json");
     static string? LinkTarget(InstallEntry entry)
     {
         FileSystemInfo info = entry.Directory ? new DirectoryInfo(entry.Destination) : new FileInfo(entry.Destination);
@@ -1716,8 +1717,12 @@ public static class Installer
         if (bin && OperatingSystem.IsWindows()) throw new PlatformNotSupportedException("--bin is not supported on Windows; invoke `dotnet <toolkit>/tools/AgentTool.cs` directly.");
         var entries = new List<InstallEntry> { new(Path.Combine(codex, "AGENTS.md"), Path.Combine(toolkit, "global/AGENTS.md"), false) };
         entries.AddRange(Directory.GetFiles(Path.Combine(toolkit, "agents"), "*.toml").Select(s => new InstallEntry(Path.Combine(codex, "agents", Path.GetFileName(s)), s, false)));
-        entries.AddRange(Directory.GetDirectories(Path.Combine(toolkit, "plugins/codex-toolkit/skills")).Select(s => new InstallEntry(Path.Combine(home, ".agents/skills", Path.GetFileName(s)), s, true)));
-        if (bin) entries.Add(new(Path.Combine(home, ".local/bin/codex-agent-tool"), Path.Combine(toolkit, "tools/AgentTool.cs"), false));
+        entries.AddRange(Directory.GetDirectories(Path.Combine(toolkit, "plugins/sdeveng/skills")).Select(s => new InstallEntry(Path.Combine(home, ".agents/skills", Path.GetFileName(s)), s, true)));
+        if (bin)
+        {
+            entries.Add(new(Path.Combine(home, ".local/bin/sdeveng"), Path.Combine(toolkit, "tools/AgentTool.cs"), false));
+            entries.Add(new(Path.Combine(home, ".local/bin/codex-agent-tool"), Path.Combine(toolkit, "tools/AgentTool.cs"), false));
+        }
         return entries;
     }
     static bool IsOwnedShape(InstallEntry entry, string toolkit, string home, string codex)
@@ -1729,38 +1734,43 @@ public static class Installer
         return destination == Path.Combine(codex, "AGENTS.md") && source == Path.Combine(toolkit, "global", "AGENTS.md") && !entry.Directory
             || Under(destination, Path.Combine(codex, "agents"), comparison) && destination.EndsWith(".toml", StringComparison.OrdinalIgnoreCase) && !entry.Directory
             || Under(destination, Path.Combine(home, ".agents", "skills"), comparison) && entry.Directory
-            || destination == Path.Combine(home, ".local", "bin", "codex-agent-tool") && source == Path.Combine(toolkit, "tools", "AgentTool.cs") && !entry.Directory;
+            || (destination == Path.Combine(home, ".local", "bin", "sdeveng") || destination == Path.Combine(home, ".local", "bin", "codex-agent-tool")) && source == Path.Combine(toolkit, "tools", "AgentTool.cs") && !entry.Directory;
     }
-    static InstallManifest? Read(string codex)
+    static InstallManifest? Read(string path)
     {
-        var path = ManifestPath(codex); SafeFiles.NoLinks(path);
+        SafeFiles.NoLinks(path);
         return File.Exists(path) ? JsonSerializer.Deserialize<InstallManifest>(File.ReadAllText(path), AgentTool.Json) ?? throw new IOException("Invalid installation manifest.") : null;
     }
     public static object Inspect(string codex)
     {
-        var manifest = Read(codex);
-        return manifest is null ? new { installed = false } : new { installed = true, entries = manifest.Entries.Select(e => new { e.Destination, healthy = Matches(e) && (File.Exists(e.Source) || Directory.Exists(e.Source)) }) };
+        var manifest = Read(ManifestPath(codex));
+        var legacy = manifest is null ? Read(LegacyManifestPath(codex)) : null;
+        return manifest is null && legacy is null ? new { installed = false } : new { installed = true, migrationRequired = legacy is not null, entries = (manifest ?? legacy)!.Entries.Select(e => new { e.Destination, healthy = Matches(e) && (File.Exists(e.Source) || Directory.Exists(e.Source)) }) };
     }
     public static Result Run(string toolkit, string home, string? codexHome, string command, bool dryRun, bool bin)
     {
         toolkit = Path.GetFullPath(toolkit); home = Path.GetFullPath(home); var codex = Path.GetFullPath(codexHome ?? Path.Combine(home, ".codex"));
         SafeFiles.NoLinks(codex);
-        var manifest = Read(codex);
+        var manifestPath = ManifestPath(codex);
+        var manifest = Read(manifestPath);
+        var legacyManifest = manifest is null ? Read(LegacyManifestPath(codex)) : null;
+        var migratingLegacy = legacyManifest is not null;
+        manifest ??= legacyManifest;
         if (manifest is not null && (manifest.Toolkit != toolkit || manifest.Home != home || manifest.CodexHome != codex)) throw new IOException("Installation belongs to a different checkout/home; use that checkout to uninstall first.");
         if (manifest is not null && manifest.Entries.Any(e => !IsOwnedShape(e, toolkit, home, codex))) throw new IOException("Ownership manifest contains unexpected paths; no changes made.");
         var plan = command == "uninstall" ? [] : Plan(toolkit, home, codex, bin || manifest?.Entries.Any(x => x.Destination == Path.Combine(home, ".local/bin/codex-agent-tool")) == true);
-        var removals = command == "uninstall" ? manifest?.Entries.ToList() ?? [] : command == "update" ? manifest?.Entries.Except(plan).ToList() ?? [] : [];
-        var conflicts = plan.Where(e => Exists(e) && (manifest?.Entries.Contains(e) != true || !Matches(e))).Select(e => e.Destination).ToArray();
+        var removals = command == "uninstall" ? manifest?.Entries.ToList() ?? [] : command == "update" || migratingLegacy ? manifest?.Entries.Except(plan).ToList() ?? [] : [];
+        var conflicts = plan.Where(e => Exists(e) && !(manifest?.Entries.Any(existing => existing.Destination == e.Destination && Matches(existing)) == true)).Select(e => e.Destination).ToArray();
         if (command != "uninstall" && conflicts.Length > 0) return new("conflict", new { conflicts, changed = false }, 1);
         foreach (var entry in plan.Concat(removals)) SafeFiles.NoLinks(Path.GetDirectoryName(entry.Destination)!);
         var preservedRemovals = removals.Where(e => Exists(e) && !Matches(e)).Select(e => e.Destination).ToArray();
-        if (dryRun) return Result.Ok(new { dryRun, command, plan, removals, preserved = conflicts.Concat(preservedRemovals) });
+        if (dryRun) return Result.Ok(new { dryRun, command, migratingLegacy, plan, removals, preserved = conflicts.Concat(preservedRemovals) });
         if (plan.Count == 0 && removals.Count == 0) return Result.Ok(new { command, changed = 0 });
         Directory.CreateDirectory(codex);
-        var lockPath = Path.Combine(codex, "codex-toolkit-install.lock"); SafeFiles.NoLinks(lockPath);
+        var lockPath = Path.Combine(codex, "sdeveng-install.lock"); SafeFiles.NoLinks(lockPath);
         using var installLock = new FileStream(lockPath, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None, 1, FileOptions.DeleteOnClose);
         // Re-read under the lock so stale concurrent plans cannot overwrite ownership records.
-        var current = Read(codex);
+        var current = Read(migratingLegacy ? LegacyManifestPath(codex) : manifestPath);
         if (JsonSerializer.Serialize(current, AgentTool.Json) != JsonSerializer.Serialize(manifest, AgentTool.Json)) throw new IOException("Installation changed concurrently; rerun command.");
         manifest ??= new(toolkit, home, codex, []);
         var changed = new List<string>(); var preserved = new List<string>();
@@ -1769,7 +1779,7 @@ public static class Installer
             if (Matches(entry)) { DeleteLink(entry); changed.Add(entry.Destination); }
             else if (Exists(entry)) preserved.Add(entry.Destination);
             manifest.Entries.Remove(entry);
-            SafeFiles.Atomic(ManifestPath(codex), JsonSerializer.Serialize(manifest, AgentTool.Json));
+            SafeFiles.Atomic(manifestPath, JsonSerializer.Serialize(manifest, AgentTool.Json));
         }
         foreach (var entry in plan)
         {
@@ -1779,12 +1789,13 @@ public static class Installer
             if (entry.Directory) Directory.CreateSymbolicLink(entry.Destination, entry.Source); else File.CreateSymbolicLink(entry.Destination, entry.Source);
             manifest.Entries.Remove(entry);
             manifest.Entries.Add(entry);
-            try { SafeFiles.Atomic(ManifestPath(codex), JsonSerializer.Serialize(manifest, AgentTool.Json)); }
+            try { SafeFiles.Atomic(manifestPath, JsonSerializer.Serialize(manifest, AgentTool.Json)); }
             catch { if (Matches(entry)) DeleteLink(entry); throw; }
             changed.Add(entry.Destination);
         }
-        if (command == "uninstall") File.Delete(ManifestPath(codex));
-        return Result.Ok(new { command, changed, preserved, note = "Only owned links changed; user replacements are preserved. Empty parent directories remain." });
+        if (migratingLegacy || command == "uninstall") File.Delete(LegacyManifestPath(codex));
+        if (command == "uninstall") File.Delete(manifestPath);
+        return Result.Ok(new { command, migratingLegacy, changed, preserved, note = "Only owned links changed; user replacements are preserved. Empty parent directories remain." });
     }
 }
 
@@ -1795,9 +1806,9 @@ public static class RuntimeReferences
 
     public static string[] Missing(string root)
     {
-        var plugin = Path.Combine(root, "plugins", "codex-toolkit");
+        var plugin = Path.Combine(root, "plugins", "sdeveng");
         var skills = Path.Combine(plugin, "skills");
-        if (!Directory.Exists(skills)) return ["Missing runtime skills directory: plugins/codex-toolkit/skills"];
+        if (!Directory.Exists(skills)) return ["Missing runtime skills directory: plugins/sdeveng/skills"];
         var errors = new HashSet<string>(StringComparer.Ordinal);
         var markdown = SafeFiles.Enumerate(plugin).Where(file => file.EndsWith(".md", StringComparison.Ordinal)
             && (Path.GetFileName(file) == "SKILL.md" || file.Contains(Path.DirectorySeparatorChar + "references" + Path.DirectorySeparatorChar, StringComparison.Ordinal)));
@@ -1847,7 +1858,7 @@ public static class Validation
                 else ValidateSchema(instance, JsonNode.Parse(File.ReadAllText(schemaPath))!, Path.GetRelativePath(root, file), errors);
             }
         }
-        foreach (var skill in Directory.GetDirectories(Path.Combine(root, "plugins/codex-toolkit/skills")))
+        foreach (var skill in Directory.GetDirectories(Path.Combine(root, "plugins/sdeveng/skills")))
         {
             var path = Path.Combine(skill, "SKILL.md");
             if (!File.Exists(path)) { errors.Add($"Missing skill: {skill}"); continue; }
@@ -1872,15 +1883,15 @@ public static class Validation
             var effort = Regex.Match(nativeText, "(?m)^model_reasoning_effort\\s*=\\s*\\\"([^\\\"]+)\\\"$").Groups[1].Value;
             if (name.Length == 0 || !nativeNames.Add(name) || model is not ("gpt-5.6-luna" or "gpt-5.6-terra" or "gpt-5.6-sol" or "gpt-6-astra" or "gpt-5.5") || effort is not ("low" or "medium" or "high" or "xhigh" or "max" or "ultra")) errors.Add($"Invalid native agent metadata: {native}");
         }
-        var manifest = JsonNode.Parse(File.ReadAllText(Path.Combine(root, "plugins/codex-toolkit/.codex-plugin/plugin.json")))!;
-        var mirror = JsonNode.Parse(File.ReadAllText(Path.Combine(root, "plugins/codex-toolkit/plugin.json")))!;
-        if (!JsonNode.DeepEquals(manifest, mirror) || manifest["name"]?.GetValue<string>() != "codex-toolkit" || manifest["skills"]?.GetValue<string>() != "./skills/") errors.Add("Plugin identity, mirror or skill path mismatch.");
+        var manifest = JsonNode.Parse(File.ReadAllText(Path.Combine(root, "plugins/sdeveng/.codex-plugin/plugin.json")))!;
+        var mirror = JsonNode.Parse(File.ReadAllText(Path.Combine(root, "plugins/sdeveng/plugin.json")))!;
+        if (!JsonNode.DeepEquals(manifest, mirror) || manifest["name"]?.GetValue<string>() != "sdeveng" || manifest["skills"]?.GetValue<string>() != "./skills/") errors.Add("Plugin identity, mirror or skill path mismatch.");
         var version = JsonNode.Parse(File.ReadAllText(Path.Combine(root, "config/toolkit.json")))?["version"]?.GetValue<string>();
         if (string.IsNullOrWhiteSpace(version) || manifest["version"]?.GetValue<string>() != version || mirror["version"]?.GetValue<string>() != version) errors.Add("Toolkit and plugin manifest versions must match.");
         var marketplace = JsonNode.Parse(File.ReadAllText(Path.Combine(root, ".agents/plugins/marketplace.json")))!;
-        if (marketplace["plugins"]?[0]?["source"]?["path"]?.GetValue<string>() != "./plugins/codex-toolkit") errors.Add("Marketplace source path mismatch.");
+        if (marketplace["plugins"]?[0]?["source"]?["path"]?.GetValue<string>() != "./plugins/sdeveng") errors.Add("Marketplace source path mismatch.");
         var ecosystem = JsonNode.Parse(File.ReadAllText(Path.Combine(root, "config/ecosystem.json")))!;
-        if (ecosystem["pluginPath"]?.GetValue<string>() != "plugins/codex-toolkit"
+        if (ecosystem["pluginPath"]?.GetValue<string>() != "plugins/sdeveng"
             || ecosystem["templatePath"]?.GetValue<string>() != "templates/project"
             || ecosystem["siblingRepositoriesAreRuntimeDependencies"]?.GetValue<bool>() != false
             || Directory.GetDirectories(Path.Combine(root, "plugins")).Select(Path.GetFileName).Where(x => !string.IsNullOrEmpty(x)).Count() != 1

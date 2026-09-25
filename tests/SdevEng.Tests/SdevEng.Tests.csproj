@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsTestProject>true</IsTestProject>
+    <IsPackable>false</IsPackable>
+    <GenerateProgramFile>false</GenerateProgramFile>
+    <EnableDefaultCompileItems>true</EnableDefaultCompileItems>
+    <!-- C# 14 accepts the linked file-app shebang/directives without duplicating source. -->
+    <Features>FileBasedProgram</Features>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
+    <PackageReference Include="YamlDotNet" PrivateAssets="all" />
+    <PackageReference Include="Tomlyn" PrivateAssets="all" />
+    <PackageReference Include="JsonSchema.Net" PrivateAssets="all" />
+    <Using Include="Xunit" />
+    <Using Include="SdevEng" />
+    <Compile Include="../../tools/AgentTool.cs" Link="AgentTool.cs" />
+  </ItemGroup>
+</Project>

@@ -1,6 +1,6 @@
-# codex-toolkit
+# SimplexiDev Engineering Toolkit (`sdeveng`)
 
-The runtime product for the Codex Toolkit: one unified plugin, one project template,
+The runtime product for SimplexiDev Engineering Toolkit: one unified plugin, one project template,
 AgentTool, runtime skills and references, and one evidence-backed native agent. The
 toolkit prefers deterministic tooling, then bounded JEV judgment, then Codex reasoning.
 
@@ -33,7 +33,7 @@ Runtime skills never depend on the documentation repository.
 ## Repository map
 
 - `tools/AgentTool.cs` — the .NET 10 file-based runtime utility.
-- `plugins/codex-toolkit/` — the unified plugin, skills, and runtime references.
+- `plugins/sdeveng/` — the unified plugin, skills, and runtime references.
 - `templates/project/` — the project integration template.
 - `agents/` and `global/` — native-agent and installed instruction definitions.
 - `config/` and `schemas/` — runtime policy and validated configuration.

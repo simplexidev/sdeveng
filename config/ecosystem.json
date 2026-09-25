@@ -1,5 +1,7 @@
 {
   "$schema": "../schemas/ecosystem.schema.json",
+  "productId": "sdeveng",
+  "productName": "SimplexiDev Engineering Toolkit",
   "productRepository": "simplexidev/codex-toolkit",
   "humanDocumentationRepository": "simplexidev/codex-toolkit-docs",
   "metricsRepository": "simplexidev/codex-toolkit-metrics",
@@ -13,7 +15,7 @@
     "metricsData": "sdeveng-metrics-data",
     "metricsDashboard": "sdeveng-metrics-dashboard"
   },
-  "pluginPath": "plugins/codex-toolkit",
+  "pluginPath": "plugins/sdeveng",
   "templatePath": "templates/project",
   "siblingRepositoriesAreRuntimeDependencies": false,
   "agentRuntimeReferencesOwner": "product"

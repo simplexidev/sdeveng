@@ -5,4 +5,4 @@ project-local AGENTS.md for project rules. Uncertain or unavailable JEV results 
 to Codex. Never merge without explicit user approval, leave Git operations unfinished,
 or destroy/reset/stash user work without explicit authorization.
 For ecosystem ownership, release-line planning, or capability-baseline questions, read
-`plugins/codex-toolkit/references/v2-baseline.md` from the toolkit root before acting.
+`plugins/sdeveng/references/v2-baseline.md` from the toolkit root before acting.

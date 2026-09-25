@@ -5,6 +5,8 @@
   "additionalProperties": false,
   "required": [
     "$schema",
+    "productId",
+    "productName",
     "productRepository",
     "humanDocumentationRepository",
     "metricsRepository",
@@ -19,6 +21,8 @@
   ],
   "properties": {
     "$schema": { "type": "string" },
+    "productId": { "const": "sdeveng" },
+    "productName": { "const": "SimplexiDev Engineering Toolkit" },
     "productRepository": { "const": "simplexidev/codex-toolkit" },
     "humanDocumentationRepository": { "const": "simplexidev/codex-toolkit-docs" },
     "metricsRepository": { "const": "simplexidev/codex-toolkit-metrics" },
@@ -37,7 +41,7 @@
         "metricsDashboard": { "const": "sdeveng-metrics-dashboard" }
       }
     },
-    "pluginPath": { "const": "plugins/codex-toolkit" },
+    "pluginPath": { "const": "plugins/sdeveng" },
     "templatePath": { "const": "templates/project" },
     "siblingRepositoriesAreRuntimeDependencies": { "const": false },
     "agentRuntimeReferencesOwner": { "const": "product" }

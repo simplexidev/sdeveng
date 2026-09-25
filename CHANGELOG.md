@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.0.0
+
+- Rename the active product identity to SimplexiDev Engineering Toolkit (`sdeveng`).
+- Preserve v2 installation manifests, `CODEX_TOOLKIT_ROOT`, and `codex-agent-tool` as migration aliases.
+
 ## 2.0.0
 
 - Adds conservative per-capability JEV call budgets, deterministic-first and privacy

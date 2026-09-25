@@ -22,10 +22,10 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         run: test "$RELEASE_TAG" = "v$(jq -r .version config/toolkit.json)"
       - run: dotnet tools/AgentTool.cs eval
-      - run: dotnet tools/AgentTool.cs release --output artifacts/codex-toolkit.zip
-      - run: (cd artifacts && sha256sum codex-toolkit.zip > SHA256SUMS)
+      - run: dotnet tools/AgentTool.cs release --output artifacts/sdeveng.zip
+      - run: (cd artifacts && sha256sum sdeveng.zip > SHA256SUMS)
       - name: Create draft for human review
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
-        run: gh release create "$RELEASE_TAG" artifacts/codex-toolkit.zip artifacts/SHA256SUMS --draft --verify-tag --generate-notes
+        run: gh release create "$RELEASE_TAG" artifacts/sdeveng.zip artifacts/SHA256SUMS --draft --verify-tag --generate-notes

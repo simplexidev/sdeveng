@@ -1,0 +1,19 @@
+{
+  "name": "sdeveng",
+  "version": "3.0.0",
+  "description": "Token-efficient Codex workflows backed by a single .NET utility.",
+  "author": {
+    "name": "SimplexiDev Engineering Toolkit contributors"
+  },
+  "license": "MIT",
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "SimplexiDev Engineering Toolkit",
+    "shortDescription": "Deterministic tools and focused .NET workflows.",
+    "longDescription": "Reusable skills for safe repository work, targeted .NET validation and bounded JEV judgments.",
+    "developerName": "SimplexiDev Engineering Toolkit contributors",
+    "category": "Productivity",
+    "capabilities": [],
+    "defaultPrompt": "Use the toolkit to locate affected projects and run targeted validation."
+  }
+}

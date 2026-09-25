@@ -1,6 +1,6 @@
 # Project-specific instructions
 
-General workflows come from the globally installed codex-toolkit. Fill in only this
+General workflows come from the globally installed SimplexiDev Engineering Toolkit. Fill in only this
 project's details before using this template:
 
 - Architecture boundaries and dependency direction: [project-specific rules].

@@ -5,10 +5,10 @@
   },
   "plugins": [
     {
-      "name": "codex-toolkit",
+      "name": "sdeveng",
       "source": {
         "source": "local",
-        "path": "./plugins/codex-toolkit"
+        "path": "./plugins/sdeveng"
       },
       "policy": {
         "installation": "AVAILABLE",
