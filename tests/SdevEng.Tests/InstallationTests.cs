@@ -24,7 +24,8 @@ public class InstallationTests
         manifest = manifest with { Entries = manifest.Entries.Select(e => e with { Source = e.Source.Replace("plugins/sdeveng", "plugins/codex-toolkit", StringComparison.Ordinal) }).ToList() };
         foreach (var entry in manifest.Entries.Where(e => e.Directory))
         {
-            Directory.Delete(entry.Destination);
+            if (OperatingSystem.IsWindows()) Directory.Delete(entry.Destination);
+            else File.Delete(entry.Destination);
             Directory.CreateSymbolicLink(entry.Destination, entry.Source);
         }
         File.WriteAllText(Path.Combine(home, ".codex", "codex-toolkit-install.json"), System.Text.Json.JsonSerializer.Serialize(manifest, AgentTool.Json));
