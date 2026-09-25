@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Codex plugin compatibility manifest contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "version", "description", "skills", "interface"],
+  "properties": {
+    "name": { "const": "sdeveng-engineering-toolkit" },
+    "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" },
+    "description": { "type": "string", "minLength": 1 },
+    "skills": { "const": "./skills/" },
+    "interface": { "$ref": "#/$defs/interface" }
+  },
+  "$defs": {
+    "interface": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["displayName", "shortDescription", "longDescription", "developerName", "category", "capabilities", "defaultPrompt"],
+      "properties": {
+        "displayName": { "const": "SimplexiDev Engineering Toolkit" },
+        "shortDescription": { "type": "string", "minLength": 1 },
+        "longDescription": { "type": "string", "minLength": 1 },
+        "developerName": { "const": "SimplexiDev Engineering Toolkit" },
+        "category": { "type": "string", "minLength": 1 },
+        "capabilities": { "type": "array" },
+        "defaultPrompt": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

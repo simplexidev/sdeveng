@@ -1835,6 +1835,49 @@ public static class RuntimeReferences
     }
 }
 
+public static class PluginManifests
+{
+    public const string PortableSchema = "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json";
+    public const string PluginName = "sdeveng-engineering-toolkit";
+
+    public static JsonObject CompatibilityFrom(JsonObject portable) => new()
+    {
+        ["name"] = portable["name"]?.DeepClone(),
+        ["version"] = portable["version"]?.DeepClone(),
+        ["description"] = portable["description"]?.DeepClone(),
+        ["skills"] = "./skills/",
+        ["interface"] = portable["extensions"]?["com.openai"]?["interface"]?.DeepClone()
+    };
+
+    public static void Validate(string root, List<string> errors)
+    {
+        var pluginRoot = Path.Combine(root, "plugins", "sdeveng");
+        try
+        {
+            var portable = JsonNode.Parse(File.ReadAllText(Path.Combine(pluginRoot, "plugin.json"))) as JsonObject;
+            var compatibility = JsonNode.Parse(File.ReadAllText(Path.Combine(pluginRoot, ".codex-plugin", "plugin.json"))) as JsonObject;
+            if (portable is null || compatibility is null) { errors.Add("Plugin manifests must be JSON objects."); return; }
+            if (portable["$schema"]?.GetValue<string>() != PortableSchema || portable["name"]?.GetValue<string>() != PluginName)
+                errors.Add("Portable plugin schema or stable identity mismatch.");
+            if (portable["author"]?["name"]?.GetValue<string>() != "SimplexiDev Engineering Toolkit"
+                || portable["author"]?["url"]?.GetValue<string>() != "https://github.com/simplexidev"
+                || portable["homepage"]?.GetValue<string>() != "https://github.com/simplexidev/sdeveng"
+                || portable["repository"]?.GetValue<string>() != "https://github.com/simplexidev/sdeveng")
+                errors.Add("Portable plugin publisher metadata mismatch.");
+            if (portable["extensions"]?["com.openai"]?["interface"] is not JsonObject)
+                errors.Add("Portable plugin OpenAI extension metadata missing.");
+            if (!JsonNode.DeepEquals(compatibility, CompatibilityFrom(portable)))
+                errors.Add("Codex compatibility manifest must be derived from the portable manifest.");
+            if (!Directory.Exists(Path.Combine(pluginRoot, "skills")) || !Directory.GetDirectories(Path.Combine(pluginRoot, "skills")).Any())
+                errors.Add("Portable plugin skill discovery directory is missing or empty.");
+        }
+        catch (Exception e) when (e is IOException or JsonException or InvalidOperationException)
+        {
+            errors.Add("Unable to validate plugin manifests: " + e.Message);
+        }
+    }
+}
+
 public static class Validation
 {
     public static Result Run(string root)
@@ -1883,13 +1926,14 @@ public static class Validation
             var effort = Regex.Match(nativeText, "(?m)^model_reasoning_effort\\s*=\\s*\\\"([^\\\"]+)\\\"$").Groups[1].Value;
             if (name.Length == 0 || !nativeNames.Add(name) || model is not ("gpt-5.6-luna" or "gpt-5.6-terra" or "gpt-5.6-sol" or "gpt-6-astra" or "gpt-5.5") || effort is not ("low" or "medium" or "high" or "xhigh" or "max" or "ultra")) errors.Add($"Invalid native agent metadata: {native}");
         }
-        var manifest = JsonNode.Parse(File.ReadAllText(Path.Combine(root, "plugins/sdeveng/.codex-plugin/plugin.json")))!;
-        var mirror = JsonNode.Parse(File.ReadAllText(Path.Combine(root, "plugins/sdeveng/plugin.json")))!;
-        if (!JsonNode.DeepEquals(manifest, mirror) || manifest["name"]?.GetValue<string>() != "sdeveng" || manifest["skills"]?.GetValue<string>() != "./skills/") errors.Add("Plugin identity, mirror or skill path mismatch.");
+        PluginManifests.Validate(root, errors);
         var version = JsonNode.Parse(File.ReadAllText(Path.Combine(root, "config/toolkit.json")))?["version"]?.GetValue<string>();
-        if (string.IsNullOrWhiteSpace(version) || manifest["version"]?.GetValue<string>() != version || mirror["version"]?.GetValue<string>() != version) errors.Add("Toolkit and plugin manifest versions must match.");
+        var portableVersion = JsonNode.Parse(File.ReadAllText(Path.Combine(root, "plugins/sdeveng/plugin.json")))?["version"]?.GetValue<string>();
+        var compatibilityVersion = JsonNode.Parse(File.ReadAllText(Path.Combine(root, "plugins/sdeveng/.codex-plugin/plugin.json")))?["version"]?.GetValue<string>();
+        if (string.IsNullOrWhiteSpace(version) || portableVersion != version || compatibilityVersion != version) errors.Add("Toolkit and plugin manifest versions must match.");
         var marketplace = JsonNode.Parse(File.ReadAllText(Path.Combine(root, ".agents/plugins/marketplace.json")))!;
-        if (marketplace["plugins"]?[0]?["source"]?["path"]?.GetValue<string>() != "./plugins/sdeveng") errors.Add("Marketplace source path mismatch.");
+        if (marketplace["plugins"]?[0]?["source"]?["path"]?.GetValue<string>() != "./plugins/sdeveng"
+            || marketplace["plugins"]?[0]?["name"]?.GetValue<string>() != PluginManifests.PluginName) errors.Add("Marketplace source path or plugin identity mismatch.");
         var ecosystem = JsonNode.Parse(File.ReadAllText(Path.Combine(root, "config/ecosystem.json")))!;
         if (ecosystem["pluginPath"]?.GetValue<string>() != "plugins/sdeveng"
             || ecosystem["templatePath"]?.GetValue<string>() != "templates/project"

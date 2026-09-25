@@ -40,6 +40,26 @@ public class MetadataTests
         Assert.Equal(0, Validation.Run(Root).ExitCode);
     }
     [Fact]
+    public void PortableManifestIsCanonicalAndCodexCompatibilityManifestIsDerived()
+    {
+        var plugin = Path.Combine(Root, "plugins", "sdeveng");
+        var portable = JsonNode.Parse(File.ReadAllText(Path.Combine(plugin, "plugin.json")))!.AsObject();
+        var compatibility = JsonNode.Parse(File.ReadAllText(Path.Combine(plugin, ".codex-plugin", "plugin.json")))!;
+        var portableSchema = JsonSchema.FromFile(Path.Combine(Root, "schemas", "portable-plugin.schema.json"));
+        var compatibilitySchema = JsonSchema.FromFile(Path.Combine(Root, "schemas", "codex-plugin-compatibility.schema.json"));
+        Assert.True(portableSchema.Evaluate(portable, new() { OutputFormat = OutputFormat.List }).IsValid);
+        Assert.True(compatibilitySchema.Evaluate(compatibility, new() { OutputFormat = OutputFormat.List }).IsValid);
+        Assert.Equal(PluginManifests.PortableSchema, portable["$schema"]!.GetValue<string>());
+        Assert.Equal(PluginManifests.PluginName, portable["name"]!.GetValue<string>());
+        Assert.Equal("SimplexiDev Engineering Toolkit", portable["author"]!["name"]!.GetValue<string>());
+        Assert.Equal("https://github.com/simplexidev/sdeveng", portable["homepage"]!.GetValue<string>());
+        Assert.Equal("https://github.com/simplexidev/sdeveng", portable["repository"]!.GetValue<string>());
+        Assert.True(JsonNode.DeepEquals(PluginManifests.CompatibilityFrom(portable), compatibility));
+        Assert.Equal("./skills/", compatibility["skills"]!.GetValue<string>());
+        Assert.Equal(portable["extensions"]!["com.openai"]!["interface"]!.ToJsonString(), compatibility["interface"]!.ToJsonString());
+        Assert.Contains(Directory.GetDirectories(Path.Combine(plugin, "skills")).Select(path => Path.Combine(path, "SKILL.md")), File.Exists);
+    }
+    [Fact]
     public void V3EcosystemContractHasOnePluginOneTemplateAndNoSiblingRuntimeDependencies()
     {
         var contract = JsonNode.Parse(File.ReadAllText(Path.Combine(Root, "config/ecosystem.json")))!;

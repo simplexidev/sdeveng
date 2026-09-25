@@ -5,7 +5,7 @@
   },
   "plugins": [
     {
-      "name": "sdeveng",
+      "name": "sdeveng-engineering-toolkit",
       "source": {
         "source": "local",
         "path": "./plugins/sdeveng"

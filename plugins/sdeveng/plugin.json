@@ -1,19 +1,32 @@
 {
-  "name": "sdeveng",
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "sdeveng-engineering-toolkit",
   "version": "3.0.0",
   "description": "Token-efficient Codex workflows backed by a single .NET utility.",
   "author": {
-    "name": "SimplexiDev Engineering Toolkit contributors"
+    "name": "SimplexiDev Engineering Toolkit",
+    "url": "https://github.com/simplexidev"
   },
+  "homepage": "https://github.com/simplexidev/sdeveng",
+  "repository": "https://github.com/simplexidev/sdeveng",
   "license": "MIT",
-  "skills": "./skills/",
-  "interface": {
-    "displayName": "SimplexiDev Engineering Toolkit",
-    "shortDescription": "Deterministic tools and focused .NET workflows.",
-    "longDescription": "Reusable skills for safe repository work, targeted .NET validation and bounded JEV judgments.",
-    "developerName": "SimplexiDev Engineering Toolkit contributors",
-    "category": "Productivity",
-    "capabilities": [],
-    "defaultPrompt": "Use the toolkit to locate affected projects and run targeted validation."
+  "keywords": [
+    "sdeveng",
+    "dotnet",
+    "engineering",
+    "validation"
+  ],
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "SimplexiDev Engineering Toolkit",
+        "shortDescription": "Deterministic tools and focused .NET workflows.",
+        "longDescription": "Reusable skills for safe repository work, targeted .NET validation and bounded JEV judgments.",
+        "developerName": "SimplexiDev Engineering Toolkit",
+        "category": "Productivity",
+        "capabilities": [],
+        "defaultPrompt": "Use the toolkit to locate affected projects and run targeted validation."
+      }
+    }
   }
 }
