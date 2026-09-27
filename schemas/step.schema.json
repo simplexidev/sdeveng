@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://simplexidev.github.io/sdeveng/schemas/step.schema.json",
+  "title": "sdeveng roadmap step",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["index", "title", "acceptanceTarget", "reviewGate"],
+  "properties": {
+    "index": { "type": "integer", "minimum": 0 },
+    "title": { "type": "string", "minLength": 1 },
+    "acceptanceTarget": { "type": "string", "minLength": 1 },
+    "reviewGate": { "enum": ["none", "required"] }
+  }
+}

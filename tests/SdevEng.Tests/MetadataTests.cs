@@ -38,7 +38,9 @@ public class MetadataTests
         var schemas = Path.Combine(Root, "schemas");
         var phaseSchema = JsonSchema.FromFile(Path.Combine(schemas, "phase.schema.json"));
         var stageSchema = JsonSchema.FromFile(Path.Combine(schemas, "stage.schema.json"));
+        var stepSchema = JsonSchema.FromFile(Path.Combine(schemas, "step.schema.json"));
         Json.Schema.SchemaRegistry.Global.Register(stageSchema);
+        Json.Schema.SchemaRegistry.Global.Register(stepSchema);
         var phase = JsonNode.Parse("""
             {"id":"phase-0","title":"Foundation","goal":"Make execution deterministic","stages":[{"id":"stage-1","title":"Hierarchy","goal":"Define the hierarchy","executionMode":"change","labels":["type:chore"],"steps":[{"index":0,"title":"Schemas","acceptanceTarget":"Both schemas validate","reviewGate":"none"}]}]}
             """)!;
@@ -51,6 +53,13 @@ public class MetadataTests
         Assert.True(stageSchema.Evaluate(stage, new() { OutputFormat = OutputFormat.List }).IsValid);
         stage["steps"]![0]!["index"] = -1;
         Assert.False(stageSchema.Evaluate(stage, new() { OutputFormat = OutputFormat.List }).IsValid);
+
+        var step = JsonNode.Parse("""{"index":0,"title":"Schemas","acceptanceTarget":"Both schemas validate","reviewGate":"none"}""")!;
+        Assert.True(stepSchema.Evaluate(step, new() { OutputFormat = OutputFormat.List }).IsValid);
+        step["index"] = 1;
+        Assert.True(stepSchema.Evaluate(step, new() { OutputFormat = OutputFormat.List }).IsValid);
+        step["reviewGate"] = "optional";
+        Assert.False(stepSchema.Evaluate(step, new() { OutputFormat = OutputFormat.List }).IsValid);
     }
     [Fact]
     public void ReleaseIdentityIsThreePointZero()
