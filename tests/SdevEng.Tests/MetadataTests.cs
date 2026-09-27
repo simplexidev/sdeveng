@@ -33,6 +33,26 @@ public class MetadataTests
         }
     }
     [Fact]
+    public void PhaseAndStageSchemasDefineOrderedRoadmapFields()
+    {
+        var schemas = Path.Combine(Root, "schemas");
+        var phaseSchema = JsonSchema.FromFile(Path.Combine(schemas, "phase.schema.json"));
+        var stageSchema = JsonSchema.FromFile(Path.Combine(schemas, "stage.schema.json"));
+        Json.Schema.SchemaRegistry.Global.Register(stageSchema);
+        var phase = JsonNode.Parse("""
+            {"id":"phase-0","title":"Foundation","goal":"Make execution deterministic","stages":[{"id":"stage-1","title":"Hierarchy","goal":"Define the hierarchy","executionMode":"change","labels":["type:chore"],"steps":[{"index":0,"title":"Schemas","acceptanceTarget":"Both schemas validate","reviewGate":"none"}]}]}
+            """)!;
+        Assert.True(phaseSchema.Evaluate(phase, new() { OutputFormat = OutputFormat.List }).IsValid);
+        phase["stages"]![0]!["executionMode"] = "unknown";
+        Assert.False(phaseSchema.Evaluate(phase, new() { OutputFormat = OutputFormat.List }).IsValid);
+        var stage = JsonNode.Parse("""
+            {"id":"stage-1","title":"Hierarchy","goal":"Define the hierarchy","executionMode":"change","labels":[],"steps":[{"index":0,"title":"Schemas","acceptanceTarget":"Both schemas validate","reviewGate":"none"}]}
+            """)!;
+        Assert.True(stageSchema.Evaluate(stage, new() { OutputFormat = OutputFormat.List }).IsValid);
+        stage["steps"]![0]!["index"] = -1;
+        Assert.False(stageSchema.Evaluate(stage, new() { OutputFormat = OutputFormat.List }).IsValid);
+    }
+    [Fact]
     public void ReleaseIdentityIsThreePointZero()
     {
         var config = JsonNode.Parse(File.ReadAllText(Path.Combine(Root, "config/toolkit.json")))!;

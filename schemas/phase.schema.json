@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://simplexidev.github.io/sdeveng/schemas/phase.schema.json",
+  "title": "sdeveng roadmap phase",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "title", "goal", "stages"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^phase-[0-9]+$" },
+    "title": { "type": "string", "minLength": 1 },
+    "goal": { "type": "string", "minLength": 1 },
+    "stages": { "type": "array", "items": { "$ref": "https://simplexidev.github.io/sdeveng/schemas/stage.schema.json" } }
+  }
+}
