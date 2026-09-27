@@ -13,17 +13,7 @@
     "labels": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
     "steps": {
       "type": "array",
-      "items": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["index", "title", "acceptanceTarget", "reviewGate"],
-        "properties": {
-          "index": { "type": "integer", "minimum": 0 },
-          "title": { "type": "string", "minLength": 1 },
-          "acceptanceTarget": { "type": "string", "minLength": 1 },
-          "reviewGate": { "enum": ["none", "required"] }
-        }
-      }
+      "items": { "$ref": "https://simplexidev.github.io/sdeveng/schemas/step.schema.json" }
     }
   }
 }
