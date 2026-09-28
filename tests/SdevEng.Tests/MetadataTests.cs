@@ -446,5 +446,11 @@ public class RepositoryIntegrityTests
         Assert.True(ciSchema.Evaluate(ci, new() { OutputFormat = OutputFormat.List }).IsValid);
         ci["requiredChecks"] = new JsonArray("build", "build");
         Assert.False(ciSchema.Evaluate(ci).IsValid);
+
+        var privacySchema = JsonSchema.FromFile(Path.Combine(schemas, "privacy-policy.schema.json"));
+        var privacy = JsonNode.Parse("""{"version":1,"policy":"Minimize and sanitize data before transmission.","permittedData":["public-metadata"],"prohibitedData":["credentials","raw-private-artifacts"],"externalTransmission":false}""")!;
+        Assert.True(privacySchema.Evaluate(privacy, new() { OutputFormat = OutputFormat.List }).IsValid);
+        privacy["externalTransmission"] = "false";
+        Assert.False(privacySchema.Evaluate(privacy).IsValid);
     }
 }
