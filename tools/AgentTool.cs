@@ -189,6 +189,7 @@ public static class AgentTool
             services.AddSingleton<ICommandModule, RepoCommandModule>();
             services.AddSingleton<ICommandModule, GitHubCommandModule>();
             services.AddSingleton<ICommandModule, DotnetCommandModule>();
+            services.AddSingleton<ICommandModule, ReportCommandModule>();
             services.AddSingleton<ICommandModule, ExistingCommandsModule>();
             return services;
         }
@@ -352,6 +353,33 @@ public static class AgentTool
         }
     }
 
+    public sealed class ReportCommandModule : ICommandModule
+    {
+        private static readonly string[] Commands =
+        [
+            "logs summarize", "sarif summarize", "artifact inspect", "artifact verify",
+            "test-results summarize", "coverage summarize"
+        ];
+
+        public bool CanHandle(Cli command) => Commands.Contains(command.Command, StringComparer.Ordinal);
+
+        public Task<Result> Execute(Cli command, string toolkit, string root, Settings settings, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            command.ValidateCommand(command.Command);
+            return Task.FromResult(command.Command switch
+            {
+                "logs summarize" => Result.Ok(Output.SummarizeFile(command.Require("file"), settings.Output)),
+                "sarif summarize" => Result.Ok(Output.Sarif(command.Require("file"), settings.Output, command.Get("baseline"))),
+                "artifact inspect" => Result.Ok(Artifacts.Inspect(command.Require("file"), settings.Output)),
+                "artifact verify" => Artifacts.Verify(command.Require("file"), command.Require("sha256")),
+                "test-results summarize" => Result.Ok(DotnetArtifacts.TestResults(command.Require("file"), settings.Output)),
+                "coverage summarize" => Result.Ok(DotnetArtifacts.Coverage(command.Require("file"), settings.Output)),
+                _ => throw new ArgumentException("Unknown command. Use --help.")
+            });
+        }
+    }
+
     public sealed class RuntimeSettingsOptions { public Settings Settings { get; set; } = new(new(), new(), new(), new()); public string? ValidationError { get; set; } }
 
     public static string RenderJson(Result result, string command, string root, OutputSettings output)
@@ -408,13 +436,6 @@ public static class AgentTool
         var artifacts = Path.Combine(root, ".agent-tool");
         switch (command)
         {
-            case "logs summarize":
-                return Result.Ok(Output.SummarizeFile(c.Require("file"), settings.Output));
-            case "sarif summarize": return Result.Ok(Output.Sarif(c.Require("file"), settings.Output, c.Get("baseline")));
-            case "artifact inspect": return Result.Ok(Artifacts.Inspect(c.Require("file"), settings.Output));
-            case "artifact verify": return Artifacts.Verify(c.Require("file"), c.Require("sha256"));
-            case "test-results summarize": return Result.Ok(DotnetArtifacts.TestResults(c.Require("file"), settings.Output));
-            case "coverage summarize": return Result.Ok(DotnetArtifacts.Coverage(c.Require("file"), settings.Output));
             case "jev noul":
             case "jev choice":
             case "jev score":
