@@ -15,6 +15,11 @@ unknown event types, and transitions whose `fromState` differs from the last
 recorded state; it refuses to append to an invalid stream. `occurredAt` is an
 RFC 3339 timestamp; sequence, rather than timestamps, determines replay order.
 
+Use `sdeveng run status <UUID>` to read the current state and recorded external
+identifiers, or `sdeveng run explain <UUID>` to read the ordered event timeline.
+Both commands read `.sdeveng/runs/<UUID>` under the selected `--root` and do
+not modify the event store.
+
 `state-transition` records `fromState` and `toState`. The first transition uses
 `fromState: null`; later transitions name the previous state. State names are
 nonempty strings so future workflow states can be introduced without changing
