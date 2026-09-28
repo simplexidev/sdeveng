@@ -69,4 +69,25 @@ public class LocalRunEventStoreTests
         }
         finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
     }
+
+    [Fact]
+    public void StepCommitAndCiRunIdentifiersSurviveReopenAndMatchContract()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "sdeveng-events-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var runId = Guid.NewGuid();
+            LocalRunEventStore.AppendStepCommitIdentifier(directory, runId, "0123456789abcdef0123456789abcdef01234567");
+            LocalRunEventStore.AppendCiRunIdentifier(directory, runId, "123456789");
+
+            var events = LocalRunEventStore.Read(directory, runId);
+            var schema = JsonSchema.FromFile(Path.Combine(AgentTool.FindToolkit(), "schemas/run-event.schema.json"));
+            Assert.Equal(2, events.Count);
+            foreach (var item in events) Assert.True(schema.Evaluate(JsonNode.Parse(item.GetRawText())!).IsValid);
+            Assert.Equal(new[] { "git", "github-actions" }, events.Select(item => item.GetProperty("externalSystem").GetString()));
+            Assert.Equal(new[] { "step-commit", "ci-run" }, events.Select(item => item.GetProperty("identifierType").GetString()));
+            Assert.Equal(new[] { "0123456789abcdef0123456789abcdef01234567", "123456789" }, events.Select(item => item.GetProperty("identifier").GetString()));
+        }
+        finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
+    }
 }

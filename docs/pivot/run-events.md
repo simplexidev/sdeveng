@@ -21,6 +21,8 @@ this event version. `external-identifier-recorded` records the issuing
 Record an external identifier before any later action depends on it.
 GitHub issue and pull request identifiers use `externalSystem: "github"` with
 `identifierType: "issue"` and `"pull-request"`, respectively.
+Step commits use `externalSystem: "git"` with `identifierType: "step-commit"`;
+CI runs use `externalSystem: "github-actions"` with `identifierType: "ci-run"`.
 
 Examples:
 
