@@ -20,6 +20,10 @@ identifiers, or `sdeveng run explain <UUID>` to read the ordered event timeline.
 Both commands read `.sdeveng/runs/<UUID>` under the selected `--root` and do
 not modify the event store.
 
+Use `sdeveng run list` to list recorded runs in ordinal run-ID order. Use
+`sdeveng run abandon <UUID>` to append an `abandoned` transition to an existing
+nonterminal run. Missing runs and runs already in a terminal state are rejected.
+
 `state-transition` records `fromState` and `toState`. The first transition uses
 `fromState: null`; later transitions name the previous state. State names are
 nonempty strings so future workflow states can be introduced without changing

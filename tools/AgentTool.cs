@@ -27,6 +27,16 @@ namespace SdevEng;
 
 public static class LocalRunEventStore
 {
+    public static object List(string directory)
+    {
+        var runs = Directory.Exists(directory)
+            ? Directory.GetDirectories(directory).Where(path => Guid.TryParseExact(Path.GetFileName(path), "D", out var id) && id != Guid.Empty)
+                .Select(path => new { runId = Path.GetFileName(path), status = Status(directory, Guid.Parse(Path.GetFileName(path))) })
+                .OrderBy(run => run.runId, StringComparer.Ordinal).ToArray()
+            : [];
+        return new { kind = "run-list", runs };
+    }
+
     public static JsonElement AppendTransition(string directory, Guid runId, string? fromState, string toState) =>
         Append(directory, runId, "state-transition", fromState, toState, null, null, null);
 
@@ -137,6 +147,16 @@ public static class LocalRunEventStore
         return AppendTransition(directory, runId, current, "cancelled");
     }
 
+    public static JsonElement Abandon(string directory, Guid runId)
+    {
+        var events = Read(directory, runId);
+        var state = events.LastOrDefault(item => item.GetProperty("eventType").GetString() == "state-transition");
+        var current = state.ValueKind == JsonValueKind.Undefined ? null : state.GetProperty("toState").GetString();
+        if (current is null or "completed" or "cancelled" or "failed" or "abandoned")
+            throw new InvalidOperationException("Only an active run can be abandoned.");
+        return AppendTransition(directory, runId, current, "abandoned");
+    }
+
     private static JsonElement TransitionCurrent(string directory, Guid runId, string expected, string next)
     {
         var events = Read(directory, runId);
@@ -219,7 +239,7 @@ public static class AgentTool
         results init | new <audit|handoff|review|report> <name>
         results list [audit|handoff|review|report] [--json] | latest <type> [--json]
         results context <type> [--json] | clean [--dry-run]
-        run status <UUID> | explain <UUID> | resume <UUID> | cancel <UUID>
+        run status <UUID> | explain <UUID> | resume <UUID> | cancel <UUID> | list | abandon <UUID>
 
         Common: --root DIR (target repository), --toolkit DIR, --set NAME=VALUE (configuration override; repeatable), --json (schema-versioned output), --help
         JEV input: {"capability":"configured-id","purpose":"allowed-purpose","deterministicNarrowed":true,"state":"sanitized excerpt","instructions":"bounded question","criteria":...}
@@ -453,21 +473,27 @@ public static class AgentTool
 
     public sealed class RunCommandModule : ICommandModule
     {
-        public bool CanHandle(Cli command) => command.Command is "run status" or "run explain" or "run resume" or "run cancel";
+        public bool CanHandle(Cli command) => command.Command is "run status" or "run explain" or "run resume" or "run cancel" or "run list" or "run abandon";
 
         public Task<Result> Execute(Cli command, string toolkit, string root, Settings settings, CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
             command.ValidateCommand(command.Command);
             var words = command.Words.Skip(2).ToArray();
+            var directory = Path.Combine(root, ".sdeveng", "runs");
+            if (command.Command == "run list")
+            {
+                if (words.Length != 0) throw new ArgumentException("Usage: run list.");
+                return Task.FromResult(Result.Ok(LocalRunEventStore.List(directory)));
+            }
             if (words.Length != 1 || !Guid.TryParseExact(words[0], "D", out var runId) || runId == Guid.Empty)
                 throw new ArgumentException($"Usage: {command.Command} <UUID>.");
-            var directory = Path.Combine(root, ".sdeveng", "runs");
             var result = command.Command switch
             {
                 "run status" => LocalRunEventStore.Status(directory, runId),
                 "run explain" => LocalRunEventStore.Explain(directory, runId),
                 "run resume" => LocalRunEventStore.Resume(directory, runId),
+                "run abandon" => LocalRunEventStore.Abandon(directory, runId),
                 _ => LocalRunEventStore.Cancel(directory, runId)
             };
             return Task.FromResult(Result.Ok(result));
