@@ -30,6 +30,28 @@ public class LocalRunEventStoreTests
     }
 
     [Fact]
+    public void ResumeAndCancelAppendValidatedLifecycleTransitions()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "sdeveng-events-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var runId = Guid.NewGuid();
+            LocalRunEventStore.AppendTransition(directory, runId, null, "created");
+            LocalRunEventStore.AppendTransition(directory, runId, "created", "paused");
+            var resumed = LocalRunEventStore.Resume(directory, runId);
+            Assert.Equal("running", resumed.GetProperty("toState").GetString());
+            var cancelled = LocalRunEventStore.Cancel(directory, runId);
+            Assert.Equal("cancelled", cancelled.GetProperty("toState").GetString());
+            Assert.Equal("cancelled", System.Text.Json.JsonSerializer.SerializeToNode(LocalRunEventStore.Status(directory, runId), AgentTool.Json)!["state"]!.GetValue<string>());
+            Assert.Throws<InvalidOperationException>(() => LocalRunEventStore.Resume(directory, runId));
+            Assert.Throws<InvalidOperationException>(() => LocalRunEventStore.Cancel(directory, runId));
+            var schema = JsonSchema.FromFile(Path.Combine(AgentTool.FindToolkit(), "schemas/run-event.schema.json"));
+            foreach (var item in LocalRunEventStore.Read(directory, runId)) Assert.True(schema.Evaluate(JsonNode.Parse(item.GetRawText())!).IsValid);
+        }
+        finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
+    }
+
+    [Fact]
     public void EventsSurviveReopenInSequenceAndMatchContract()
     {
         var directory = Path.Combine(Path.GetTempPath(), "sdeveng-events-" + Guid.NewGuid().ToString("N"));
