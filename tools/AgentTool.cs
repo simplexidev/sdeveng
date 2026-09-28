@@ -45,6 +45,12 @@ public static class LocalRunEventStore
     public static JsonElement AppendPullRequestIdentifier(string directory, Guid runId, string pullRequest) =>
         AppendExternalIdentifier(directory, runId, "github", "pull-request", pullRequest);
 
+    public static JsonElement AppendStepCommitIdentifier(string directory, Guid runId, string commit) =>
+        AppendExternalIdentifier(directory, runId, "git", "step-commit", commit);
+
+    public static JsonElement AppendCiRunIdentifier(string directory, Guid runId, string ciRun) =>
+        AppendExternalIdentifier(directory, runId, "github-actions", "ci-run", ciRun);
+
     public static IReadOnlyList<JsonElement> Read(string directory, Guid runId)
     {
         var path = Path.Combine(directory, runId.ToString("D"));
