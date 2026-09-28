@@ -6,6 +6,39 @@ namespace SdevEng.Tests;
 public class LocalRunEventStoreTests
 {
     [Fact]
+    public void ListOrdersRunsByOrdinalRunId()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "sdeveng-events-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var later = Guid.Parse("f0000000-0000-4000-8000-000000000000");
+            var earlier = Guid.Parse("10000000-0000-4000-8000-000000000000");
+            LocalRunEventStore.AppendTransition(directory, later, null, "created");
+            LocalRunEventStore.AppendTransition(directory, earlier, null, "created");
+
+            var result = System.Text.Json.JsonSerializer.SerializeToNode(LocalRunEventStore.List(directory), AgentTool.Json)!;
+
+            Assert.Equal(new[] { earlier.ToString("D"), later.ToString("D") }, result["runs"]!.AsArray().Select(run => run!["runId"]!.GetValue<string>()));
+        }
+        finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
+    }
+
+    [Fact]
+    public void AbandonTransitionsOnlyExistingNonterminalRuns()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "sdeveng-events-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var runId = Guid.NewGuid();
+            LocalRunEventStore.AppendTransition(directory, runId, null, "running");
+            Assert.Equal("abandoned", LocalRunEventStore.Abandon(directory, runId).GetProperty("toState").GetString());
+            Assert.Throws<InvalidOperationException>(() => LocalRunEventStore.Abandon(directory, runId));
+            Assert.Throws<InvalidOperationException>(() => LocalRunEventStore.Abandon(directory, Guid.NewGuid()));
+        }
+        finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
+    }
+
+    [Fact]
     public void StatusAndExplainSummarizeEventsWithoutChangingTheStore()
     {
         var directory = Path.Combine(Path.GetTempPath(), "sdeveng-events-" + Guid.NewGuid().ToString("N"));
