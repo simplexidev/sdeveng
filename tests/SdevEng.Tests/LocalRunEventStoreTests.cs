@@ -90,4 +90,40 @@ public class LocalRunEventStoreTests
         }
         finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
     }
+
+    [Theory]
+    [InlineData("{broken")]
+    [InlineData("{\"schemaVersion\":1,\"runId\":\"RUN_ID\",\"sequence\":1,\"occurredAt\":\"2026-09-28T12:00:00.0000000+00:00\",\"eventType\":\"unknown\"}")]
+    [InlineData("{\"schemaVersion\":1,\"runId\":\"RUN_ID\",\"sequence\":1,\"occurredAt\":\"2026-09-28T12:00:00.0000000+00:00\",\"eventType\":\"state-transition\",\"fromState\":null,\"toState\":\"created\",\"extra\":1}")]
+    public void ReadRejectsMalformedEventsAndAppendDoesNotExtendThem(string content)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "sdeveng-events-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var runId = Guid.NewGuid();
+            var path = Path.Combine(directory, runId.ToString("D"));
+            Directory.CreateDirectory(path);
+            File.WriteAllText(Path.Combine(path, "00000000000000000001.json"), content.Replace("RUN_ID", runId.ToString("D")));
+            Assert.Throws<InvalidDataException>(() => LocalRunEventStore.Read(directory, runId));
+            Assert.Throws<InvalidDataException>(() => LocalRunEventStore.AppendTransition(directory, runId, null, "created"));
+            Assert.Single(Directory.GetFiles(path, "*.json"));
+        }
+        finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
+    }
+
+    [Fact]
+    public void ReadRejectsBrokenTransitionChain()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "sdeveng-events-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var runId = Guid.NewGuid();
+            LocalRunEventStore.AppendTransition(directory, runId, null, "created");
+            LocalRunEventStore.AppendTransition(directory, runId, "created", "running");
+            var path = Path.Combine(directory, runId.ToString("D"), "00000000000000000002.json");
+            File.WriteAllText(path, File.ReadAllText(path).Replace("\"fromState\":\"created\"", "\"fromState\":\"wrong\""));
+            Assert.Throws<InvalidDataException>(() => LocalRunEventStore.Read(directory, runId));
+        }
+        finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
+    }
 }
