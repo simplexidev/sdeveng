@@ -189,6 +189,25 @@ public sealed class HostLifecycleTests
         }
     }
 
+    [Fact]
+    public async Task JevModuleOwnsFiniteFamilyAndDispatchesCacheClear()
+    {
+        var module = new AgentTool.JevCommandModule();
+        foreach (var command in new[] { "jev noul", "jev choice", "jev score", "jev screen", "jev cache-clear" })
+            Assert.True(module.CanHandle(Cli.Parse(command.Split(' '))));
+        Assert.False(module.CanHandle(Cli.Parse(["upstream", "status"])));
+
+        using var repo = new TemporaryGitRepository();
+        var cache = Path.Combine(repo.Root, ".agent-tool", "jev-cache");
+        Directory.CreateDirectory(cache);
+        File.WriteAllText(Path.Combine(cache, "entry"), "cached");
+        var result = await module.Execute(Cli.Parse(["jev", "cache-clear"]), AgentTool.FindToolkit(), repo.Root,
+            new(new(), new(), new(), new()), CancellationToken.None);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.False(Directory.Exists(cache));
+    }
+
     private sealed class TestCommandModule : AgentTool.ICommandModule
     {
         public bool CanHandle(Cli command) => command.Command == "feature sample";

@@ -190,6 +190,7 @@ public static class AgentTool
             services.AddSingleton<ICommandModule, GitHubCommandModule>();
             services.AddSingleton<ICommandModule, DotnetCommandModule>();
             services.AddSingleton<ICommandModule, ReportCommandModule>();
+            services.AddSingleton<ICommandModule, JevCommandModule>();
             services.AddSingleton<ICommandModule, ExistingCommandsModule>();
             return services;
         }
@@ -380,6 +381,28 @@ public static class AgentTool
         }
     }
 
+    public sealed class JevCommandModule : ICommandModule
+    {
+        private static readonly string[] Commands = ["jev noul", "jev choice", "jev score", "jev screen", "jev cache-clear"];
+
+        public bool CanHandle(Cli command) => Commands.Contains(command.Command, StringComparer.Ordinal);
+
+        public async Task<Result> Execute(Cli command, string toolkit, string root, Settings settings, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            command.ValidateCommand(command.Command);
+            if (command.Command == "jev cache-clear")
+            {
+                var cachePath = Path.Combine(root, ".agent-tool", "jev-cache");
+                SafeFiles.NoLinks(cachePath);
+                if (Directory.Exists(cachePath)) Directory.Delete(cachePath, true);
+                return Result.Ok(new { cleared = cachePath });
+            }
+
+            return await JevCommand(command, command.Command[4..], root, settings.Jev);
+        }
+    }
+
     public sealed class RuntimeSettingsOptions { public Settings Settings { get; set; } = new(new(), new(), new(), new()); public string? ValidationError { get; set; } }
 
     public static string RenderJson(Result result, string command, string root, OutputSettings output)
@@ -436,16 +459,6 @@ public static class AgentTool
         var artifacts = Path.Combine(root, ".agent-tool");
         switch (command)
         {
-            case "jev noul":
-            case "jev choice":
-            case "jev score":
-            case "jev screen":
-                return await JevCommand(c, command[4..], root, settings.Jev);
-            case "jev cache-clear":
-                var cachePath = Path.Combine(artifacts, "jev-cache");
-                SafeFiles.NoLinks(cachePath);
-                if (Directory.Exists(cachePath)) Directory.Delete(cachePath, true);
-                return Result.Ok(new { cleared = cachePath });
             case "upstream status": return Result.Ok(new { plugins = JsonNode.Parse(File.ReadAllText(Path.Combine(toolkit, "upstream/dotnet-skills.json"))), tools = JsonNode.Parse(File.ReadAllText(Path.Combine(toolkit, "upstream/tools.json"))), versions = JsonNode.Parse(File.ReadAllText(Path.Combine(toolkit, "upstream/versions.json"))) });
             case "upstream update": return await Upstream(toolkit, artifacts, c.Flag("dry-run"));
             case "upstream dotnet-skills": return await DotnetSkillsDrift.Run(toolkit, artifacts, c.Words.Skip(2).SingleOrDefault(), c.Flag("dry-run"));
