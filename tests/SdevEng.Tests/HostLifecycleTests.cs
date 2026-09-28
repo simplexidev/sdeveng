@@ -94,6 +94,24 @@ public sealed class HostLifecycleTests
         Assert.Equal("ok", result.Status);
     }
 
+    [Fact]
+    public async Task RepoModuleOwnsFiniteRepoFamilyAndDispatchesLocate()
+    {
+        var module = new AgentTool.RepoCommandModule();
+        foreach (var command in new[] { "repo changed-files", "repo summary", "repo locate", "repo affected-projects", "repo ownership", "repo health", "repo hygiene" })
+            Assert.True(module.CanHandle(Cli.Parse(command.Split(' '))));
+        Assert.False(module.CanHandle(Cli.Parse(["git", "state"])));
+
+        using var repo = new TemporaryGitRepository();
+        repo.Write("docs/target.md", "target");
+        var result = await module.Execute(
+            Cli.Parse(["repo", "locate", "--query", "target"]), AgentTool.FindToolkit(), repo.Root,
+            new(new(), new(), new(), new()), CancellationToken.None);
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Contains("docs/target.md", System.Text.Json.JsonSerializer.Serialize(result.Data, AgentTool.Json), StringComparison.Ordinal);
+    }
+
     private sealed class TestCommandModule : AgentTool.ICommandModule
     {
         public bool CanHandle(Cli command) => command.Command == "feature sample";
