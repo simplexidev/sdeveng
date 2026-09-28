@@ -145,11 +145,35 @@ public static class AgentTool
     public sealed class AgentToolRuntime
     {
         private readonly ILogger<AgentToolRuntime> _logger;
-        public AgentToolRuntime(ILogger<AgentToolRuntime> logger) => _logger = logger;
+        private readonly IEnumerable<ICommandModule> _commandModules;
+        public AgentToolRuntime(ILogger<AgentToolRuntime> logger, IEnumerable<ICommandModule> commandModules)
+        {
+            _logger = logger;
+            _commandModules = commandModules;
+        }
         public Task<Result> Execute(Cli command, string toolkit, string root, Settings settings, CancellationToken cancellationToken = default)
         {
             cancellationToken.ThrowIfCancellationRequested();
             _logger.LogDebug("Executing {Command} for {Root}", command.Command, root);
+            var module = _commandModules.FirstOrDefault(candidate => candidate is not ExistingCommandsModule && candidate.CanHandle(command))
+                ?? _commandModules.FirstOrDefault(candidate => candidate is ExistingCommandsModule && candidate.CanHandle(command))
+                ?? throw new ArgumentException("Unknown command. Use --help.");
+            return module.Execute(command, toolkit, root, settings, cancellationToken);
+        }
+    }
+
+    public interface ICommandModule
+    {
+        bool CanHandle(Cli command);
+        Task<Result> Execute(Cli command, string toolkit, string root, Settings settings, CancellationToken cancellationToken);
+    }
+
+    private sealed class ExistingCommandsModule : ICommandModule
+    {
+        public bool CanHandle(Cli command) => true;
+        public Task<Result> Execute(Cli command, string toolkit, string root, Settings settings, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
             return AgentTool.Execute(command, toolkit, root, settings);
         }
     }
@@ -159,6 +183,7 @@ public static class AgentTool
         public static IServiceCollection Register(IServiceCollection services)
         {
             services.AddSingleton<AgentToolRuntime>();
+            services.AddSingleton<ICommandModule, ExistingCommandsModule>();
             return services;
         }
     }
