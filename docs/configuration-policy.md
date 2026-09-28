@@ -34,3 +34,8 @@ The user-level configuration directory is platform-specific:
 ## Repository configuration directory
 
 The repository-level configuration directory is `.sdeveng` at the repository root. Configuration files in this directory are scoped to that repository and should be reviewed as repository content.
+
+Operational policy has separate contracts from ordinary settings: context allocation
+limits follow `schemas/context-budget-policy.schema.json`, and required continuous
+integration checks follow `schemas/ci-policy.schema.json`. These policies do not add
+settings to `toolkit-config`.
