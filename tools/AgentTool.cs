@@ -195,6 +195,7 @@ public static class AgentTool
             services.AddSingleton<ICommandModule, ValidateCommandModule>();
             services.AddSingleton<ICommandModule, EvalCommandModule>();
             services.AddSingleton<ICommandModule, ReleaseCommandModule>();
+            services.AddSingleton<ICommandModule, ResultsCommandModule>();
             services.AddSingleton<ICommandModule, ExistingCommandsModule>();
             return services;
         }
@@ -233,6 +234,44 @@ public static class AgentTool
             cancellationToken.ThrowIfCancellationRequested();
             command.ValidateCommand("release");
             return Task.FromResult(Release(toolkit, command.Require("output")));
+        }
+    }
+
+    public sealed class ResultsCommandModule : ICommandModule
+    {
+        private static readonly string[] Commands =
+        ["results init", "results new", "results list", "results latest", "results context", "results clean"];
+
+        public bool CanHandle(Cli command) => Commands.Contains(command.Command, StringComparer.Ordinal);
+
+        public async Task<Result> Execute(Cli command, string toolkit, string root, Settings settings, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var name = command.Command;
+            command.ValidateCommand(name);
+            var words = command.Words.Skip(2).ToArray();
+            return name switch
+            {
+                "results init" => Init(words, root),
+                "results new" => await Results.New(root, words),
+                "results list" => Results.List(root, words),
+                "results latest" => Results.Latest(root, words),
+                "results context" => Results.Context(root, words),
+                "results clean" => Clean(words, root, command.Flag("dry-run")),
+                _ => throw new ArgumentException("Unknown command. Use --help.")
+            };
+        }
+
+        private static Result Init(string[] words, string root)
+        {
+            Results.RequireWords(words, 0, "Usage: results init.");
+            return Results.Init(root);
+        }
+
+        private static Result Clean(string[] words, string root, bool dryRun)
+        {
+            Results.RequireWords(words, 0, "Usage: results clean [--dry-run].");
+            return Results.Clean(root, dryRun);
         }
     }
 
@@ -518,12 +557,6 @@ public static class AgentTool
         var artifacts = Path.Combine(root, ".agent-tool");
         switch (command)
         {
-            case "results init": Results.RequireWords(c.Words.Skip(2).ToArray(), 0, "Usage: results init."); return Results.Init(root);
-            case "results new": return await Results.New(root, c.Words.Skip(2).ToArray());
-            case "results list": return Results.List(root, c.Words.Skip(2).ToArray());
-            case "results latest": return Results.Latest(root, c.Words.Skip(2).ToArray());
-            case "results context": return Results.Context(root, c.Words.Skip(2).ToArray());
-            case "results clean": Results.RequireWords(c.Words.Skip(2).ToArray(), 0, "Usage: results clean [--dry-run]."); return Results.Clean(root, c.Flag("dry-run"));
             default: throw new ArgumentException("Unknown command. Use --help.");
         }
     }
