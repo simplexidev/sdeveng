@@ -21,6 +21,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace SdevEng;
 
@@ -155,8 +156,7 @@ public static class AgentTool
         {
             cancellationToken.ThrowIfCancellationRequested();
             _logger.LogDebug("Executing {Command} for {Root}", command.Command, root);
-            var module = _commandModules.FirstOrDefault(candidate => candidate is not ExistingCommandsModule && candidate.CanHandle(command))
-                ?? _commandModules.FirstOrDefault(candidate => candidate is ExistingCommandsModule && candidate.CanHandle(command))
+            var module = _commandModules.FirstOrDefault(candidate => candidate.CanHandle(command))
                 ?? throw new ArgumentException("Unknown command. Use --help.");
             return module.Execute(command, toolkit, root, settings, cancellationToken);
         }
@@ -166,16 +166,6 @@ public static class AgentTool
     {
         bool CanHandle(Cli command);
         Task<Result> Execute(Cli command, string toolkit, string root, Settings settings, CancellationToken cancellationToken);
-    }
-
-    private sealed class ExistingCommandsModule : ICommandModule
-    {
-        public bool CanHandle(Cli command) => true;
-        public Task<Result> Execute(Cli command, string toolkit, string root, Settings settings, CancellationToken cancellationToken)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            return AgentTool.Execute(command, toolkit, root, settings);
-        }
     }
 
     public static class AgentToolModule
@@ -196,7 +186,6 @@ public static class AgentTool
             services.AddSingleton<ICommandModule, EvalCommandModule>();
             services.AddSingleton<ICommandModule, ReleaseCommandModule>();
             services.AddSingleton<ICommandModule, ResultsCommandModule>();
-            services.AddSingleton<ICommandModule, ExistingCommandsModule>();
             return services;
         }
     }
@@ -550,15 +539,17 @@ public static class AgentTool
         return path;
     }
 
-    public static async Task<Result> Execute(Cli c, string toolkit, string root, Settings settings)
+    public static Task<Result> Execute(Cli c, string toolkit, string root, Settings settings)
     {
-        var command = c.Command;
-        c.ValidateCommand(command);
-        var artifacts = Path.Combine(root, ".agent-tool");
-        switch (command)
-        {
-            default: throw new ArgumentException("Unknown command. Use --help.");
-        }
+        ICommandModule[] modules =
+        [
+            new InstallerCommandModule(), new DoctorCommandModule(), new GitCommandModule(), new RepoCommandModule(),
+            new GitHubCommandModule(), new DotnetCommandModule(), new ReportCommandModule(), new JevCommandModule(),
+            new UpstreamCommandModule(), new ValidateCommandModule(), new EvalCommandModule(), new ReleaseCommandModule(),
+            new ResultsCommandModule()
+        ];
+        return new AgentToolRuntime(NullLogger<AgentToolRuntime>.Instance, modules)
+            .Execute(c, toolkit, root, settings);
     }
 
     static async Task<Result> Dotnet(string command, Cli c, string root, string artifacts, Settings settings)
