@@ -1,0 +1,20 @@
+{
+  "$schema": "../schemas/mutation-policy.schema.json",
+  "version": 1,
+  "policy": "Operational mutations require explicit user intent. Never merge, publish, release, or transmit repository content without separate authorization.",
+  "approvalRequired": [
+    "stage",
+    "commit",
+    "push",
+    "create-pull-request",
+    "merge",
+    "publish",
+    "release",
+    "external-transmission"
+  ],
+  "prohibited": [
+    "force-push",
+    "delete-remote-branch",
+    "bypass-protection"
+  ]
+}

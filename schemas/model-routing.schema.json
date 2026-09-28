@@ -1,6 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "model-routing",
+  "title": "sdeveng model policy",
+  "description": "Advisory model selection policy; it does not authorize operational mutations.",
   "type": "object",
   "additionalProperties": false,
   "required": [

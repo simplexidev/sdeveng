@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "sdeveng mutation policy",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "version", "policy", "approvalRequired", "prohibited"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "version": { "const": 1 },
+    "policy": { "type": "string", "minLength": 1 },
+    "approvalRequired": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "prohibited": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    }
+  }
+}
