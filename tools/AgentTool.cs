@@ -449,6 +449,33 @@ public record Result(string Status, object? Data, int ExitCode = 0)
     public static Result Ok(object? data) => new("ok", data);
     public static Result Review(string reason) => new("REVIEW", new { reason, fallback = "Codex" });
 }
+
+public enum PromptReturnStatus { SUCCESS, WAITING_FOR_REVIEW, BLOCKED, OUT_OF_USAGE, FAILURE }
+
+public static class PromptReturnStatusContract
+{
+    const string Marker = "PROMPT_RETURN_STATUS:";
+
+    public static PromptReturnStatus Parse(string response)
+    {
+        ArgumentNullException.ThrowIfNull(response);
+        var lines = response.Split('\n');
+        var markers = lines.Select((line, index) => (line, index))
+            .Where(item => item.line.Contains(Marker, StringComparison.Ordinal)).ToArray();
+        if (markers.Length != 1) throw new FormatException("Response must contain exactly one terminal prompt return status marker.");
+        var (markerLine, markerIndex) = markers[0];
+        var trimmedLine = markerLine.TrimEnd('\r', ' ', '\t');
+        var expectedPrefix = Marker + " ";
+        if (markerIndex != Array.FindLastIndex(lines, line => !string.IsNullOrWhiteSpace(line)) ||
+            !trimmedLine.StartsWith(expectedPrefix, StringComparison.Ordinal))
+            throw new FormatException("Prompt return status marker must be the final non-whitespace content.");
+        var value = trimmedLine[expectedPrefix.Length..];
+        if (!Enum.TryParse<PromptReturnStatus>(value, ignoreCase: false, out var status) || !Enum.IsDefined(status) || value != status.ToString())
+            throw new FormatException("Prompt return status marker has an invalid status.");
+        return status;
+    }
+}
+
 public record ProcessReport(int ProcessExitCode, object Summary, string Artifact);
 public record ProcessResult(int ExitCode, string Output);
 
