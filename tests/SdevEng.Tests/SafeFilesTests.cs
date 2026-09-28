@@ -24,7 +24,7 @@ public class SafeFilesTests
         var sentinel = Path.Combine(repo.Root, "sentinel"); File.WriteAllText(sentinel, "user-owned sentinel");
         File.CreateSymbolicLink(Path.Combine(artifacts, "upstream-drift.json"), sentinel);
 
-        await Assert.ThrowsAsync<IOException>(() => AgentTool.Execute(Cli.Parse(["upstream", "update"]), toolkit, repo.Root, Settings.Load(toolkit)));
+        await Assert.ThrowsAsync<IOException>(() => CommandTestRuntime.Execute(Cli.Parse(["upstream", "update"]), toolkit, repo.Root, Settings.Load(toolkit)));
         Assert.Equal("user-owned sentinel", File.ReadAllText(sentinel));
     }
 

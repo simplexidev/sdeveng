@@ -209,7 +209,7 @@ public class MetadataTests
     public async Task ReleaseArchiveContainsUserFacingMetadataAndExcludesDevelopmentState()
     {
         using var repo = new TemporaryGitRepository(); var archive = Path.Combine(repo.Root, "sdeveng.zip");
-        var result = await AgentTool.Execute(Cli.Parse(["release", "--output", archive]), Root, Root, Settings.Load(Root));
+        var result = await CommandTestRuntime.Execute(Cli.Parse(["release", "--output", archive]), Root, Root, Settings.Load(Root));
         Assert.Equal(0, result.ExitCode);
         using var zip = System.IO.Compression.ZipFile.OpenRead(archive); var entries = zip.Entries.Select(x => x.FullName).ToArray();
         Assert.Contains("CHANGELOG.md", entries); Assert.Contains("plugins/sdeveng/.codex-plugin/plugin.json", entries);
