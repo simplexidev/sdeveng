@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "sdeveng context budget policy",
+  "description": "Operational limits for context allocation, separate from ordinary toolkit settings.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "maxContextTokens", "reservedOutputTokens"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "version": { "const": 1 },
+    "maxContextTokens": { "type": "integer", "minimum": 1 },
+    "reservedOutputTokens": { "type": "integer", "minimum": 0 }
+  }
+}

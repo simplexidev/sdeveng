@@ -430,4 +430,21 @@ public class RepositoryIntegrityTests
         config["timeoutSeconds"] = -1;
         Assert.False(schema.Evaluate(config).IsValid);
     }
+
+    [Fact]
+    public void OperationalPolicyContractsValidateAndRejectInvalidValues()
+    {
+        var schemas = Path.Combine(AgentTool.FindToolkit(), "schemas");
+        var contextSchema = JsonSchema.FromFile(Path.Combine(schemas, "context-budget-policy.schema.json"));
+        var context = JsonNode.Parse("""{"version":1,"maxContextTokens":32000,"reservedOutputTokens":4000}""")!;
+        Assert.True(contextSchema.Evaluate(context, new() { OutputFormat = OutputFormat.List }).IsValid);
+        context["maxContextTokens"] = 0;
+        Assert.False(contextSchema.Evaluate(context).IsValid);
+
+        var ciSchema = JsonSchema.FromFile(Path.Combine(schemas, "ci-policy.schema.json"));
+        var ci = JsonNode.Parse("""{"version":1,"requiredChecks":["build","test"]}""")!;
+        Assert.True(ciSchema.Evaluate(ci, new() { OutputFormat = OutputFormat.List }).IsValid);
+        ci["requiredChecks"] = new JsonArray("build", "build");
+        Assert.False(ciSchema.Evaluate(ci).IsValid);
+    }
 }

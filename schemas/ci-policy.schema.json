@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "sdeveng CI policy",
+  "description": "Operational continuous-integration requirements, separate from ordinary toolkit settings.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "requiredChecks"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "version": { "const": 1 },
+    "requiredChecks": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    }
+  }
+}
