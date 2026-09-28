@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://simplexidev.github.io/sdeveng/schemas/run-event.schema.json",
+  "title": "sdeveng product run event v1",
+  "description": "One immutable record in a product run's append-only event stream.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "runId", "sequence", "occurredAt", "eventType"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "runId": {
+      "type": "string",
+      "description": "Canonical lowercase UUID identifying one product run, stable across resume.",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+    },
+    "sequence": { "type": "integer", "minimum": 1 },
+    "occurredAt": { "type": "string", "format": "date-time" },
+    "eventType": { "enum": ["state-transition", "external-identifier-recorded"] },
+    "fromState": { "type": ["string", "null"], "minLength": 1 },
+    "toState": { "type": "string", "minLength": 1 },
+    "externalSystem": { "type": "string", "minLength": 1 },
+    "identifierType": { "type": "string", "minLength": 1 },
+    "identifier": { "type": "string", "minLength": 1 }
+  },
+  "oneOf": [
+    {
+      "properties": { "eventType": { "const": "state-transition" } },
+      "required": ["fromState", "toState"],
+      "not": { "anyOf": [{ "required": ["externalSystem"] }, { "required": ["identifierType"] }, { "required": ["identifier"] }] }
+    },
+    {
+      "properties": { "eventType": { "const": "external-identifier-recorded" } },
+      "required": ["externalSystem", "identifierType", "identifier"],
+      "not": { "anyOf": [{ "required": ["fromState"] }, { "required": ["toState"] }] }
+    }
+  ]
+}
