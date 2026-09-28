@@ -33,6 +33,17 @@ public sealed class HostLifecycleTests
     }
 
     [Fact]
+    public async Task RuntimeRejectsCommandsWithoutARegisteredOwner()
+    {
+        var runtime = new AgentTool.AgentToolRuntime(
+            NullLogger<AgentTool.AgentToolRuntime>.Instance,
+            []);
+
+        await Assert.ThrowsAsync<ArgumentException>(() => runtime.Execute(
+            Cli.Parse(["unowned-command"]), "", "", new Settings(new(), new(), new(), new())));
+    }
+
+    [Fact]
     public async Task ValidateModuleOwnsAndDispatchesValidation()
     {
         var module = new AgentTool.ValidateCommandModule();
