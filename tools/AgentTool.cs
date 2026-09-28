@@ -186,6 +186,7 @@ public static class AgentTool
             services.AddSingleton<ICommandModule, InstallerCommandModule>();
             services.AddSingleton<ICommandModule, DoctorCommandModule>();
             services.AddSingleton<ICommandModule, GitCommandModule>();
+            services.AddSingleton<ICommandModule, RepoCommandModule>();
             services.AddSingleton<ICommandModule, ExistingCommandsModule>();
             return services;
         }
@@ -268,6 +269,32 @@ public static class AgentTool
         }
     }
 
+    public sealed class RepoCommandModule : ICommandModule
+    {
+        public bool CanHandle(Cli command) => command.Command is "repo changed-files" or "repo summary" or "repo locate" or "repo affected-projects" or "repo ownership" or "repo health" or "repo hygiene";
+
+        public async Task<Result> Execute(Cli command, string toolkit, string root, Settings settings, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            command.ValidateCommand(command.Command);
+            switch (command.Command)
+            {
+                case "repo changed-files": return Result.Ok(await Git.Changed(root, command.Get("base")));
+                case "repo summary": return Result.Ok(await Repository.Summary(root, command.Get("base"), settings.Output));
+                case "repo locate":
+                    var files = (await Git.Files(root)).Where(x => !SafeFiles.IsDiscoveryExcluded(x)).ToArray();
+                    return Result.Ok(new { matches = files.Where(x => x.Contains(command.Require("query"), StringComparison.OrdinalIgnoreCase)).Take(settings.Output.MaxItems), total = files.Count(x => x.Contains(command.Require("query"), StringComparison.OrdinalIgnoreCase)), scope = "Git tracked + untracked, nonignored path names excluding the managed result store; use rg for symbols." });
+                case "repo affected-projects": return Result.Ok(await Projects.Affected(root, await Git.Changed(root, command.Get("base"))));
+                case "repo ownership": return Result.Ok(await Projects.Ownership(root, command.Require("file")));
+                case "repo health":
+                    var health = await Projects.Health(root, settings.Health);
+                    return new(health.Count == 0 ? "ok" : "findings", health, health.Count == 0 ? 0 : 1);
+                case "repo hygiene": return Result.Ok(await Repository.Hygiene(root, settings.Output));
+                default: throw new ArgumentException("Unknown command. Use --help.");
+            }
+        }
+    }
+
     public sealed class RuntimeSettingsOptions { public Settings Settings { get; set; } = new(new(), new(), new(), new()); public string? ValidationError { get; set; } }
 
     public static string RenderJson(Result result, string command, string root, OutputSettings output)
@@ -329,17 +356,6 @@ public static class AgentTool
                 var diff = await Processes.Run("git", ["diff", "--check"], root);
                 var staged = await Processes.Run("git", ["diff", "--cached", "--check"], root);
                 return new(diff.ExitCode != 0 || staged.ExitCode != 0 ? "failed" : "ok", new { state = await Git.State(root), whitespace = Output.Compact(diff.Output + staged.Output, settings.Output), next = "Review explicit file scope before staging. Commit/push/PR creation remains caller-controlled; never merge without approval." }, diff.ExitCode != 0 || staged.ExitCode != 0 ? 1 : 0);
-            case "repo changed-files": return Result.Ok(await Git.Changed(root, c.Get("base")));
-            case "repo summary": return Result.Ok(await Repository.Summary(root, c.Get("base"), settings.Output));
-            case "repo locate":
-                var files = (await Git.Files(root)).Where(x => !SafeFiles.IsDiscoveryExcluded(x)).ToArray();
-                return Result.Ok(new { matches = files.Where(x => x.Contains(c.Require("query"), StringComparison.OrdinalIgnoreCase)).Take(settings.Output.MaxItems), total = files.Count(x => x.Contains(c.Require("query"), StringComparison.OrdinalIgnoreCase)), scope = "Git tracked + untracked, nonignored path names excluding the managed result store; use rg for symbols." });
-            case "repo affected-projects": return Result.Ok(await Projects.Affected(root, await Git.Changed(root, c.Get("base"))));
-            case "repo ownership": return Result.Ok(await Projects.Ownership(root, c.Require("file")));
-            case "repo health":
-                var health = await Projects.Health(root, settings.Health);
-                return new(health.Count == 0 ? "ok" : "findings", health, health.Count == 0 ? 0 : 1);
-            case "repo hygiene": return Result.Ok(await Repository.Hygiene(root, settings.Output));
             case "github pr-status": return await RunArtifact("gh", ["pr", "status", "--json", "headRefName,author,reviewDecision,statusCheckRollup"], root, artifacts, settings.Output);
             case "github review-comments":
                 var pr = c.PositiveInt("pr").ToString(CultureInfo.InvariantCulture);
