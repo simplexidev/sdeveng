@@ -125,6 +125,27 @@ public static class LocalRunEventStore
         return new { kind = "run-explanation", runId = runId.ToString("D"), eventCount = events.Count, timeline };
     }
 
+    public static JsonElement Resume(string directory, Guid runId) => TransitionCurrent(directory, runId, "paused", "running");
+
+    public static JsonElement Cancel(string directory, Guid runId)
+    {
+        var events = Read(directory, runId);
+        var state = events.LastOrDefault(item => item.GetProperty("eventType").GetString() == "state-transition");
+        var current = state.ValueKind == JsonValueKind.Undefined ? null : state.GetProperty("toState").GetString();
+        if (current is null || current is "completed" or "cancelled" or "failed")
+            throw new InvalidOperationException("Only an active run can be cancelled.");
+        return AppendTransition(directory, runId, current, "cancelled");
+    }
+
+    private static JsonElement TransitionCurrent(string directory, Guid runId, string expected, string next)
+    {
+        var events = Read(directory, runId);
+        var state = events.LastOrDefault(item => item.GetProperty("eventType").GetString() == "state-transition");
+        var current = state.ValueKind == JsonValueKind.Undefined ? null : state.GetProperty("toState").GetString();
+        if (current != expected) throw new InvalidOperationException($"Only a {expected} run can be resumed.");
+        return AppendTransition(directory, runId, current, next);
+    }
+
     private static JsonElement Append(string directory, Guid runId, string eventType, string? fromState, string? toState,
         string? externalSystem, string? identifierType, string? identifier)
     {
@@ -198,7 +219,7 @@ public static class AgentTool
         results init | new <audit|handoff|review|report> <name>
         results list [audit|handoff|review|report] [--json] | latest <type> [--json]
         results context <type> [--json] | clean [--dry-run]
-        run status <UUID> | explain <UUID>
+        run status <UUID> | explain <UUID> | resume <UUID> | cancel <UUID>
 
         Common: --root DIR (target repository), --toolkit DIR, --set NAME=VALUE (configuration override; repeatable), --json (schema-versioned output), --help
         JEV input: {"capability":"configured-id","purpose":"allowed-purpose","deterministicNarrowed":true,"state":"sanitized excerpt","instructions":"bounded question","criteria":...}
@@ -432,7 +453,7 @@ public static class AgentTool
 
     public sealed class RunCommandModule : ICommandModule
     {
-        public bool CanHandle(Cli command) => command.Command is "run status" or "run explain";
+        public bool CanHandle(Cli command) => command.Command is "run status" or "run explain" or "run resume" or "run cancel";
 
         public Task<Result> Execute(Cli command, string toolkit, string root, Settings settings, CancellationToken cancellationToken)
         {
@@ -442,7 +463,14 @@ public static class AgentTool
             if (words.Length != 1 || !Guid.TryParseExact(words[0], "D", out var runId) || runId == Guid.Empty)
                 throw new ArgumentException($"Usage: {command.Command} <UUID>.");
             var directory = Path.Combine(root, ".sdeveng", "runs");
-            return Task.FromResult(Result.Ok(command.Command == "run status" ? LocalRunEventStore.Status(directory, runId) : LocalRunEventStore.Explain(directory, runId)));
+            var result = command.Command switch
+            {
+                "run status" => LocalRunEventStore.Status(directory, runId),
+                "run explain" => LocalRunEventStore.Explain(directory, runId),
+                "run resume" => LocalRunEventStore.Resume(directory, runId),
+                _ => LocalRunEventStore.Cancel(directory, runId)
+            };
+            return Task.FromResult(Result.Ok(result));
         }
     }
 
