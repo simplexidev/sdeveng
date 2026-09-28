@@ -18,6 +18,7 @@ using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 
@@ -73,7 +74,10 @@ public static class AgentTool
         var command = "unknown";
         try
         {
+            var toolkit = FindToolkit(Cli.Parse(args).Get("toolkit"));
             var builder = Host.CreateApplicationBuilder(args);
+            Settings.AddConfigurationSources(builder.Configuration, toolkit);
+            Settings.RegisterOptions(builder.Services, builder.Configuration, toolkit);
             builder.Logging.SetMinimumLevel(LogLevel.Warning);
             AgentToolModule.Register(builder.Services);
             using var host = builder.Build();
@@ -93,9 +97,8 @@ public static class AgentTool
                 await host.StopAsync();
                 return 0;
             }
-            var toolkit = FindToolkit(c.Get("toolkit"));
             var root = Path.GetFullPath(c.Get("root") ?? Environment.CurrentDirectory);
-            var settings = Settings.LoadFor(toolkit, command);
+            var settings = Settings.LoadFor(toolkit, command, host.Services.GetRequiredService<Microsoft.Extensions.Options.IOptions<AgentTool.RuntimeSettingsOptions>>().Value.Settings);
             var result = await host.Services.GetRequiredService<AgentToolRuntime>().Execute(c, toolkit, root, settings);
             Console.WriteLine(json ? RenderJson(result, command, root, settings.Output) : Render(result, root, settings.Output));
             await host.StopAsync();
@@ -132,6 +135,8 @@ public static class AgentTool
             return services;
         }
     }
+
+    public sealed class RuntimeSettingsOptions { public Settings Settings { get; set; } = new(new(), new(), new(), new()); public string? ValidationError { get; set; } }
 
     public static string RenderJson(Result result, string command, string root, OutputSettings output)
     {
@@ -1611,6 +1616,21 @@ public record JevSettings
 }
 public record Settings(JevSettings Jev, OutputSettings Output, HealthSettings Health, ToolkitSettings Toolkit)
 {
+    public static void AddConfigurationSources(IConfigurationManager configuration, string toolkit)
+    {
+        foreach (var name in new[] { "jev", "output-limits", "repo-health", "toolkit" })
+            configuration.AddJsonFile(Path.Combine(toolkit, "config", name + ".json"), optional: false, reloadOnChange: false);
+        configuration.AddEnvironmentVariables();
+    }
+    public static void RegisterOptions(IServiceCollection services, IConfiguration configuration, string toolkit)
+    {
+        services.AddOptions<AgentTool.RuntimeSettingsOptions>()
+            .Configure(options => { try { options.Settings = Load(toolkit, name => configuration[name]); } catch (ArgumentException e) { options.ValidationError = e.Message; } })
+            .Validate(options => options.ValidationError is null, "Invalid toolkit settings.")
+            .Validate(options => options.Settings.Jev.Mode is "off" or "auto" or "required", "Invalid JEV settings.")
+            .Validate(options => options.Settings.Output.MaxLines is >= 1 and <= 100 && options.Settings.Output.MaxLineLength is >= 20 and <= 2000 && options.Settings.Output.MaxItems is >= 1 and <= 200 && options.Settings.Output.MaxOutputChars is >= 1024 and <= 131072, "Invalid output settings.")
+            .ValidateOnStart();
+    }
     public static Settings Load(string toolkit, Func<string, string?>? env = null)
     {
         env ??= Environment.GetEnvironmentVariable;
@@ -1628,9 +1648,9 @@ public record Settings(JevSettings Jev, OutputSettings Output, HealthSettings He
         if (output.MaxLines is < 1 or > 100 || output.MaxLineLength is < 20 or > 2000 || output.MaxItems is < 1 or > 200 || output.MaxOutputChars is < 1024 or > 131072) throw new ArgumentException("Invalid output limits.");
         return new(jev, output, Read<HealthSettings>("repo-health"), Read<ToolkitSettings>("toolkit"));
     }
-    public static Settings LoadFor(string toolkit, string command)
+    public static Settings LoadFor(string toolkit, string command, Settings configured)
         => command is "install" or "update" or "uninstall" or "validate" or "release" or "results init" or "results new" or "results list" or "results latest" or "results context" or "results clean" or "upstream status" or "upstream update" or "upstream dotnet-skills"
-            ? new(new(), new(), new(), new()) : Load(toolkit);
+            ? new(new(), new(), new(), new()) : configured;
 }
 
 public sealed class JevClient
