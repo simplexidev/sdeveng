@@ -58,7 +58,7 @@ public class CredentialBoundaryTests
             var args = new List<string> { "jev", "screen", "--input", input };
             if (dryRun) args.Add("--dry-run"); else args.Add("--safe-input");
             var loaded = Settings.Load(AgentTool.FindToolkit(), _ => null);
-            var result = await AgentTool.Execute(Cli.Parse([.. args]), AgentTool.FindToolkit(), repo.Root, loaded with { Jev = loaded.Jev with { Mode = mode } });
+            var result = await CommandTestRuntime.Execute(Cli.Parse([.. args]), AgentTool.FindToolkit(), repo.Root, loaded with { Jev = loaded.Jev with { Mode = mode } });
             var output = AgentTool.Render(result, repo.Root, new());
             Assert.Equal("REVIEW", result.Status); Assert.DoesNotContain(key, output, StringComparison.Ordinal);
             Assert.False(Directory.Exists(Path.Combine(repo.Root, ".agent-tool", "jev-cache")));

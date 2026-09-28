@@ -38,7 +38,7 @@ public class JevIntegrationValidationTests
             ]}
             """);
 
-        var result = await AgentTool.Execute(
+        var result = await CommandTestRuntime.Execute(
             Cli.Parse(["jev", "screen", "--input", input, "--dry-run"]),
             AgentTool.FindToolkit(), repo.Root, Settings.Load(AgentTool.FindToolkit(), _ => null));
         var data = JsonSerializer.SerializeToNode(result.Data, AgentTool.Json)!;
@@ -77,7 +77,7 @@ public class JevIntegrationValidationTests
         }
         File.WriteAllText(input, json);
 
-        var result = await AgentTool.Execute(
+        var result = await CommandTestRuntime.Execute(
             Cli.Parse(["jev", "screen", "--input", input, "--dry-run"]),
             AgentTool.FindToolkit(), repo.Root, Settings.Load(AgentTool.FindToolkit(), _ => null));
 
@@ -94,7 +94,7 @@ public class JevIntegrationValidationTests
         var loaded = Settings.Load(AgentTool.FindToolkit(), _ => null);
         var settings = loaded with { Jev = loaded.Jev with { MaxCandidates = 1 } };
 
-        var result = await AgentTool.Execute(
+        var result = await CommandTestRuntime.Execute(
             Cli.Parse(["jev", "screen", "--input", input, "--dry-run"]),
             AgentTool.FindToolkit(), repo.Root, settings);
 
