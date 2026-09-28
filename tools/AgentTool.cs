@@ -185,6 +185,7 @@ public static class AgentTool
             services.AddSingleton<AgentToolRuntime>();
             services.AddSingleton<ICommandModule, InstallerCommandModule>();
             services.AddSingleton<ICommandModule, DoctorCommandModule>();
+            services.AddSingleton<ICommandModule, GitCommandModule>();
             services.AddSingleton<ICommandModule, ExistingCommandsModule>();
             return services;
         }
@@ -233,6 +234,37 @@ public static class AgentTool
             var home = c.Get("home") ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
             var codex = c.Get("codex-home") ?? (c.Get("home") is null ? Environment.GetEnvironmentVariable("CODEX_HOME") : null) ?? Path.Combine(home, ".codex");
             return new(requiredOk ? "ok" : "failed", new { checks, toolkit, codex, skills = Path.Combine(home, ".agents/skills"), installation = Installer.Inspect(codex), jev = new { settings.Jev.Mode, credentials = JevCredentials.Status(), settings.Jev.Model }, upstream = "Run upstream status for integration policy; listed integrations are not automatically installed.", optionalTools = settings.Toolkit.OptionalTools.Select(t => new { name = t, available = Processes.OnPath(t) }) }, requiredOk ? 0 : 1);
+        }
+    }
+
+    public sealed class GitCommandModule : ICommandModule
+    {
+        public bool CanHandle(Cli command) => command.Command is "git state" or "git summary" or "git conflict-forecast" or "git prepare-commit" or "git issue-start";
+
+        public async Task<Result> Execute(Cli command, string toolkit, string root, Settings settings, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            command.ValidateCommand(command.Command);
+            switch (command.Command)
+            {
+                case "git state": return Result.Ok(await Git.State(root));
+                case "git summary": return Result.Ok(await Repository.Summary(root, command.Get("base"), settings.Output));
+                case "git conflict-forecast": return Result.Ok(await Git.ConflictForecast(root, command.Require("base"), settings.Output));
+                case "git prepare-commit":
+                    await Git.EnsureSafe(root, false);
+                    var diff = await Processes.Run("git", ["diff", "--check"], root);
+                    var staged = await Processes.Run("git", ["diff", "--cached", "--check"], root);
+                    return new(diff.ExitCode != 0 || staged.ExitCode != 0 ? "failed" : "ok", new { state = await Git.State(root), whitespace = Output.Compact(diff.Output + staged.Output, settings.Output), next = "Review explicit file scope before staging. Commit/push/PR creation remains caller-controlled; never merge without approval." }, diff.ExitCode != 0 || staged.ExitCode != 0 ? 1 : 0);
+                case "git issue-start":
+                    await Git.EnsureSafe(root, true);
+                    var issue = command.PositiveInt("issue"); var branch = command.Require("branch");
+                    await Git.Require(root, "check-ref-format", "--branch", branch);
+                    var info = await Processes.Run("gh", ["issue", "view", issue.ToString(CultureInfo.InvariantCulture), "--json", "state"], root);
+                    if (info.ExitCode != 0 || JsonNode.Parse(info.Output)?["state"]?.GetValue<string>() != "OPEN") throw new InvalidOperationException("Issue is unavailable or not open; no branch created.");
+                    await Git.Require(root, "switch", "-c", branch);
+                    return Result.Ok(new { branch, issue });
+                default: throw new ArgumentException("Unknown command. Use --help.");
+            }
         }
     }
 
@@ -292,23 +324,11 @@ public static class AgentTool
         var artifacts = Path.Combine(root, ".agent-tool");
         switch (command)
         {
-            case "git state": return Result.Ok(await Git.State(root));
-            case "git summary": return Result.Ok(await Repository.Summary(root, c.Get("base"), settings.Output));
-            case "git conflict-forecast": return Result.Ok(await Git.ConflictForecast(root, c.Require("base"), settings.Output));
-            case "git prepare-commit":
             case "github prepare-pr":
                 await Git.EnsureSafe(root, false);
                 var diff = await Processes.Run("git", ["diff", "--check"], root);
                 var staged = await Processes.Run("git", ["diff", "--cached", "--check"], root);
                 return new(diff.ExitCode != 0 || staged.ExitCode != 0 ? "failed" : "ok", new { state = await Git.State(root), whitespace = Output.Compact(diff.Output + staged.Output, settings.Output), next = "Review explicit file scope before staging. Commit/push/PR creation remains caller-controlled; never merge without approval." }, diff.ExitCode != 0 || staged.ExitCode != 0 ? 1 : 0);
-            case "git issue-start":
-                await Git.EnsureSafe(root, true);
-                var issue = c.PositiveInt("issue"); var branch = c.Require("branch");
-                await Git.Require(root, "check-ref-format", "--branch", branch);
-                var info = await Processes.Run("gh", ["issue", "view", issue.ToString(CultureInfo.InvariantCulture), "--json", "state"], root);
-                if (info.ExitCode != 0 || JsonNode.Parse(info.Output)?["state"]?.GetValue<string>() != "OPEN") throw new InvalidOperationException("Issue is unavailable or not open; no branch created.");
-                await Git.Require(root, "switch", "-c", branch);
-                return Result.Ok(new { branch, issue });
             case "repo changed-files": return Result.Ok(await Git.Changed(root, c.Get("base")));
             case "repo summary": return Result.Ok(await Repository.Summary(root, c.Get("base"), settings.Output));
             case "repo locate":
