@@ -62,7 +62,7 @@ public static class AgentTool
         results list [audit|handoff|review|report] [--json] | latest <type> [--json]
         results context <type> [--json] | clean [--dry-run]
 
-        Common: --root DIR (target repository), --toolkit DIR, --json (schema-versioned output), --help
+        Common: --root DIR (target repository), --toolkit DIR, --set NAME=VALUE (configuration override; repeatable), --json (schema-versioned output), --help
         JEV input: {"capability":"configured-id","purpose":"allowed-purpose","deterministicNarrowed":true,"state":"sanitized excerpt","instructions":"bounded question","criteria":...}
         Screen input: same routing metadata plus {"query":"question","candidates":[{"id":"path","text":"safe excerpt"}]}
         JEV defaults to auto; missing/invalid/uncertain answers return REVIEW for Codex.
@@ -75,9 +75,11 @@ public static class AgentTool
         var command = "unknown";
         try
         {
-            var toolkit = FindToolkit(Cli.Parse(args).Get("toolkit"));
+            var parsed = Cli.Parse(args);
+            var toolkit = FindToolkit(parsed.Get("toolkit"));
             var builder = Host.CreateApplicationBuilder(args);
             Settings.AddConfigurationSources(builder.Configuration, toolkit);
+            foreach (var (name, value) in parsed.ConfigurationOverrides()) builder.Configuration[name] = value;
             Settings.RegisterOptions(builder.Services, builder.Configuration, toolkit);
             builder.Logging.ClearProviders();
             builder.Logging.AddJsonConsole();
@@ -827,7 +829,7 @@ public sealed class Cli
 
     public void ValidateCommand(string command)
     {
-        var allowed = new HashSet<string>(new[] { "root", "toolkit", "json", "help", "version" });
+        var allowed = new HashSet<string>(new[] { "root", "toolkit", "set", "json", "help", "version" });
         string[] specific = command switch
         {
             "install" or "update" => ["home", "codex-home", "dry-run", "bin"],
@@ -863,10 +865,21 @@ public sealed class Cli
     public List<string> Words { get; } = [];
     public Dictionary<string, string?> Options { get; } = new(StringComparer.Ordinal);
     static readonly HashSet<string> Flags = ["json", "help", "version", "dry-run", "bin", "apply", "safe-input", "binlog", "failed-logs"];
-    static readonly HashSet<string> Values = ["root", "toolkit", "home", "codex-home", "base", "baseline", "query", "issue", "branch", "pr", "run-id", "project", "file", "sha256", "input", "output", "skill", "results", "configuration", "test", "class", "category", "filter", "process-id", "signal", "duration-seconds"];
+    static readonly HashSet<string> Values = ["root", "toolkit", "set", "home", "codex-home", "base", "baseline", "query", "issue", "branch", "pr", "run-id", "project", "file", "sha256", "input", "output", "skill", "results", "configuration", "test", "class", "category", "filter", "process-id", "signal", "duration-seconds"];
     public string? Get(string name) => Options.GetValueOrDefault(name);
     public bool Flag(string name) => Options.ContainsKey(name);
     public string Require(string name) => Get(name) is { Length: > 0 } v ? v : throw new ArgumentException($"--{name} is required.");
+    public IEnumerable<KeyValuePair<string, string?>> ConfigurationOverrides()
+    {
+        var allowed = new HashSet<string>(["JEV_MODE", "TYPESAFE_API_URL", "JEV_MODEL", "JEV_TIMEOUT_SECONDS"], StringComparer.Ordinal);
+        foreach (var entry in (Options.GetValueOrDefault("set") ?? "").Split('\0', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var pair = entry.Split('=', 2);
+            if (pair.Length != 2 || !allowed.Contains(pair[0]) || string.IsNullOrWhiteSpace(pair[1]))
+                throw new ArgumentException("--set requires NAME=VALUE for a supported setting: JEV_MODE, TYPESAFE_API_URL, JEV_MODEL, or JEV_TIMEOUT_SECONDS.");
+            yield return new(pair[0], pair[1]);
+        }
+    }
     public int PositiveInt(string name) => int.TryParse(Require(name), out var i) && i > 0 ? i : throw new ArgumentException($"--{name} must be a positive integer.");
     public static Cli Parse(string[] args)
     {
@@ -880,13 +893,13 @@ public sealed class Cli
             if (!arg.StartsWith("--", StringComparison.Ordinal)) throw new ArgumentException("Only long options are supported.");
             var parts = arg[2..].Split('=', 2); var name = parts[0];
             if (!Flags.Contains(name) && !Values.Contains(name)) throw new ArgumentException($"Unknown option --{name}.");
-            if (result.Options.ContainsKey(name)) throw new ArgumentException($"Duplicate --{name}.");
+            if (result.Options.ContainsKey(name) && name != "set") throw new ArgumentException($"Duplicate --{name}.");
             if (Flags.Contains(name)) { if (parts.Length != 1) throw new ArgumentException($"--{name} takes no value."); result.Options[name] = null; }
             else
             {
                 var value = parts.Length == 2 ? parts[1] : ++i < args.Length && !args[i].StartsWith("--", StringComparison.Ordinal) ? args[i] : throw new ArgumentException($"Missing value for --{name}.");
                 if (string.IsNullOrWhiteSpace(value)) throw new ArgumentException($"Empty --{name}.");
-                result.Options[name] = value;
+                result.Options[name] = name == "set" && result.Options.TryGetValue(name, out var previous) ? previous + "\0" + value : value;
             }
         }
         return result;
