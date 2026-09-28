@@ -82,6 +82,31 @@ public sealed class HostLifecycleTests
     }
 
     [Fact]
+    public async Task ReleaseModuleOwnsAndDispatchesOutputArgument()
+    {
+        var module = new AgentTool.ReleaseCommandModule();
+        Assert.True(module.CanHandle(Cli.Parse(["release", "--output", "release.zip"])));
+        Assert.False(module.CanHandle(Cli.Parse(["validate"])));
+
+        using var repo = new TemporaryGitRepository();
+        var output = Path.Combine(repo.Root, "release.zip");
+        var services = new ServiceCollection();
+        services.AddLogging();
+        AgentTool.AgentToolModule.Register(services);
+        using var provider = services.BuildServiceProvider();
+        var command = Cli.Parse(["release", "--output", output]);
+        var result = await provider.GetRequiredService<AgentTool.AgentToolRuntime>().Execute(
+            command, AgentTool.FindToolkit(), repo.Root, new(new(), new(), new(), new()));
+
+        Assert.Equal("ok", result.Status);
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal(output, System.Text.Json.JsonDocument.Parse(System.Text.Json.JsonSerializer.Serialize(result.Data, AgentTool.Json))
+            .RootElement.GetProperty("archive").GetString());
+        using var archive = System.IO.Compression.ZipFile.OpenRead(output);
+        Assert.Contains(archive.Entries, entry => entry.FullName == "config/toolkit.json");
+    }
+
+    [Fact]
     public async Task InstallerModuleOwnsOnlyInstallerCommandsAndDispatchesDryRun()
     {
         var module = new AgentTool.InstallerCommandModule();
