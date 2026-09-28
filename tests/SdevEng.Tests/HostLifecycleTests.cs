@@ -107,6 +107,29 @@ public sealed class HostLifecycleTests
     }
 
     [Fact]
+    public async Task ResultsModuleOwnsFiniteFamilyAndPreservesInitAndCleanDryRun()
+    {
+        var module = new AgentTool.ResultsCommandModule();
+        foreach (var command in new[] { "results init", "results new", "results list", "results latest", "results context", "results clean" })
+            Assert.True(module.CanHandle(Cli.Parse(command.Split(' '))));
+        Assert.False(module.CanHandle(Cli.Parse(["eval"])));
+
+        using var repo = new TemporaryGitRepository();
+        var init = await module.Execute(Cli.Parse(["results", "init"]), "", repo.Root,
+            new(new(), new(), new(), new()), CancellationToken.None);
+        Assert.Equal(0, init.ExitCode);
+
+        var transient = Path.Combine(repo.Root, ".agent-results", "logs", "sample.log");
+        await File.WriteAllTextAsync(transient, "keep during dry run");
+        var clean = await module.Execute(Cli.Parse(["results", "clean", "--dry-run"]), "", repo.Root,
+            new(new(), new(), new(), new()), CancellationToken.None);
+
+        Assert.Equal(0, clean.ExitCode);
+        Assert.True(File.Exists(transient));
+        Assert.Contains(transient, System.Text.Json.JsonSerializer.Serialize(clean.Data, AgentTool.Json), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task InstallerModuleOwnsOnlyInstallerCommandsAndDispatchesDryRun()
     {
         var module = new AgentTool.InstallerCommandModule();
