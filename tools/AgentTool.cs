@@ -107,6 +107,24 @@ public static class LocalRunEventStore
         return events;
     }
 
+    public static object Status(string directory, Guid runId)
+    {
+        var events = Read(directory, runId);
+        var transitions = events.Where(item => item.GetProperty("eventType").GetString() == "state-transition").ToArray();
+        var identifiers = events.Where(item => item.GetProperty("eventType").GetString() == "external-identifier-recorded")
+            .Select(item => new { system = item.GetProperty("externalSystem").GetString(), type = item.GetProperty("identifierType").GetString(), value = item.GetProperty("identifier").GetString() }).ToArray();
+        return new { kind = "run-status", runId = runId.ToString("D"), state = transitions.LastOrDefault().ValueKind == JsonValueKind.Undefined ? null : transitions[^1].GetProperty("toState").GetString(), eventCount = events.Count, identifiers };
+    }
+
+    public static object Explain(string directory, Guid runId)
+    {
+        var events = Read(directory, runId);
+        var timeline = events.Select(item => item.GetProperty("eventType").GetString() == "state-transition"
+            ? (object)new { sequence = item.GetProperty("sequence").GetInt32(), occurredAt = item.GetProperty("occurredAt").GetString(), type = "state-transition", from = item.GetProperty("fromState").GetString(), to = item.GetProperty("toState").GetString() }
+            : new { sequence = item.GetProperty("sequence").GetInt32(), occurredAt = item.GetProperty("occurredAt").GetString(), type = "external-identifier-recorded", from = (string?)null, to = $"{item.GetProperty("externalSystem").GetString()}:{item.GetProperty("identifierType").GetString()}={item.GetProperty("identifier").GetString()}" }).ToArray();
+        return new { kind = "run-explanation", runId = runId.ToString("D"), eventCount = events.Count, timeline };
+    }
+
     private static JsonElement Append(string directory, Guid runId, string eventType, string? fromState, string? toState,
         string? externalSystem, string? identifierType, string? identifier)
     {
@@ -180,6 +198,7 @@ public static class AgentTool
         results init | new <audit|handoff|review|report> <name>
         results list [audit|handoff|review|report] [--json] | latest <type> [--json]
         results context <type> [--json] | clean [--dry-run]
+        run status <UUID> | explain <UUID>
 
         Common: --root DIR (target repository), --toolkit DIR, --set NAME=VALUE (configuration override; repeatable), --json (schema-versioned output), --help
         JEV input: {"capability":"configured-id","purpose":"allowed-purpose","deterministicNarrowed":true,"state":"sanitized excerpt","instructions":"bounded question","criteria":...}
@@ -408,6 +427,22 @@ public static class AgentTool
         {
             Results.RequireWords(words, 0, "Usage: results clean [--dry-run].");
             return Results.Clean(root, dryRun);
+        }
+    }
+
+    public sealed class RunCommandModule : ICommandModule
+    {
+        public bool CanHandle(Cli command) => command.Command is "run status" or "run explain";
+
+        public Task<Result> Execute(Cli command, string toolkit, string root, Settings settings, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            command.ValidateCommand(command.Command);
+            var words = command.Words.Skip(2).ToArray();
+            if (words.Length != 1 || !Guid.TryParseExact(words[0], "D", out var runId) || runId == Guid.Empty)
+                throw new ArgumentException($"Usage: {command.Command} <UUID>.");
+            var directory = Path.Combine(root, ".sdeveng", "runs");
+            return Task.FromResult(Result.Ok(command.Command == "run status" ? LocalRunEventStore.Status(directory, runId) : LocalRunEventStore.Explain(directory, runId)));
         }
     }
 
@@ -692,7 +727,7 @@ public static class AgentTool
         [
             new InstallerCommandModule(), new DoctorCommandModule(), new GitCommandModule(), new RepoCommandModule(),
             new GitHubCommandModule(), new DotnetCommandModule(), new ReportCommandModule(), new JevCommandModule(),
-            new UpstreamCommandModule(), new ValidateCommandModule(), new EvalCommandModule(), new ReleaseCommandModule(),
+            new UpstreamCommandModule(), new ValidateCommandModule(), new EvalCommandModule(), new ReleaseCommandModule(), new RunCommandModule(),
             new ResultsCommandModule()
         ];
         return new AgentToolRuntime(NullLogger<AgentToolRuntime>.Instance, modules)
@@ -970,6 +1005,7 @@ public sealed class Cli
 {
     public string Command => Words.FirstOrDefault() is "results" ? string.Join(' ', Words.Take(2))
         : Words.FirstOrDefault() == "upstream" && Words.ElementAtOrDefault(1) == "dotnet-skills" ? string.Join(' ', Words.Take(2))
+        : Words.FirstOrDefault() == "run" ? string.Join(' ', Words.Take(2))
         : string.Join(' ', Words);
 
     public void ValidateCommand(string command)

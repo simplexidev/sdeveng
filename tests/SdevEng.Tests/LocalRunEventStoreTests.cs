@@ -6,6 +6,30 @@ namespace SdevEng.Tests;
 public class LocalRunEventStoreTests
 {
     [Fact]
+    public void StatusAndExplainSummarizeEventsWithoutChangingTheStore()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "sdeveng-events-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var runId = Guid.NewGuid();
+            LocalRunEventStore.AppendTransition(directory, runId, null, "created");
+            LocalRunEventStore.AppendTransition(directory, runId, "created", "running");
+            LocalRunEventStore.AppendPullRequestIdentifier(directory, runId, "42");
+            var before = Directory.GetFiles(Path.Combine(directory, runId.ToString("D"))).Order().ToArray();
+
+            var status = System.Text.Json.JsonSerializer.SerializeToNode(LocalRunEventStore.Status(directory, runId), AgentTool.Json)!;
+            var explanation = System.Text.Json.JsonSerializer.SerializeToNode(LocalRunEventStore.Explain(directory, runId), AgentTool.Json)!;
+
+            Assert.Equal("running", status["state"]!.GetValue<string>());
+            Assert.Equal(3, status["eventCount"]!.GetValue<int>());
+            Assert.Equal("42", status["identifiers"]![0]!["value"]!.GetValue<string>());
+            Assert.Equal(3, explanation["timeline"]!.AsArray().Count);
+            Assert.Equal(before, Directory.GetFiles(Path.Combine(directory, runId.ToString("D"))).Order());
+        }
+        finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
+    }
+
+    [Fact]
     public void EventsSurviveReopenInSequenceAndMatchContract()
     {
         var directory = Path.Combine(Path.GetTempPath(), "sdeveng-events-" + Guid.NewGuid().ToString("N"));
