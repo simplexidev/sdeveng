@@ -1,5 +1,7 @@
 #!/usr/bin/env dotnet
+#:package Microsoft.Extensions.Hosting@10.0.12
 #:property TargetFramework=net10.0
+#:property ManagePackageVersionsCentrally=false
 #:property Nullable=enable
 #:property ImplicitUsings=enable
 #:property PublishAot=false
@@ -15,6 +17,9 @@ using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 
 namespace SdevEng;
 
@@ -68,24 +73,32 @@ public static class AgentTool
         var command = "unknown";
         try
         {
+            var builder = Host.CreateApplicationBuilder(args);
+            builder.Logging.SetMinimumLevel(LogLevel.Warning);
+            AgentToolModule.Register(builder.Services);
+            using var host = builder.Build();
+            await host.StartAsync();
             var c = Cli.Parse(args);
             command = c.Command;
             if (c.Flag("version") || command == "version")
             {
                 var version = Result.Ok(new { kind = "cli-version", schemaVersion = 1, product = Product, version = CliVersion, resultSchemaVersion = ResultSchemaVersion });
                 Console.WriteLine(json ? RenderJson(version, "version", Environment.CurrentDirectory, new()) : $"{Product} {CliVersion}");
+                await host.StopAsync();
                 return 0;
             }
             if (c.Flag("help") || c.Words.Count == 0 || command == "help")
             {
                 Console.WriteLine(json ? RenderJson(Result.Ok(new { help = Help }), "help", Environment.CurrentDirectory, new()) : Help);
+                await host.StopAsync();
                 return 0;
             }
             var toolkit = FindToolkit(c.Get("toolkit"));
             var root = Path.GetFullPath(c.Get("root") ?? Environment.CurrentDirectory);
             var settings = Settings.LoadFor(toolkit, command);
-            var result = await Execute(c, toolkit, root, settings);
+            var result = await host.Services.GetRequiredService<AgentToolRuntime>().Execute(c, toolkit, root, settings);
             Console.WriteLine(json ? RenderJson(result, command, root, settings.Output) : Render(result, root, settings.Output));
+            await host.StopAsync();
             return result.ExitCode;
         }
         catch (Exception e) when (e is ArgumentException or IOException or InvalidDataException or UnauthorizedAccessException or InvalidOperationException or PlatformNotSupportedException or JsonException or FormatException or System.Xml.XmlException or System.ComponentModel.Win32Exception)
@@ -103,6 +116,20 @@ public static class AgentTool
                 ? SerializeEnvelope(result, command, new { code = "internal-error", message = Secrets.Redact(e.Message) })
                 : $"sdeveng: internal error: {Secrets.Redact(e.Message)}");
             return 70;
+        }
+    }
+
+    public sealed class AgentToolRuntime
+    {
+        public Task<Result> Execute(Cli command, string toolkit, string root, Settings settings) => AgentTool.Execute(command, toolkit, root, settings);
+    }
+
+    public static class AgentToolModule
+    {
+        public static IServiceCollection Register(IServiceCollection services)
+        {
+            services.AddSingleton<AgentToolRuntime>();
+            return services;
         }
     }
 
