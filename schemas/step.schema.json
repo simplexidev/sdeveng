@@ -4,11 +4,25 @@
   "title": "sdeveng roadmap step",
   "type": "object",
   "additionalProperties": false,
-  "required": ["index", "title", "acceptanceTarget", "reviewGate"],
+  "required": ["index", "title", "acceptanceTarget", "reviewGate", "model", "reasoning", "promptComposition"],
   "properties": {
     "index": { "type": "integer", "minimum": 0 },
     "title": { "type": "string", "minLength": 1 },
     "acceptanceTarget": { "type": "string", "minLength": 1 },
-    "reviewGate": { "enum": ["none", "required"] }
+    "reviewGate": { "enum": ["none", "required"] },
+    "model": { "type": "string", "minLength": 1 },
+    "reasoning": { "enum": ["low", "medium", "high", "xhigh", "max", "ultra"] },
+    "promptComposition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sharedInstructions", "stepInstructions"],
+      "properties": {
+        "sharedInstructions": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "stepInstructions": { "type": "string", "minLength": 1 }
+      }
+    }
   }
 }
