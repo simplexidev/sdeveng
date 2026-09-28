@@ -160,6 +160,35 @@ public sealed class HostLifecycleTests
         Assert.Contains("dotnet-trace", System.Text.Json.JsonSerializer.Serialize(result.Data, AgentTool.Json), StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task ReportModuleOwnsAndDispatchesFiniteReportFamily()
+    {
+        var module = new AgentTool.ReportCommandModule();
+        var commands = new[]
+        {
+            "logs summarize", "sarif summarize", "artifact inspect", "artifact verify",
+            "test-results summarize", "coverage summarize"
+        };
+        foreach (var command in commands) Assert.True(module.CanHandle(Cli.Parse(command.Split(' '))));
+        Assert.False(module.CanHandle(Cli.Parse(["dotnet", "inspect"])));
+
+        var file = Path.Combine(Path.GetTempPath(), "sdeveng-report-" + Guid.NewGuid().ToString("N") + ".log");
+        try
+        {
+            await File.WriteAllTextAsync(file, "first line\nsecond line\n");
+            var result = await module.Execute(Cli.Parse(["logs", "summarize", "--file", file]),
+                AgentTool.FindToolkit(), "", new(new(), new(), new(), new()), CancellationToken.None);
+
+            Assert.Equal(0, result.ExitCode);
+            Assert.Equal("ok", result.Status);
+            Assert.Contains("first line", System.Text.Json.JsonSerializer.Serialize(result.Data, AgentTool.Json), StringComparison.Ordinal);
+        }
+        finally
+        {
+            File.Delete(file);
+        }
+    }
+
     private sealed class TestCommandModule : AgentTool.ICommandModule
     {
         public bool CanHandle(Cli command) => command.Command == "feature sample";
