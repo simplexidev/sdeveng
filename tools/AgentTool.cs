@@ -57,17 +57,52 @@ public static class LocalRunEventStore
         if (!Directory.Exists(path)) return [];
         var files = Directory.GetFiles(path, "*.json").OrderBy(x => x, StringComparer.Ordinal).ToArray();
         var events = new List<JsonElement>(files.Length);
+        string? currentState = null;
+        var hasTransition = false;
         for (var index = 0; index < files.Length; index++)
         {
             var expected = (index + 1).ToString("D20", CultureInfo.InvariantCulture) + ".json";
             if (Path.GetFileName(files[index]) != expected) throw new InvalidDataException("Run event sequence has a gap.");
-            using var document = JsonDocument.Parse(File.ReadAllText(files[index]));
-            var item = document.RootElement;
-            if (item.GetProperty("schemaVersion").GetInt32() != 1 ||
-                item.GetProperty("runId").GetString() != runId.ToString("D") ||
-                item.GetProperty("sequence").GetInt32() != index + 1)
-                throw new InvalidDataException("Run event identity or sequence is invalid.");
-            events.Add(item.Clone());
+            try
+            {
+                using var document = JsonDocument.Parse(File.ReadAllText(files[index]));
+                var item = document.RootElement;
+                if (item.ValueKind != JsonValueKind.Object ||
+                    item.GetProperty("schemaVersion").GetInt32() != 1 ||
+                    item.GetProperty("runId").GetString() != runId.ToString("D") ||
+                    item.GetProperty("sequence").GetInt32() != index + 1 ||
+                    !DateTimeOffset.TryParse(item.GetProperty("occurredAt").GetString(), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out _))
+                    throw new InvalidDataException("Run event identity, sequence, or timestamp is invalid.");
+                var type = item.GetProperty("eventType").GetString();
+                var propertyNames = item.EnumerateObject().Select(property => property.Name).ToArray();
+                var properties = propertyNames.ToHashSet(StringComparer.Ordinal);
+                if (properties.Count != propertyNames.Length) throw new InvalidDataException("Run event has duplicate properties.");
+                if (type == "state-transition")
+                {
+                    if (!properties.SetEquals(["schemaVersion", "runId", "sequence", "occurredAt", "eventType", "fromState", "toState"]) ||
+                        item.GetProperty("fromState").ValueKind is not (JsonValueKind.Null or JsonValueKind.String) ||
+                        item.GetProperty("toState").ValueKind != JsonValueKind.String ||
+                        string.IsNullOrWhiteSpace(item.GetProperty("toState").GetString()) ||
+                        item.GetProperty("fromState").GetString() != currentState ||
+                        !hasTransition && item.GetProperty("fromState").ValueKind != JsonValueKind.Null)
+                        throw new InvalidDataException("Run state transition is invalid.");
+                    currentState = item.GetProperty("toState").GetString();
+                    hasTransition = true;
+                }
+                else if (type == "external-identifier-recorded")
+                {
+                    if (!properties.SetEquals(["schemaVersion", "runId", "sequence", "occurredAt", "eventType", "externalSystem", "identifierType", "identifier"]) ||
+                        new[] { "externalSystem", "identifierType", "identifier" }.Any(name =>
+                            item.GetProperty(name).ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(item.GetProperty(name).GetString())))
+                        throw new InvalidDataException("Run external identifier is invalid.");
+                }
+                else throw new InvalidDataException("Run event type is invalid.");
+                events.Add(item.Clone());
+            }
+            catch (Exception exception) when (exception is JsonException or KeyNotFoundException or InvalidOperationException or FormatException)
+            {
+                throw new InvalidDataException("Run event is malformed.", exception);
+            }
         }
         return events;
     }

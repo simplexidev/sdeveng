@@ -10,8 +10,10 @@ immutable and append-only. `sequence` starts at 1 and increases by exactly one
 within a run; `(runId, sequence)` is the event identity. A writer must durably
 append an event before treating its transition or external identifier as
 recorded. Resume replays events in sequence order and rejects gaps, duplicates,
-or a run ID mismatch. `occurredAt` is an RFC 3339 timestamp; sequence, rather
-than timestamps, determines replay order.
+or a run ID mismatch. The local store also rejects malformed event fields,
+unknown event types, and transitions whose `fromState` differs from the last
+recorded state; it refuses to append to an invalid stream. `occurredAt` is an
+RFC 3339 timestamp; sequence, rather than timestamps, determines replay order.
 
 `state-transition` records `fromState` and `toState`. The first transition uses
 `fromState: null`; later transitions name the previous state. State names are
