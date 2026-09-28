@@ -188,6 +188,7 @@ public static class AgentTool
             services.AddSingleton<ICommandModule, GitCommandModule>();
             services.AddSingleton<ICommandModule, RepoCommandModule>();
             services.AddSingleton<ICommandModule, GitHubCommandModule>();
+            services.AddSingleton<ICommandModule, DotnetCommandModule>();
             services.AddSingleton<ICommandModule, ExistingCommandsModule>();
             return services;
         }
@@ -322,6 +323,35 @@ public static class AgentTool
         }
     }
 
+    public sealed class DotnetCommandModule : ICommandModule
+    {
+        private static readonly string[] Commands =
+        [
+            "dotnet verify", "dotnet format", "dotnet package-audit", "dotnet dependencies",
+            "dotnet api-check", "dotnet release-verify", "dotnet inspect", "dotnet build-plan",
+            "dotnet test-plan", "dotnet diagnostics-plan"
+        ];
+
+        public bool CanHandle(Cli command) => Commands.Contains(command.Command, StringComparer.Ordinal);
+
+        public async Task<Result> Execute(Cli command, string toolkit, string root, Settings settings, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var name = command.Command;
+            command.ValidateCommand(name);
+            var artifacts = Path.Combine(root, ".agent-tool");
+            return name switch
+            {
+                "dotnet verify" or "dotnet format" or "dotnet package-audit" or "dotnet dependencies" or "dotnet api-check" or "dotnet release-verify" => await Dotnet(name, command, root, artifacts, settings),
+                "dotnet inspect" => Result.Ok(await DotnetFacts.Inspect(root, command.Get("project"))),
+                "dotnet build-plan" => Result.Ok(await DotnetFacts.BuildPlan(root, command.Get("project"), command.Get("base"), command.Get("configuration") ?? "Debug", command.Flag("binlog"))),
+                "dotnet test-plan" => Result.Ok(await DotnetFacts.TestPlan(root, command.Get("project"), command.Get("base"), command.Get("configuration") ?? "Debug", new(command.Get("test"), command.Get("class"), command.Get("category"), command.Get("filter")))),
+                "dotnet diagnostics-plan" => Result.Ok(await DotnetFacts.DiagnosticsPlan(command.Get("process-id"), command.Get("signal"), command.Get("duration-seconds"), root)),
+                _ => throw new ArgumentException("Unknown command. Use --help.")
+            };
+        }
+    }
+
     public sealed class RuntimeSettingsOptions { public Settings Settings { get; set; } = new(new(), new(), new(), new()); public string? ValidationError { get; set; } }
 
     public static string RenderJson(Result result, string command, string root, OutputSettings output)
@@ -378,17 +408,6 @@ public static class AgentTool
         var artifacts = Path.Combine(root, ".agent-tool");
         switch (command)
         {
-            case "dotnet verify":
-            case "dotnet format":
-            case "dotnet package-audit":
-            case "dotnet dependencies":
-            case "dotnet api-check":
-            case "dotnet release-verify":
-                return await Dotnet(command, c, root, artifacts, settings);
-            case "dotnet inspect": return Result.Ok(await DotnetFacts.Inspect(root, c.Get("project")));
-            case "dotnet build-plan": return Result.Ok(await DotnetFacts.BuildPlan(root, c.Get("project"), c.Get("base"), c.Get("configuration") ?? "Debug", c.Flag("binlog")));
-            case "dotnet test-plan": return Result.Ok(await DotnetFacts.TestPlan(root, c.Get("project"), c.Get("base"), c.Get("configuration") ?? "Debug", new(c.Get("test"), c.Get("class"), c.Get("category"), c.Get("filter"))));
-            case "dotnet diagnostics-plan": return Result.Ok(await DotnetFacts.DiagnosticsPlan(c.Get("process-id"), c.Get("signal"), c.Get("duration-seconds"), root));
             case "logs summarize":
                 return Result.Ok(Output.SummarizeFile(c.Require("file"), settings.Output));
             case "sarif summarize": return Result.Ok(Output.Sarif(c.Require("file"), settings.Output, c.Get("baseline")));

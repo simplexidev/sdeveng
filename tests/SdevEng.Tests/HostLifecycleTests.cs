@@ -134,6 +134,32 @@ public sealed class HostLifecycleTests
         Assert.Contains("state", System.Text.Json.JsonSerializer.Serialize(result.Data, AgentTool.Json), StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task DotnetModuleOwnsFiniteFamilyAndDispatchesDiagnosticsPlan()
+    {
+        var module = new AgentTool.DotnetCommandModule();
+        var commands = new[]
+        {
+            "dotnet verify", "dotnet format", "dotnet package-audit", "dotnet dependencies",
+            "dotnet api-check", "dotnet release-verify", "dotnet inspect", "dotnet build-plan",
+            "dotnet test-plan", "dotnet diagnostics-plan"
+        };
+        foreach (var command in commands) Assert.True(module.CanHandle(Cli.Parse(command.Split(' '))));
+        Assert.False(module.CanHandle(Cli.Parse(["logs", "summarize"])));
+
+        var services = new ServiceCollection();
+        services.AddLogging();
+        AgentTool.AgentToolModule.Register(services);
+        using var provider = services.BuildServiceProvider();
+        var result = await provider.GetRequiredService<AgentTool.AgentToolRuntime>().Execute(
+            Cli.Parse(["dotnet", "diagnostics-plan", "--signal", "cpu", "--duration-seconds", "5"]),
+            AgentTool.FindToolkit(), Environment.CurrentDirectory, new(new(), new(), new(), new()));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal("ok", result.Status);
+        Assert.Contains("dotnet-trace", System.Text.Json.JsonSerializer.Serialize(result.Data, AgentTool.Json), StringComparison.Ordinal);
+    }
+
     private sealed class TestCommandModule : AgentTool.ICommandModule
     {
         public bool CanHandle(Cli command) => command.Command == "feature sample";
