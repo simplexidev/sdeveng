@@ -158,8 +158,18 @@ public class MetadataTests
         var kinds = contracts.Select(contract => contract!["kind"]!.GetValue<string>()).ToArray();
         Assert.Equal(commands.Length, commands.Distinct(StringComparer.Ordinal).Count());
         Assert.Equal(1, contracts.Select(contract => contract!["schemaVersion"]!.GetValue<int>()).Distinct().Single());
+        var services = new Microsoft.Extensions.DependencyInjection.ServiceCollection();
+        AgentTool.AgentToolModule.Register(services);
+        var modules = services
+            .Where(descriptor => descriptor.ServiceType == typeof(AgentTool.ICommandModule))
+            .Select(descriptor => (AgentTool.ICommandModule)Activator.CreateInstance(descriptor.ImplementationType!)!)
+            .ToArray();
+        Assert.All(commands.Where(command => command != "version"), command =>
+        {
+            var cli = SdevEng.Cli.Parse(command.Split(' '));
+            Assert.Single(modules, module => module.CanHandle(cli));
+        });
         var source = File.ReadAllText(Path.Combine(Root, "tools/AgentTool.cs"));
-        Assert.All(commands.Where(command => command != "version"), command => Assert.Contains($"case \"{command}\"", source, StringComparison.Ordinal));
         Assert.Contains("command == \"version\"", source, StringComparison.Ordinal);
         Assert.All(kinds.Distinct(StringComparer.Ordinal), kind => Assert.Contains($"kind = \"{kind}\"", source, StringComparison.Ordinal));
     }
