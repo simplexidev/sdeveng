@@ -147,7 +147,7 @@ public sealed class HostLifecycleTests
     public async Task EvalModuleOwnsAndDispatchesEvaluationArguments()
     {
         var module = new AgentTool.EvalCommandModule();
-        Assert.True(module.CanHandle(Cli.Parse(["eval", "--skill", "dotnet-test-quality", "--results", "results.json"] )));
+        Assert.True(module.CanHandle(Cli.Parse(["eval", "--skill", "dotnet-test-quality", "--results", "results.json"])));
         Assert.False(module.CanHandle(Cli.Parse(["validate"])));
 
         using var repo = new TemporaryGitRepository();
@@ -215,7 +215,10 @@ public sealed class HostLifecycleTests
 
         Assert.Equal(0, clean.ExitCode);
         Assert.True(File.Exists(transient));
-        Assert.Contains(transient, System.Text.Json.JsonSerializer.Serialize(clean.Data, AgentTool.Json), StringComparison.Ordinal);
+
+        var cleanData = System.Text.Json.JsonSerializer.SerializeToElement(clean.Data, AgentTool.Json);
+        Assert.Contains(cleanData.GetProperty("paths").EnumerateArray(),
+            path => string.Equals(path.GetString(), transient, StringComparison.Ordinal));
     }
 
     [Fact]
