@@ -39,6 +39,12 @@ public static class LocalRunEventStore
     public static JsonElement AppendBranchIdentifier(string directory, Guid runId, string branch) =>
         AppendExternalIdentifier(directory, runId, "git", "branch", branch);
 
+    public static JsonElement AppendIssueIdentifier(string directory, Guid runId, string issue) =>
+        AppendExternalIdentifier(directory, runId, "github", "issue", issue);
+
+    public static JsonElement AppendPullRequestIdentifier(string directory, Guid runId, string pullRequest) =>
+        AppendExternalIdentifier(directory, runId, "github", "pull-request", pullRequest);
+
     public static IReadOnlyList<JsonElement> Read(string directory, Guid runId)
     {
         var path = Path.Combine(directory, runId.ToString("D"));

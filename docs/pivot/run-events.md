@@ -19,6 +19,8 @@ nonempty strings so future workflow states can be introduced without changing
 this event version. `external-identifier-recorded` records the issuing
 `externalSystem`, its `identifierType`, and the opaque `identifier` value.
 Record an external identifier before any later action depends on it.
+GitHub issue and pull request identifiers use `externalSystem: "github"` with
+`identifierType: "issue"` and `"pull-request"`, respectively.
 
 Examples:
 

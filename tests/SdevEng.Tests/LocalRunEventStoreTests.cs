@@ -48,4 +48,25 @@ public class LocalRunEventStoreTests
         }
         finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
     }
+
+    [Fact]
+    public void IssueAndPullRequestIdentifiersSurviveReopenAndMatchContract()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "sdeveng-events-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var runId = Guid.NewGuid();
+            LocalRunEventStore.AppendIssueIdentifier(directory, runId, "17");
+            LocalRunEventStore.AppendPullRequestIdentifier(directory, runId, "42");
+
+            var events = LocalRunEventStore.Read(directory, runId);
+            var schema = JsonSchema.FromFile(Path.Combine(AgentTool.FindToolkit(), "schemas/run-event.schema.json"));
+            Assert.Equal(2, events.Count);
+            foreach (var item in events) Assert.True(schema.Evaluate(JsonNode.Parse(item.GetRawText())!).IsValid);
+            Assert.Equal(new[] { "issue", "pull-request" }, events.Select(item => item.GetProperty("identifierType").GetString()));
+            Assert.Equal(new[] { "17", "42" }, events.Select(item => item.GetProperty("identifier").GetString()));
+            Assert.All(events, item => Assert.Equal("github", item.GetProperty("externalSystem").GetString()));
+        }
+        finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
+    }
 }
