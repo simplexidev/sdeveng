@@ -25,6 +25,71 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace SdevEng;
 
+public static class LocalRunEventStore
+{
+    public static JsonElement AppendTransition(string directory, Guid runId, string? fromState, string toState) =>
+        Append(directory, runId, "state-transition", fromState, toState, null, null, null);
+
+    public static JsonElement AppendExternalIdentifier(string directory, Guid runId, string externalSystem, string identifierType, string identifier) =>
+        Append(directory, runId, "external-identifier-recorded", null, null, externalSystem, identifierType, identifier);
+
+    public static IReadOnlyList<JsonElement> Read(string directory, Guid runId)
+    {
+        var path = Path.Combine(directory, runId.ToString("D"));
+        if (!Directory.Exists(path)) return [];
+        var files = Directory.GetFiles(path, "*.json").OrderBy(x => x, StringComparer.Ordinal).ToArray();
+        var events = new List<JsonElement>(files.Length);
+        for (var index = 0; index < files.Length; index++)
+        {
+            var expected = (index + 1).ToString("D20", CultureInfo.InvariantCulture) + ".json";
+            if (Path.GetFileName(files[index]) != expected) throw new InvalidDataException("Run event sequence has a gap.");
+            using var document = JsonDocument.Parse(File.ReadAllText(files[index]));
+            var item = document.RootElement;
+            if (item.GetProperty("schemaVersion").GetInt32() != 1 ||
+                item.GetProperty("runId").GetString() != runId.ToString("D") ||
+                item.GetProperty("sequence").GetInt32() != index + 1)
+                throw new InvalidDataException("Run event identity or sequence is invalid.");
+            events.Add(item.Clone());
+        }
+        return events;
+    }
+
+    private static JsonElement Append(string directory, Guid runId, string eventType, string? fromState, string? toState,
+        string? externalSystem, string? identifierType, string? identifier)
+    {
+        if (runId == Guid.Empty) throw new ArgumentException("Run ID must be a UUID.", nameof(runId));
+        if (eventType == "state-transition")
+        {
+            if (string.IsNullOrWhiteSpace(toState) || fromState is not null && string.IsNullOrWhiteSpace(fromState))
+                throw new ArgumentException("Transition states must be nonempty.");
+        }
+        else if (string.IsNullOrWhiteSpace(externalSystem) || string.IsNullOrWhiteSpace(identifierType) || string.IsNullOrWhiteSpace(identifier))
+            throw new ArgumentException("External identifier fields must be nonempty.");
+
+        var path = Path.Combine(directory, runId.ToString("D"));
+        Directory.CreateDirectory(path);
+        using var gate = new FileStream(Path.Combine(path, ".lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+        var sequence = Read(directory, runId).Count + 1;
+        var payload = eventType == "state-transition"
+            ? new { schemaVersion = 1, runId = runId.ToString("D"), sequence, occurredAt = DateTimeOffset.UtcNow, eventType, fromState, toState } as object
+            : new { schemaVersion = 1, runId = runId.ToString("D"), sequence, occurredAt = DateTimeOffset.UtcNow, eventType, externalSystem, identifierType, identifier };
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(payload);
+        var temporary = Path.Combine(path, "." + Guid.NewGuid().ToString("N") + ".tmp");
+        try
+        {
+            using (var stream = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            {
+                stream.Write(bytes);
+                stream.Flush(true);
+            }
+            File.Move(temporary, Path.Combine(path, sequence.ToString("D20", CultureInfo.InvariantCulture) + ".json"));
+        }
+        finally { if (File.Exists(temporary)) File.Delete(temporary); }
+        using var document = JsonDocument.Parse(bytes);
+        return document.RootElement.Clone();
+    }
+}
+
 public static class AgentTool
 {
     public const string Product = "sdeveng";
