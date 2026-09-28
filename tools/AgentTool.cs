@@ -183,8 +183,24 @@ public static class AgentTool
         public static IServiceCollection Register(IServiceCollection services)
         {
             services.AddSingleton<AgentToolRuntime>();
+            services.AddSingleton<ICommandModule, InstallerCommandModule>();
             services.AddSingleton<ICommandModule, ExistingCommandsModule>();
             return services;
+        }
+    }
+
+    public sealed class InstallerCommandModule : ICommandModule
+    {
+        public bool CanHandle(Cli command) => command.Command is "install" or "update" or "uninstall";
+
+        public Task<Result> Execute(Cli command, string toolkit, string root, Settings settings, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var name = command.Command;
+            command.ValidateCommand(name);
+            var home = command.Get("home") ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            var codexHome = command.Get("codex-home") ?? (command.Get("home") is null ? Environment.GetEnvironmentVariable("CODEX_HOME") : null);
+            return Task.FromResult(Installer.Run(toolkit, home, codexHome, name, command.Flag("dry-run"), command.Flag("bin")));
         }
     }
 
@@ -244,10 +260,6 @@ public static class AgentTool
         var artifacts = Path.Combine(root, ".agent-tool");
         switch (command)
         {
-            case "install":
-            case "update":
-            case "uninstall":
-                return Installer.Run(toolkit, c.Get("home") ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), c.Get("codex-home") ?? (c.Get("home") is null ? Environment.GetEnvironmentVariable("CODEX_HOME") : null), command, c.Flag("dry-run"), c.Flag("bin"));
             case "doctor": return await Doctor(toolkit, settings, c);
             case "git state": return Result.Ok(await Git.State(root));
             case "git summary": return Result.Ok(await Repository.Summary(root, c.Get("base"), settings.Output));
