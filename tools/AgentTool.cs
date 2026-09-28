@@ -78,31 +78,51 @@ public static class AgentTool
             var builder = Host.CreateApplicationBuilder(args);
             Settings.AddConfigurationSources(builder.Configuration, toolkit);
             Settings.RegisterOptions(builder.Services, builder.Configuration, toolkit);
+            builder.Logging.ClearProviders();
+            builder.Logging.AddJsonConsole();
             builder.Logging.SetMinimumLevel(LogLevel.Warning);
             AgentToolModule.Register(builder.Services);
             using var host = builder.Build();
-            await host.StartAsync();
-            var c = Cli.Parse(args);
-            command = c.Command;
-            if (c.Flag("version") || command == "version")
+            using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(host.Services.GetRequiredService<IHostApplicationLifetime>().ApplicationStopping);
+            ConsoleCancelEventHandler cancelHandler = (_, eventArgs) =>
             {
-                var version = Result.Ok(new { kind = "cli-version", schemaVersion = 1, product = Product, version = CliVersion, resultSchemaVersion = ResultSchemaVersion });
-                Console.WriteLine(json ? RenderJson(version, "version", Environment.CurrentDirectory, new()) : $"{Product} {CliVersion}");
-                await host.StopAsync();
-                return 0;
-            }
-            if (c.Flag("help") || c.Words.Count == 0 || command == "help")
+                eventArgs.Cancel = true;
+                cancellation.Cancel();
+            };
+            Console.CancelKeyPress += cancelHandler;
+            await host.StartAsync(cancellation.Token);
+            try
             {
-                Console.WriteLine(json ? RenderJson(Result.Ok(new { help = Help }), "help", Environment.CurrentDirectory, new()) : Help);
-                await host.StopAsync();
-                return 0;
+                var c = Cli.Parse(args);
+                command = c.Command;
+                if (c.Flag("version") || command == "version")
+                {
+                    var version = Result.Ok(new { kind = "cli-version", schemaVersion = 1, product = Product, version = CliVersion, resultSchemaVersion = ResultSchemaVersion });
+                    Console.WriteLine(json ? RenderJson(version, "version", Environment.CurrentDirectory, new()) : $"{Product} {CliVersion}");
+                    return 0;
+                }
+                if (c.Flag("help") || c.Words.Count == 0 || command == "help")
+                {
+                    Console.WriteLine(json ? RenderJson(Result.Ok(new { help = Help }), "help", Environment.CurrentDirectory, new()) : Help);
+                    return 0;
+                }
+                cancellation.Token.ThrowIfCancellationRequested();
+                var root = Path.GetFullPath(c.Get("root") ?? Environment.CurrentDirectory);
+                var settings = Settings.LoadFor(toolkit, command, host.Services.GetRequiredService<Microsoft.Extensions.Options.IOptions<AgentTool.RuntimeSettingsOptions>>().Value.Settings);
+                var result = await host.Services.GetRequiredService<AgentToolRuntime>().Execute(c, toolkit, root, settings, cancellation.Token);
+                cancellation.Token.ThrowIfCancellationRequested();
+                Console.WriteLine(json ? RenderJson(result, command, root, settings.Output) : Render(result, root, settings.Output));
+                return result.ExitCode;
             }
-            var root = Path.GetFullPath(c.Get("root") ?? Environment.CurrentDirectory);
-            var settings = Settings.LoadFor(toolkit, command, host.Services.GetRequiredService<Microsoft.Extensions.Options.IOptions<AgentTool.RuntimeSettingsOptions>>().Value.Settings);
-            var result = await host.Services.GetRequiredService<AgentToolRuntime>().Execute(c, toolkit, root, settings);
-            Console.WriteLine(json ? RenderJson(result, command, root, settings.Output) : Render(result, root, settings.Output));
-            await host.StopAsync();
-            return result.ExitCode;
+            finally
+            {
+                Console.CancelKeyPress -= cancelHandler;
+                await host.StopAsync(CancellationToken.None);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            return 130;
         }
         catch (Exception e) when (e is ArgumentException or IOException or InvalidDataException or UnauthorizedAccessException or InvalidOperationException or PlatformNotSupportedException or JsonException or FormatException or System.Xml.XmlException or System.ComponentModel.Win32Exception)
         {
@@ -124,7 +144,14 @@ public static class AgentTool
 
     public sealed class AgentToolRuntime
     {
-        public Task<Result> Execute(Cli command, string toolkit, string root, Settings settings) => AgentTool.Execute(command, toolkit, root, settings);
+        private readonly ILogger<AgentToolRuntime> _logger;
+        public AgentToolRuntime(ILogger<AgentToolRuntime> logger) => _logger = logger;
+        public Task<Result> Execute(Cli command, string toolkit, string root, Settings settings, CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            _logger.LogDebug("Executing {Command} for {Root}", command.Command, root);
+            return AgentTool.Execute(command, toolkit, root, settings);
+        }
     }
 
     public static class AgentToolModule
