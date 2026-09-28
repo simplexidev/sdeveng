@@ -44,6 +44,84 @@ public sealed class HostLifecycleTests
     }
 
     [Fact]
+    public void EveryDocumentedExecutionCommandHasExactlyOneFiniteModuleOwner()
+    {
+        var documentedCommands = new (string Command, Type Module)[]
+        {
+            ("install", typeof(AgentTool.InstallerCommandModule)),
+            ("update", typeof(AgentTool.InstallerCommandModule)),
+            ("uninstall", typeof(AgentTool.InstallerCommandModule)),
+            ("doctor", typeof(AgentTool.DoctorCommandModule)),
+            ("repo changed-files", typeof(AgentTool.RepoCommandModule)),
+            ("repo summary", typeof(AgentTool.RepoCommandModule)),
+            ("repo locate", typeof(AgentTool.RepoCommandModule)),
+            ("repo health", typeof(AgentTool.RepoCommandModule)),
+            ("repo hygiene", typeof(AgentTool.RepoCommandModule)),
+            ("repo affected-projects", typeof(AgentTool.RepoCommandModule)),
+            ("repo ownership", typeof(AgentTool.RepoCommandModule)),
+            ("git state", typeof(AgentTool.GitCommandModule)),
+            ("git summary", typeof(AgentTool.GitCommandModule)),
+            ("git conflict-forecast", typeof(AgentTool.GitCommandModule)),
+            ("git prepare-commit", typeof(AgentTool.GitCommandModule)),
+            ("git issue-start", typeof(AgentTool.GitCommandModule)),
+            ("github pr-status", typeof(AgentTool.GitHubCommandModule)),
+            ("github review-comments", typeof(AgentTool.GitHubCommandModule)),
+            ("github prepare-pr", typeof(AgentTool.GitHubCommandModule)),
+            ("github actions", typeof(AgentTool.GitHubCommandModule)),
+            ("dotnet inspect", typeof(AgentTool.DotnetCommandModule)),
+            ("dotnet build-plan", typeof(AgentTool.DotnetCommandModule)),
+            ("dotnet test-plan", typeof(AgentTool.DotnetCommandModule)),
+            ("dotnet diagnostics-plan", typeof(AgentTool.DotnetCommandModule)),
+            ("dotnet verify", typeof(AgentTool.DotnetCommandModule)),
+            ("dotnet format", typeof(AgentTool.DotnetCommandModule)),
+            ("dotnet dependencies", typeof(AgentTool.DotnetCommandModule)),
+            ("dotnet package-audit", typeof(AgentTool.DotnetCommandModule)),
+            ("dotnet api-check", typeof(AgentTool.DotnetCommandModule)),
+            ("dotnet release-verify", typeof(AgentTool.DotnetCommandModule)),
+            ("logs summarize", typeof(AgentTool.ReportCommandModule)),
+            ("sarif summarize", typeof(AgentTool.ReportCommandModule)),
+            ("artifact inspect", typeof(AgentTool.ReportCommandModule)),
+            ("artifact verify", typeof(AgentTool.ReportCommandModule)),
+            ("test-results summarize", typeof(AgentTool.ReportCommandModule)),
+            ("coverage summarize", typeof(AgentTool.ReportCommandModule)),
+            ("jev noul", typeof(AgentTool.JevCommandModule)),
+            ("jev choice", typeof(AgentTool.JevCommandModule)),
+            ("jev score", typeof(AgentTool.JevCommandModule)),
+            ("jev screen", typeof(AgentTool.JevCommandModule)),
+            ("jev cache-clear", typeof(AgentTool.JevCommandModule)),
+            ("upstream status", typeof(AgentTool.UpstreamCommandModule)),
+            ("upstream update", typeof(AgentTool.UpstreamCommandModule)),
+            ("upstream dotnet-skills", typeof(AgentTool.UpstreamCommandModule)),
+            ("validate", typeof(AgentTool.ValidateCommandModule)),
+            ("eval", typeof(AgentTool.EvalCommandModule)),
+            ("release", typeof(AgentTool.ReleaseCommandModule)),
+            ("results init", typeof(AgentTool.ResultsCommandModule)),
+            ("results new", typeof(AgentTool.ResultsCommandModule)),
+            ("results list", typeof(AgentTool.ResultsCommandModule)),
+            ("results latest", typeof(AgentTool.ResultsCommandModule)),
+            ("results context", typeof(AgentTool.ResultsCommandModule)),
+            ("results clean", typeof(AgentTool.ResultsCommandModule))
+        };
+        var modules = new AgentTool.ICommandModule[]
+        {
+            new AgentTool.InstallerCommandModule(), new AgentTool.DoctorCommandModule(),
+            new AgentTool.RepoCommandModule(), new AgentTool.GitCommandModule(),
+            new AgentTool.GitHubCommandModule(), new AgentTool.DotnetCommandModule(),
+            new AgentTool.ReportCommandModule(), new AgentTool.JevCommandModule(),
+            new AgentTool.UpstreamCommandModule(), new AgentTool.ValidateCommandModule(),
+            new AgentTool.EvalCommandModule(), new AgentTool.ReleaseCommandModule(),
+            new AgentTool.ResultsCommandModule()
+        };
+
+        Assert.DoesNotContain(modules, module => module.GetType().Name.Contains("ExistingCommands", StringComparison.Ordinal));
+        foreach (var (command, intendedModule) in documentedCommands)
+        {
+            var parsed = Cli.Parse(command.Split(' '));
+            Assert.Equal(intendedModule, Assert.Single(modules, module => module.CanHandle(parsed)).GetType());
+        }
+    }
+
+    [Fact]
     public async Task ValidateModuleOwnsAndDispatchesValidation()
     {
         var module = new AgentTool.ValidateCommandModule();
