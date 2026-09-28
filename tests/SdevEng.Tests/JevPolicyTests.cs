@@ -72,7 +72,7 @@ public class JevPolicyTests
         var input = Path.Combine(repo.Root, "input.json");
         File.WriteAllText(input, "{\"capability\":\"ambiguous-routing\",\"purpose\":\"capability-tie-break\",\"state\":\"public summary\",\"instructions\":\"Which route?\",\"criteria\":{\"a\":\"A\",\"b\":\"B\"}}");
 
-        var result = await AgentTool.Execute(Cli.Parse(["jev", "choice", "--input", input, "--dry-run"]), AgentTool.FindToolkit(), repo.Root, Loaded());
+        var result = await new AgentTool.JevCommandModule().Execute(Cli.Parse(["jev", "choice", "--input", input, "--dry-run"]), AgentTool.FindToolkit(), repo.Root, Loaded(), CancellationToken.None);
 
         Assert.Equal("REVIEW", result.Status);
         Assert.Contains("Deterministic narrowing is required", JsonSerializer.Serialize(result, AgentTool.Json), StringComparison.Ordinal);
@@ -102,7 +102,7 @@ public class JevPolicyTests
         var input = Path.Combine(repo.Root, "screen.json");
         File.WriteAllText(input, "{\"capability\":\"ambiguous-routing\",\"purpose\":\"capability-tie-break\",\"deterministicNarrowed\":true,\"query\":\"route\",\"candidates\":[{\"id\":\"a\",\"text\":\"one\"},{\"id\":\"b\",\"text\":\"two\"}]}");
 
-        var result = await AgentTool.Execute(Cli.Parse(["jev", "screen", "--input", input, "--dry-run"]), AgentTool.FindToolkit(), repo.Root, Loaded());
+        var result = await new AgentTool.JevCommandModule().Execute(Cli.Parse(["jev", "screen", "--input", input, "--dry-run"]), AgentTool.FindToolkit(), repo.Root, Loaded(), CancellationToken.None);
 
         Assert.Equal("REVIEW", result.Status);
         Assert.Contains("call budget", JsonSerializer.Serialize(result, AgentTool.Json), StringComparison.Ordinal);
@@ -115,7 +115,7 @@ public class JevPolicyTests
         var input = Path.Combine(repo.Root, "screen.json");
         File.WriteAllText(input, "{\"capability\":\"relevance\",\"purpose\":\"candidate-relevance\",\"deterministicNarrowed\":true,\"query\":\"docs\",\"candidates\":[{\"id\":\"a\",\"text\":\"public summary\"}]}");
 
-        var result = await AgentTool.Execute(Cli.Parse(["jev", "screen", "--input", input, "--dry-run"]), AgentTool.FindToolkit(), repo.Root, Loaded());
+        var result = await new AgentTool.JevCommandModule().Execute(Cli.Parse(["jev", "screen", "--input", input, "--dry-run"]), AgentTool.FindToolkit(), repo.Root, Loaded(), CancellationToken.None);
         var telemetry = JsonSerializer.SerializeToNode(result.Data, AgentTool.Json)!["instrumentation"]!;
 
         Assert.Equal(25, telemetry["budget"]!["maxCalls"]!.GetValue<int>());
