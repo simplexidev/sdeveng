@@ -191,6 +191,7 @@ public static class AgentTool
             services.AddSingleton<ICommandModule, DotnetCommandModule>();
             services.AddSingleton<ICommandModule, ReportCommandModule>();
             services.AddSingleton<ICommandModule, JevCommandModule>();
+            services.AddSingleton<ICommandModule, UpstreamCommandModule>();
             services.AddSingleton<ICommandModule, ExistingCommandsModule>();
             return services;
         }
@@ -403,6 +404,25 @@ public static class AgentTool
         }
     }
 
+    public sealed class UpstreamCommandModule : ICommandModule
+    {
+        public bool CanHandle(Cli command) => command.Command is "upstream status" or "upstream update" or "upstream dotnet-skills";
+
+        public async Task<Result> Execute(Cli command, string toolkit, string root, Settings settings, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            command.ValidateCommand(command.Command);
+            var artifacts = Path.Combine(root, ".agent-tool");
+            return command.Command switch
+            {
+                "upstream status" => Result.Ok(new { plugins = JsonNode.Parse(File.ReadAllText(Path.Combine(toolkit, "upstream/dotnet-skills.json"))), tools = JsonNode.Parse(File.ReadAllText(Path.Combine(toolkit, "upstream/tools.json"))), versions = JsonNode.Parse(File.ReadAllText(Path.Combine(toolkit, "upstream/versions.json"))) }),
+                "upstream update" => await Upstream(toolkit, artifacts, command.Flag("dry-run")),
+                "upstream dotnet-skills" => await DotnetSkillsDrift.Run(toolkit, artifacts, command.Words.Skip(2).SingleOrDefault(), command.Flag("dry-run")),
+                _ => throw new ArgumentException("Unknown command. Use --help.")
+            };
+        }
+    }
+
     public sealed class RuntimeSettingsOptions { public Settings Settings { get; set; } = new(new(), new(), new(), new()); public string? ValidationError { get; set; } }
 
     public static string RenderJson(Result result, string command, string root, OutputSettings output)
@@ -459,9 +479,6 @@ public static class AgentTool
         var artifacts = Path.Combine(root, ".agent-tool");
         switch (command)
         {
-            case "upstream status": return Result.Ok(new { plugins = JsonNode.Parse(File.ReadAllText(Path.Combine(toolkit, "upstream/dotnet-skills.json"))), tools = JsonNode.Parse(File.ReadAllText(Path.Combine(toolkit, "upstream/tools.json"))), versions = JsonNode.Parse(File.ReadAllText(Path.Combine(toolkit, "upstream/versions.json"))) });
-            case "upstream update": return await Upstream(toolkit, artifacts, c.Flag("dry-run"));
-            case "upstream dotnet-skills": return await DotnetSkillsDrift.Run(toolkit, artifacts, c.Words.Skip(2).SingleOrDefault(), c.Flag("dry-run"));
             case "validate": return Validation.Run(toolkit);
             case "eval": return Evaluation.Run(toolkit, c.Get("skill"), c.Get("results"));
             case "release": return Release(toolkit, c.Require("output"));
