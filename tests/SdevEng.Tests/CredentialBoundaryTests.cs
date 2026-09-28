@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace SdevEng.Tests;
 
@@ -150,7 +151,11 @@ public class CredentialBoundaryTests
         {
             using var repo = new TemporaryGitRepository();
             var toolkit = AgentTool.FindToolkit();
-            var result = await AgentTool.Execute(Cli.Parse(["doctor", "--home", repo.Root]), toolkit, repo.Root, Settings.Load(toolkit));
+            var services = new ServiceCollection();
+            services.AddLogging();
+            AgentTool.AgentToolModule.Register(services);
+            using var provider = services.BuildServiceProvider();
+            var result = await provider.GetRequiredService<AgentTool.AgentToolRuntime>().Execute(Cli.Parse(["doctor", "--home", repo.Root]), toolkit, repo.Root, Settings.Load(toolkit));
             var output = JsonSerializer.Serialize(result, AgentTool.Json);
             Assert.Contains("JEV credentials: configured", output, StringComparison.Ordinal);
             Assert.DoesNotContain(key, output, StringComparison.Ordinal);

@@ -184,6 +184,7 @@ public static class AgentTool
         {
             services.AddSingleton<AgentToolRuntime>();
             services.AddSingleton<ICommandModule, InstallerCommandModule>();
+            services.AddSingleton<ICommandModule, DoctorCommandModule>();
             services.AddSingleton<ICommandModule, ExistingCommandsModule>();
             return services;
         }
@@ -201,6 +202,37 @@ public static class AgentTool
             var home = command.Get("home") ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
             var codexHome = command.Get("codex-home") ?? (command.Get("home") is null ? Environment.GetEnvironmentVariable("CODEX_HOME") : null);
             return Task.FromResult(Installer.Run(toolkit, home, codexHome, name, command.Flag("dry-run"), command.Flag("bin")));
+        }
+    }
+
+    public sealed class DoctorCommandModule : ICommandModule
+    {
+        public bool CanHandle(Cli command) => command.Command == "doctor";
+
+        public Task<Result> Execute(Cli command, string toolkit, string root, Settings settings, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            command.ValidateCommand("doctor");
+            return Doctor(toolkit, settings, command);
+        }
+
+        private static async Task<Result> Doctor(string toolkit, Settings settings, Cli c)
+        {
+            var checks = new List<object>(); bool requiredOk = true;
+            foreach (var (tool, args, required) in new[] { ("dotnet", new[] { "--version" }, true), ("git", new[] { "--version" }, true), ("gh", new[] { "--version" }, false), ("codex", new[] { "--version" }, false) })
+            {
+                try
+                {
+                    var r = await Processes.Run(tool, args, toolkit);
+                    var ok = r.ExitCode == 0 && (tool != "dotnet" || Version.TryParse(r.Output.Trim().Split('-')[0], out var v) && v.Major >= 10);
+                    checks.Add(new { tool, required, available = ok, summary = Output.Compact(r.Output, settings.Output) });
+                    if (required && !ok) requiredOk = false;
+                }
+                catch (System.ComponentModel.Win32Exception) { checks.Add(new { tool, required, available = false }); if (required) requiredOk = false; }
+            }
+            var home = c.Get("home") ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            var codex = c.Get("codex-home") ?? (c.Get("home") is null ? Environment.GetEnvironmentVariable("CODEX_HOME") : null) ?? Path.Combine(home, ".codex");
+            return new(requiredOk ? "ok" : "failed", new { checks, toolkit, codex, skills = Path.Combine(home, ".agents/skills"), installation = Installer.Inspect(codex), jev = new { settings.Jev.Mode, credentials = JevCredentials.Status(), settings.Jev.Model }, upstream = "Run upstream status for integration policy; listed integrations are not automatically installed.", optionalTools = settings.Toolkit.OptionalTools.Select(t => new { name = t, available = Processes.OnPath(t) }) }, requiredOk ? 0 : 1);
         }
     }
 
@@ -260,7 +292,6 @@ public static class AgentTool
         var artifacts = Path.Combine(root, ".agent-tool");
         switch (command)
         {
-            case "doctor": return await Doctor(toolkit, settings, c);
             case "git state": return Result.Ok(await Git.State(root));
             case "git summary": return Result.Ok(await Repository.Summary(root, c.Get("base"), settings.Output));
             case "git conflict-forecast": return Result.Ok(await Git.ConflictForecast(root, c.Require("base"), settings.Output));
@@ -336,25 +367,6 @@ public static class AgentTool
             case "results clean": Results.RequireWords(c.Words.Skip(2).ToArray(), 0, "Usage: results clean [--dry-run]."); return Results.Clean(root, c.Flag("dry-run"));
             default: throw new ArgumentException("Unknown command. Use --help.");
         }
-    }
-
-    static async Task<Result> Doctor(string toolkit, Settings settings, Cli c)
-    {
-        var checks = new List<object>(); bool requiredOk = true;
-        foreach (var (tool, args, required) in new[] { ("dotnet", new[] { "--version" }, true), ("git", new[] { "--version" }, true), ("gh", new[] { "--version" }, false), ("codex", new[] { "--version" }, false) })
-        {
-            try
-            {
-                var r = await Processes.Run(tool, args, toolkit);
-                var ok = r.ExitCode == 0 && (tool != "dotnet" || Version.TryParse(r.Output.Trim().Split('-')[0], out var v) && v.Major >= 10);
-                checks.Add(new { tool, required, available = ok, summary = Output.Compact(r.Output, settings.Output) });
-                if (required && !ok) requiredOk = false;
-            }
-            catch (System.ComponentModel.Win32Exception) { checks.Add(new { tool, required, available = false }); if (required) requiredOk = false; }
-        }
-        var home = c.Get("home") ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        var codex = c.Get("codex-home") ?? (c.Get("home") is null ? Environment.GetEnvironmentVariable("CODEX_HOME") : null) ?? Path.Combine(home, ".codex");
-        return new(requiredOk ? "ok" : "failed", new { checks, toolkit, codex, skills = Path.Combine(home, ".agents/skills"), installation = Installer.Inspect(codex), jev = new { settings.Jev.Mode, credentials = JevCredentials.Status(), settings.Jev.Model }, upstream = "Run upstream status for integration policy; listed integrations are not automatically installed.", optionalTools = settings.Toolkit.OptionalTools.Select(t => new { name = t, available = Processes.OnPath(t) }) }, requiredOk ? 0 : 1);
     }
 
     static async Task<Result> Dotnet(string command, Cli c, string root, string artifacts, Settings settings)

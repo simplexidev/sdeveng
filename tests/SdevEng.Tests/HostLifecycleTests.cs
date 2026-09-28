@@ -55,6 +55,25 @@ public sealed class HostLifecycleTests
         Assert.False(Directory.Exists(home));
     }
 
+    [Fact]
+    public async Task DoctorModuleOwnsDoctorAndDispatchesChecks()
+    {
+        var module = new AgentTool.DoctorCommandModule();
+        Assert.True(module.CanHandle(Cli.Parse(["doctor"])));
+        Assert.False(module.CanHandle(Cli.Parse(["version"])));
+
+        var services = new ServiceCollection();
+        services.AddLogging();
+        AgentTool.AgentToolModule.Register(services);
+        using var provider = services.BuildServiceProvider();
+        var result = await provider.GetRequiredService<AgentTool.AgentToolRuntime>().Execute(
+            Cli.Parse(["doctor", "--home", Path.GetTempPath()]), AgentTool.FindToolkit(), Path.GetTempPath(), new(new(), new(), new(), new()));
+
+        using var data = System.Text.Json.JsonDocument.Parse(System.Text.Json.JsonSerializer.Serialize(result.Data, AgentTool.Json));
+        Assert.Equal(4, data.RootElement.GetProperty("checks").GetArrayLength());
+        Assert.True(data.RootElement.TryGetProperty("installation", out _));
+    }
+
     private sealed class TestCommandModule : AgentTool.ICommandModule
     {
         public bool CanHandle(Cli command) => command.Command == "feature sample";
