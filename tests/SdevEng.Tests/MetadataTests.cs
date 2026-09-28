@@ -42,7 +42,7 @@ public class MetadataTests
         Json.Schema.SchemaRegistry.Global.Register(stageSchema);
         Json.Schema.SchemaRegistry.Global.Register(stepSchema);
         var phase = JsonNode.Parse("""
-            {"id":"phase-0","title":"Foundation","goal":"Make execution deterministic","stages":[{"id":"stage-1","title":"Hierarchy","goal":"Define the hierarchy","executionMode":"CHANGE","labels":["type:chore"],"steps":[{"index":0,"title":"Schemas","acceptanceTarget":"Both schemas validate","reviewGate":"none"}]}]}
+            {"id":"phase-0","title":"Foundation","goal":"Make execution deterministic","stages":[{"id":"stage-1","title":"Hierarchy","goal":"Define the hierarchy","executionMode":"CHANGE","labels":["type:chore"],"steps":[{"index":0,"title":"Schemas","acceptanceTarget":"Both schemas validate","reviewGate":"none","model":"gpt-6-sol","reasoning":"medium","promptComposition":{"sharedInstructions":["shared/0.md","shared/1.md"],"stepInstructions":"Implement the Step."}}]}]}
             """)!;
         Assert.True(phaseSchema.Evaluate(phase, new() { OutputFormat = OutputFormat.List }).IsValid);
         phase["stages"]![0]!["executionMode"] = "unknown";
@@ -52,18 +52,24 @@ public class MetadataTests
         phase["stages"]![0]!["executionMode"] = "OPERATION";
         Assert.True(phaseSchema.Evaluate(phase, new() { OutputFormat = OutputFormat.List }).IsValid);
         var stage = JsonNode.Parse("""
-            {"id":"stage-1","title":"Hierarchy","goal":"Define the hierarchy","executionMode":"CHANGE","labels":[],"steps":[{"index":0,"title":"Schemas","acceptanceTarget":"Both schemas validate","reviewGate":"none"}]}
+            {"id":"stage-1","title":"Hierarchy","goal":"Define the hierarchy","executionMode":"CHANGE","labels":[],"steps":[{"index":0,"title":"Schemas","acceptanceTarget":"Both schemas validate","reviewGate":"none","model":"gpt-6-sol","reasoning":"medium","promptComposition":{"sharedInstructions":["shared/0.md","shared/1.md"],"stepInstructions":"Implement the Step."}}]}
             """)!;
         Assert.True(stageSchema.Evaluate(stage, new() { OutputFormat = OutputFormat.List }).IsValid);
         stage["steps"]![0]!["index"] = -1;
         Assert.False(stageSchema.Evaluate(stage, new() { OutputFormat = OutputFormat.List }).IsValid);
 
-        var step = JsonNode.Parse("""{"index":0,"title":"Schemas","acceptanceTarget":"Both schemas validate","reviewGate":"none"}""")!;
+        var step = JsonNode.Parse("""{"index":0,"title":"Schemas","acceptanceTarget":"Both schemas validate","reviewGate":"none","model":"gpt-6-sol","reasoning":"medium","promptComposition":{"sharedInstructions":["shared/0.md","shared/1.md"],"stepInstructions":"Implement the Step."}}""")!;
         Assert.True(stepSchema.Evaluate(step, new() { OutputFormat = OutputFormat.List }).IsValid);
         step["index"] = 1;
         Assert.True(stepSchema.Evaluate(step, new() { OutputFormat = OutputFormat.List }).IsValid);
         step["reviewGate"] = "optional";
         Assert.False(stepSchema.Evaluate(step, new() { OutputFormat = OutputFormat.List }).IsValid);
+        step["reviewGate"] = "none";
+        step["reasoning"] = "extreme";
+        Assert.False(stepSchema.Evaluate(step, new() { OutputFormat = OutputFormat.List }).IsValid);
+        step["reasoning"] = "medium";
+        step["promptComposition"]!["sharedInstructions"] = new JsonArray("shared/1.md", "shared/0.md");
+        Assert.True(stepSchema.Evaluate(step, new() { OutputFormat = OutputFormat.List }).IsValid);
     }
     [Fact]
     public void ReleaseIdentityIsThreePointZero()
