@@ -9,7 +9,7 @@
     "id": { "type": "string", "pattern": "^stage-[0-9]+$" },
     "title": { "type": "string", "minLength": 1 },
     "goal": { "type": "string", "minLength": 1 },
-    "executionMode": { "enum": ["change", "operation"] },
+    "executionMode": { "enum": ["CHANGE", "OPERATION"] },
     "labels": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
     "steps": {
       "type": "array",
