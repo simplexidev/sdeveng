@@ -10,6 +10,32 @@ public class MetadataTests
 {
     static string Root => AgentTool.FindToolkit();
     [Fact]
+    public void ProductRunEventContractAcceptsOnlyVersionedEventShapes()
+    {
+        var schema = JsonSchema.FromFile(Path.Combine(Root, "schemas/run-event.schema.json"));
+        var transition = JsonNode.Parse("""
+            {"schemaVersion":1,"runId":"123e4567-e89b-42d3-a456-426614174000","sequence":1,"occurredAt":"2026-09-28T12:00:00Z","eventType":"state-transition","fromState":null,"toState":"created"}
+            """)!;
+        Assert.True(schema.Evaluate(transition).IsValid);
+        var identifier = JsonNode.Parse("""
+            {"schemaVersion":1,"runId":"123e4567-e89b-42d3-a456-426614174000","sequence":2,"occurredAt":"2026-09-28T12:01:00Z","eventType":"external-identifier-recorded","externalSystem":"github","identifierType":"pull-request","identifier":"42"}
+            """)!;
+        Assert.True(schema.Evaluate(identifier).IsValid);
+        transition["runId"] = "123E4567-E89B-42D3-A456-426614174000";
+        Assert.False(schema.Evaluate(transition).IsValid);
+        transition["runId"] = "123e4567-e89b-42d3-a456-426614174000";
+        transition["sequence"] = 0;
+        Assert.False(schema.Evaluate(transition).IsValid);
+        transition["sequence"] = 1;
+        transition["identifier"] = "42";
+        Assert.False(schema.Evaluate(transition).IsValid);
+        identifier["identifier"] = "";
+        Assert.False(schema.Evaluate(identifier).IsValid);
+        identifier["identifier"] = "42";
+        identifier["schemaVersion"] = 2;
+        Assert.False(schema.Evaluate(identifier).IsValid);
+    }
+    [Fact]
     public void AllJsonTomlAndYamlParse()
     {
         var yaml = new DeserializerBuilder().Build();
