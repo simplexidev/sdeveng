@@ -112,6 +112,28 @@ public sealed class HostLifecycleTests
         Assert.Contains("docs/target.md", System.Text.Json.JsonSerializer.Serialize(result.Data, AgentTool.Json), StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task GitHubModuleOwnsOnlyRequestedCommandsAndDispatchesPreparePr()
+    {
+        var module = new AgentTool.GitHubCommandModule();
+        foreach (var command in new[] { "github prepare-pr", "github pr-status", "github review-comments", "github actions" })
+            Assert.True(module.CanHandle(Cli.Parse(command.Split(' '))));
+        Assert.False(module.CanHandle(Cli.Parse(["github issue"])));
+
+        using var repo = new TemporaryGitRepository();
+        var services = new ServiceCollection();
+        services.AddLogging();
+        AgentTool.AgentToolModule.Register(services);
+        using var provider = services.BuildServiceProvider();
+        var result = await provider.GetRequiredService<AgentTool.AgentToolRuntime>().Execute(
+            Cli.Parse(["github", "prepare-pr"]), AgentTool.FindToolkit(), repo.Root,
+            new(new(), new(), new(), new()));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal("ok", result.Status);
+        Assert.Contains("state", System.Text.Json.JsonSerializer.Serialize(result.Data, AgentTool.Json), StringComparison.Ordinal);
+    }
+
     private sealed class TestCommandModule : AgentTool.ICommandModule
     {
         public bool CanHandle(Cli command) => command.Command == "feature sample";
