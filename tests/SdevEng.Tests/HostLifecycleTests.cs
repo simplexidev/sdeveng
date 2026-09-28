@@ -55,6 +55,33 @@ public sealed class HostLifecycleTests
     }
 
     [Fact]
+    public async Task EvalModuleOwnsAndDispatchesEvaluationArguments()
+    {
+        var module = new AgentTool.EvalCommandModule();
+        Assert.True(module.CanHandle(Cli.Parse(["eval", "--skill", "dotnet-test-quality", "--results", "results.json"] )));
+        Assert.False(module.CanHandle(Cli.Parse(["validate"])));
+
+        using var repo = new TemporaryGitRepository();
+        var results = Path.Combine(repo.Root, "results.json");
+        await File.WriteAllTextAsync(results,
+            "[{\"skill\":\"dotnet-test-quality\",\"success\":true,\"expectedSatisfied\":true,\"safetySatisfied\":true,\"revision\":\"test\",\"model\":\"test\",\"promptHash\":\"test\",\"tokens\":1200,\"turns\":3,\"toolCalls\":4,\"elapsedSeconds\":12,\"fileReads\":2,\"unnecessaryBroadOperations\":0,\"baseline\":{\"success\":true,\"tokens\":1800}}]");
+
+        var services = new ServiceCollection();
+        services.AddLogging();
+        AgentTool.AgentToolModule.Register(services);
+        using var provider = services.BuildServiceProvider();
+        var command = Cli.Parse(["eval", "--skill", "dotnet-test-quality", "--results", results]);
+        var expected = Evaluation.Run(AgentTool.FindToolkit(), command.Get("skill"), command.Get("results"));
+        var actual = await provider.GetRequiredService<AgentTool.AgentToolRuntime>().Execute(
+            command, AgentTool.FindToolkit(), repo.Root, new(new(), new(), new(), new()));
+
+        Assert.Equal(expected.Status, actual.Status);
+        Assert.Equal(expected.ExitCode, actual.ExitCode);
+        Assert.Equal(System.Text.Json.JsonSerializer.Serialize(expected.Data, AgentTool.Json),
+            System.Text.Json.JsonSerializer.Serialize(actual.Data, AgentTool.Json));
+    }
+
+    [Fact]
     public async Task InstallerModuleOwnsOnlyInstallerCommandsAndDispatchesDryRun()
     {
         var module = new AgentTool.InstallerCommandModule();
