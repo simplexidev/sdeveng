@@ -208,6 +208,24 @@ public sealed class HostLifecycleTests
         Assert.False(Directory.Exists(cache));
     }
 
+    [Fact]
+    public async Task UpstreamModuleOwnsFiniteFamilyAndDispatchesStatus()
+    {
+        var module = new AgentTool.UpstreamCommandModule();
+        foreach (var command in new[] { "upstream status", "upstream update", "upstream dotnet-skills" })
+            Assert.True(module.CanHandle(Cli.Parse(command.Split(' '))));
+        Assert.False(module.CanHandle(Cli.Parse(["validate"])));
+
+        var result = await module.Execute(Cli.Parse(["upstream", "status"]), AgentTool.FindToolkit(), Path.GetTempPath(),
+            new(new(), new(), new(), new()), CancellationToken.None);
+
+        Assert.Equal(0, result.ExitCode);
+        var data = System.Text.Json.JsonSerializer.Serialize(result.Data, AgentTool.Json);
+        Assert.Contains("plugins", data, StringComparison.Ordinal);
+        Assert.Contains("tools", data, StringComparison.Ordinal);
+        Assert.Contains("versions", data, StringComparison.Ordinal);
+    }
+
     private sealed class TestCommandModule : AgentTool.ICommandModule
     {
         public bool CanHandle(Cli command) => command.Command == "feature sample";
