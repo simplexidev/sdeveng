@@ -42,13 +42,17 @@ public class MetadataTests
         Json.Schema.SchemaRegistry.Global.Register(stageSchema);
         Json.Schema.SchemaRegistry.Global.Register(stepSchema);
         var phase = JsonNode.Parse("""
-            {"id":"phase-0","title":"Foundation","goal":"Make execution deterministic","stages":[{"id":"stage-1","title":"Hierarchy","goal":"Define the hierarchy","executionMode":"change","labels":["type:chore"],"steps":[{"index":0,"title":"Schemas","acceptanceTarget":"Both schemas validate","reviewGate":"none"}]}]}
+            {"id":"phase-0","title":"Foundation","goal":"Make execution deterministic","stages":[{"id":"stage-1","title":"Hierarchy","goal":"Define the hierarchy","executionMode":"CHANGE","labels":["type:chore"],"steps":[{"index":0,"title":"Schemas","acceptanceTarget":"Both schemas validate","reviewGate":"none"}]}]}
             """)!;
         Assert.True(phaseSchema.Evaluate(phase, new() { OutputFormat = OutputFormat.List }).IsValid);
         phase["stages"]![0]!["executionMode"] = "unknown";
         Assert.False(phaseSchema.Evaluate(phase, new() { OutputFormat = OutputFormat.List }).IsValid);
+        phase["stages"]![0]!["executionMode"] = "change";
+        Assert.False(phaseSchema.Evaluate(phase, new() { OutputFormat = OutputFormat.List }).IsValid);
+        phase["stages"]![0]!["executionMode"] = "OPERATION";
+        Assert.True(phaseSchema.Evaluate(phase, new() { OutputFormat = OutputFormat.List }).IsValid);
         var stage = JsonNode.Parse("""
-            {"id":"stage-1","title":"Hierarchy","goal":"Define the hierarchy","executionMode":"change","labels":[],"steps":[{"index":0,"title":"Schemas","acceptanceTarget":"Both schemas validate","reviewGate":"none"}]}
+            {"id":"stage-1","title":"Hierarchy","goal":"Define the hierarchy","executionMode":"CHANGE","labels":[],"steps":[{"index":0,"title":"Schemas","acceptanceTarget":"Both schemas validate","reviewGate":"none"}]}
             """)!;
         Assert.True(stageSchema.Evaluate(stage, new() { OutputFormat = OutputFormat.List }).IsValid);
         stage["steps"]![0]!["index"] = -1;
