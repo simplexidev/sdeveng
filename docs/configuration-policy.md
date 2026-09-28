@@ -22,3 +22,15 @@ The machine-level configuration directory is platform-specific:
 - Linux and other Unix systems: `/etc/sdeveng`.
 
 Machine configuration is intended for administrator-managed defaults shared by users of the machine. User-level configuration is per-user and takes precedence over this layer; repository configuration is project-scoped and takes precedence over user configuration.
+
+## User configuration directory
+
+The user-level configuration directory is platform-specific:
+
+- Windows: `%AppData%\sdeveng` (normally under the user's roaming application data directory).
+- macOS: `~/Library/Application Support/sdeveng`.
+- Linux and other Unix systems: `${XDG_CONFIG_HOME:-~/.config}/sdeveng`.
+
+## Repository configuration directory
+
+The repository-level configuration directory is `.sdeveng` at the repository root. Configuration files in this directory are scoped to that repository and should be reviewed as repository content.
