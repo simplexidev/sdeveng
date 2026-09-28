@@ -192,8 +192,21 @@ public static class AgentTool
             services.AddSingleton<ICommandModule, ReportCommandModule>();
             services.AddSingleton<ICommandModule, JevCommandModule>();
             services.AddSingleton<ICommandModule, UpstreamCommandModule>();
+            services.AddSingleton<ICommandModule, ValidateCommandModule>();
             services.AddSingleton<ICommandModule, ExistingCommandsModule>();
             return services;
+        }
+    }
+
+    public sealed class ValidateCommandModule : ICommandModule
+    {
+        public bool CanHandle(Cli command) => command.Command == "validate";
+
+        public Task<Result> Execute(Cli command, string toolkit, string root, Settings settings, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            command.ValidateCommand("validate");
+            return Task.FromResult(Validation.Run(toolkit));
         }
     }
 
@@ -479,7 +492,6 @@ public static class AgentTool
         var artifacts = Path.Combine(root, ".agent-tool");
         switch (command)
         {
-            case "validate": return Validation.Run(toolkit);
             case "eval": return Evaluation.Run(toolkit, c.Get("skill"), c.Get("results"));
             case "release": return Release(toolkit, c.Require("output"));
             case "results init": Results.RequireWords(c.Words.Skip(2).ToArray(), 0, "Usage: results init."); return Results.Init(root);

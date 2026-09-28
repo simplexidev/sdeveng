@@ -33,6 +33,28 @@ public sealed class HostLifecycleTests
     }
 
     [Fact]
+    public async Task ValidateModuleOwnsAndDispatchesValidation()
+    {
+        var module = new AgentTool.ValidateCommandModule();
+        Assert.True(module.CanHandle(Cli.Parse(["validate"])));
+        Assert.False(module.CanHandle(Cli.Parse(["eval"])));
+
+        var services = new ServiceCollection();
+        services.AddLogging();
+        AgentTool.AgentToolModule.Register(services);
+        using var provider = services.BuildServiceProvider();
+        var toolkit = AgentTool.FindToolkit();
+        var expected = Validation.Run(toolkit);
+        var actual = await provider.GetRequiredService<AgentTool.AgentToolRuntime>().Execute(
+            Cli.Parse(["validate"]), toolkit, Environment.CurrentDirectory, new(new(), new(), new(), new()));
+
+        Assert.Equal(expected.Status, actual.Status);
+        Assert.Equal(expected.ExitCode, actual.ExitCode);
+        Assert.Equal(System.Text.Json.JsonSerializer.Serialize(expected.Data, AgentTool.Json),
+            System.Text.Json.JsonSerializer.Serialize(actual.Data, AgentTool.Json));
+    }
+
+    [Fact]
     public async Task InstallerModuleOwnsOnlyInstallerCommandsAndDispatchesDryRun()
     {
         var module = new AgentTool.InstallerCommandModule();
