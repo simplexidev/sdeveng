@@ -36,6 +36,7 @@ public static class AgentTool
         sdeveng <command> [options]
 
         version | --version
+        config explain
         install | update [--home DIR] [--codex-home DIR] [--dry-run] [--bin]
         uninstall [--home DIR] [--codex-home DIR] [--dry-run]
         doctor
@@ -176,6 +177,7 @@ public static class AgentTool
         {
             services.AddSingleton<AgentToolRuntime>();
             services.AddSingleton<ICommandModule, InstallerCommandModule>();
+            services.AddSingleton<ICommandModule, ConfigurationCommandModule>();
             services.AddSingleton<ICommandModule, DoctorCommandModule>();
             services.AddSingleton<ICommandModule, GitCommandModule>();
             services.AddSingleton<ICommandModule, RepoCommandModule>();
@@ -189,6 +191,31 @@ public static class AgentTool
             services.AddSingleton<ICommandModule, ReleaseCommandModule>();
             services.AddSingleton<ICommandModule, ResultsCommandModule>();
             return services;
+        }
+    }
+
+    public sealed class ConfigurationCommandModule : ICommandModule
+    {
+        public bool CanHandle(Cli command) => command.Command == "config explain";
+
+        public Task<Result> Execute(Cli command, string toolkit, string root, Settings settings, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            command.ValidateCommand("config explain");
+            return Task.FromResult(Result.Ok(new
+            {
+                kind = "effective-config",
+                schemaVersion = 1,
+                settings,
+                precedence = new[] { "toolkit JSON defaults", "environment variables", "invocation --set overrides" },
+                sources = new
+                {
+                    toolkit = new[] { "config/jev.json", "config/output-limits.json", "config/repo-health.json", "config/toolkit.json" },
+                    environmentVariables = new[] { "JEV_MODE", "TYPESAFE_API_URL", "JEV_MODEL", "JEV_TIMEOUT_SECONDS" },
+                    invocationOverrides = "--set NAME=VALUE; supported for the listed environment variables",
+                    machineAndUserFiles = "No separate machine- or user-level configuration files are loaded."
+                }
+            }));
         }
     }
 
@@ -832,6 +859,7 @@ public sealed class Cli
         var allowed = new HashSet<string>(new[] { "root", "toolkit", "set", "json", "help", "version" });
         string[] specific = command switch
         {
+            "config explain" => ["set"],
             "install" or "update" => ["home", "codex-home", "dry-run", "bin"],
             "uninstall" => ["home", "codex-home", "dry-run"],
             "doctor" => ["home", "codex-home"],

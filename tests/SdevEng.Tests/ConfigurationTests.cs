@@ -28,4 +28,16 @@ public class ConfigurationTests
     public void BadTimeoutFailsExplicitly() => Assert.Throws<ArgumentException>(() => Settings.Load(AgentTool.FindToolkit(), name => name == "JEV_TIMEOUT_SECONDS" ? "bad" : null));
     [Fact]
     public void RejectsInsecureOrCredentialEndpoint() { Assert.Throws<ArgumentException>(() => new JevSettings { ApiUrl = "http://example.invalid" }.Validate()); Assert.Throws<ArgumentException>(() => new JevSettings { ApiUrl = "https://user:password@example.invalid" }.Validate()); }
+
+    [Fact]
+    public async Task ExplainReportsEffectiveSettingsAndConfigurationPrecedence()
+    {
+        var configured = Settings.Load(AgentTool.FindToolkit(), name => name == "JEV_MODE" ? "off" : null);
+        var result = await CommandTestRuntime.Execute(Cli.Parse(["config", "explain"]), AgentTool.FindToolkit(), Environment.CurrentDirectory, configured);
+        var node = System.Text.Json.JsonSerializer.SerializeToNode(result.Data, AgentTool.Json)!;
+        Assert.Equal("effective-config", node["kind"]!.GetValue<string>());
+        Assert.Equal("off", node["settings"]!["jev"]!["mode"]!.GetValue<string>());
+        Assert.Equal("invocation --set overrides", node["precedence"]![2]!.GetValue<string>());
+        Assert.Contains("No separate machine- or user-level configuration files", node["sources"]!["machineAndUserFiles"]!.GetValue<string>(), StringComparison.Ordinal);
+    }
 }
