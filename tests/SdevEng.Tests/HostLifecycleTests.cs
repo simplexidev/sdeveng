@@ -74,6 +74,26 @@ public sealed class HostLifecycleTests
         Assert.True(data.RootElement.TryGetProperty("installation", out _));
     }
 
+    [Fact]
+    public async Task GitModuleOwnsOnlyRequestedGitCommandsAndDispatchesState()
+    {
+        var module = new AgentTool.GitCommandModule();
+        foreach (var command in new[] { "git state", "git summary", "git conflict-forecast", "git prepare-commit", "git issue-start" })
+            Assert.True(module.CanHandle(Cli.Parse(command.Split(' '))));
+        Assert.False(module.CanHandle(Cli.Parse(["repo", "summary"])));
+
+        var services = new ServiceCollection();
+        services.AddLogging();
+        AgentTool.AgentToolModule.Register(services);
+        using var provider = services.BuildServiceProvider();
+        var result = await provider.GetRequiredService<AgentTool.AgentToolRuntime>().Execute(
+            Cli.Parse(["git", "state"]), AgentTool.FindToolkit(), Environment.CurrentDirectory,
+            new(new(), new(), new(), new()));
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal("ok", result.Status);
+    }
+
     private sealed class TestCommandModule : AgentTool.ICommandModule
     {
         public bool CanHandle(Cli command) => command.Command == "feature sample";
