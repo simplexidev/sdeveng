@@ -194,6 +194,7 @@ public static class AgentTool
             services.AddSingleton<ICommandModule, UpstreamCommandModule>();
             services.AddSingleton<ICommandModule, ValidateCommandModule>();
             services.AddSingleton<ICommandModule, EvalCommandModule>();
+            services.AddSingleton<ICommandModule, ReleaseCommandModule>();
             services.AddSingleton<ICommandModule, ExistingCommandsModule>();
             return services;
         }
@@ -220,6 +221,18 @@ public static class AgentTool
             cancellationToken.ThrowIfCancellationRequested();
             command.ValidateCommand("eval");
             return Task.FromResult(Evaluation.Run(toolkit, command.Get("skill"), command.Get("results")));
+        }
+    }
+
+    public sealed class ReleaseCommandModule : ICommandModule
+    {
+        public bool CanHandle(Cli command) => command.Command == "release";
+
+        public Task<Result> Execute(Cli command, string toolkit, string root, Settings settings, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            command.ValidateCommand("release");
+            return Task.FromResult(Release(toolkit, command.Require("output")));
         }
     }
 
@@ -505,7 +518,6 @@ public static class AgentTool
         var artifacts = Path.Combine(root, ".agent-tool");
         switch (command)
         {
-            case "release": return Release(toolkit, c.Require("output"));
             case "results init": Results.RequireWords(c.Words.Skip(2).ToArray(), 0, "Usage: results init."); return Results.Init(root);
             case "results new": return await Results.New(root, c.Words.Skip(2).ToArray());
             case "results list": return Results.List(root, c.Words.Skip(2).ToArray());
