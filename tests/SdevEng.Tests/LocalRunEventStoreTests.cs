@@ -25,4 +25,27 @@ public class LocalRunEventStoreTests
         }
         finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
     }
+
+    [Fact]
+    public void RepositoryAndBranchIdentifiersSurviveReopen()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "sdeveng-events-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var runId = Guid.NewGuid();
+            LocalRunEventStore.AppendRepositoryIdentifier(directory, runId, "simplexidev/sdeveng");
+            LocalRunEventStore.AppendBranchIdentifier(directory, runId, "factory/run-42");
+
+            var events = LocalRunEventStore.Read(directory, runId);
+            var schema = JsonSchema.FromFile(Path.Combine(AgentTool.FindToolkit(), "schemas/run-event.schema.json"));
+            Assert.Equal(2, events.Count);
+            foreach (var item in events) Assert.True(schema.Evaluate(JsonNode.Parse(item.GetRawText())!).IsValid);
+            Assert.Equal("git", events[0].GetProperty("externalSystem").GetString());
+            Assert.Equal("repository", events[0].GetProperty("identifierType").GetString());
+            Assert.Equal("simplexidev/sdeveng", events[0].GetProperty("identifier").GetString());
+            Assert.Equal("branch", events[1].GetProperty("identifierType").GetString());
+            Assert.Equal("factory/run-42", events[1].GetProperty("identifier").GetString());
+        }
+        finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
+    }
 }
