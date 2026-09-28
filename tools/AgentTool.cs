@@ -187,6 +187,7 @@ public static class AgentTool
             services.AddSingleton<ICommandModule, DoctorCommandModule>();
             services.AddSingleton<ICommandModule, GitCommandModule>();
             services.AddSingleton<ICommandModule, RepoCommandModule>();
+            services.AddSingleton<ICommandModule, GitHubCommandModule>();
             services.AddSingleton<ICommandModule, ExistingCommandsModule>();
             return services;
         }
@@ -295,6 +296,32 @@ public static class AgentTool
         }
     }
 
+    public sealed class GitHubCommandModule : ICommandModule
+    {
+        public bool CanHandle(Cli command) => command.Command is "github prepare-pr" or "github pr-status" or "github review-comments" or "github actions";
+
+        public async Task<Result> Execute(Cli command, string toolkit, string root, Settings settings, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            command.ValidateCommand(command.Command);
+            var artifacts = Path.Combine(root, ".agent-tool");
+            switch (command.Command)
+            {
+                case "github prepare-pr":
+                    await Git.EnsureSafe(root, false);
+                    var diff = await Processes.Run("git", ["diff", "--check"], root);
+                    var staged = await Processes.Run("git", ["diff", "--cached", "--check"], root);
+                    return new(diff.ExitCode != 0 || staged.ExitCode != 0 ? "failed" : "ok", new { state = await Git.State(root), whitespace = Output.Compact(diff.Output + staged.Output, settings.Output), next = "Review explicit file scope before staging. Commit/push/PR creation remains caller-controlled; never merge without approval." }, diff.ExitCode != 0 || staged.ExitCode != 0 ? 1 : 0);
+                case "github pr-status": return await RunArtifact("gh", ["pr", "status", "--json", "headRefName,author,reviewDecision,statusCheckRollup"], root, artifacts, settings.Output);
+                case "github review-comments":
+                    var pr = command.PositiveInt("pr").ToString(CultureInfo.InvariantCulture);
+                    return await RunArtifact("gh", ["api", $"repos/{{owner}}/{{repo}}/pulls/{pr}/comments", "--paginate"], root, artifacts, settings.Output);
+                case "github actions": return await GitHub.Actions(root, artifacts, command.Get("run-id"), command.Flag("failed-logs"), settings.Output);
+                default: throw new ArgumentException("Unknown command. Use --help.");
+            }
+        }
+    }
+
     public sealed class RuntimeSettingsOptions { public Settings Settings { get; set; } = new(new(), new(), new(), new()); public string? ValidationError { get; set; } }
 
     public static string RenderJson(Result result, string command, string root, OutputSettings output)
@@ -351,16 +378,6 @@ public static class AgentTool
         var artifacts = Path.Combine(root, ".agent-tool");
         switch (command)
         {
-            case "github prepare-pr":
-                await Git.EnsureSafe(root, false);
-                var diff = await Processes.Run("git", ["diff", "--check"], root);
-                var staged = await Processes.Run("git", ["diff", "--cached", "--check"], root);
-                return new(diff.ExitCode != 0 || staged.ExitCode != 0 ? "failed" : "ok", new { state = await Git.State(root), whitespace = Output.Compact(diff.Output + staged.Output, settings.Output), next = "Review explicit file scope before staging. Commit/push/PR creation remains caller-controlled; never merge without approval." }, diff.ExitCode != 0 || staged.ExitCode != 0 ? 1 : 0);
-            case "github pr-status": return await RunArtifact("gh", ["pr", "status", "--json", "headRefName,author,reviewDecision,statusCheckRollup"], root, artifacts, settings.Output);
-            case "github review-comments":
-                var pr = c.PositiveInt("pr").ToString(CultureInfo.InvariantCulture);
-                return await RunArtifact("gh", ["api", $"repos/{{owner}}/{{repo}}/pulls/{pr}/comments", "--paginate"], root, artifacts, settings.Output);
-            case "github actions": return await GitHub.Actions(root, artifacts, c.Get("run-id"), c.Flag("failed-logs"), settings.Output);
             case "dotnet verify":
             case "dotnet format":
             case "dotnet package-audit":
