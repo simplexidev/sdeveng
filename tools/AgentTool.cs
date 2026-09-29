@@ -220,6 +220,7 @@ public static class AgentTool
         repo changed-files [--base REF] | summary [--base REF] | locate --query TEXT | health | hygiene
         repo affected-projects [--base REF] | ownership --file PATH
         git state | summary [--base REF] | conflict-forecast --base REF | prepare-commit | issue-start --issue NUMBER --branch NAME
+        git branch-create --branch NAME | worktree-create --branch NAME --path DIR
         github pr-status | review-comments --pr NUMBER | prepare-pr
         github actions [--run-id NUMBER] [--failed-logs]
         dotnet inspect [--project PATH] | build-plan [--base REF] [--project PATH] [--configuration NAME] [--binlog]
@@ -617,7 +618,7 @@ public static class AgentTool
 
     public sealed class GitCommandModule : ICommandModule
     {
-        public bool CanHandle(Cli command) => command.Command is "git state" or "git summary" or "git conflict-forecast" or "git prepare-commit" or "git issue-start";
+        public bool CanHandle(Cli command) => command.Command is "git state" or "git summary" or "git conflict-forecast" or "git prepare-commit" or "git issue-start" or "git branch-create" or "git worktree-create";
 
         public async Task<Result> Execute(Cli command, string toolkit, string root, Settings settings, CancellationToken cancellationToken)
         {
@@ -641,6 +642,20 @@ public static class AgentTool
                     if (info.ExitCode != 0 || JsonNode.Parse(info.Output)?["state"]?.GetValue<string>() != "OPEN") throw new InvalidOperationException("Issue is unavailable or not open; no branch created.");
                     await Git.Require(root, "switch", "-c", branch);
                     return Result.Ok(new { branch, issue });
+                case "git branch-create":
+                    await Git.EnsureSafe(root, true);
+                    var newBranch = command.Require("branch");
+                    await Git.Require(root, "check-ref-format", "--branch", newBranch);
+                    await Git.Require(root, "switch", "-c", newBranch);
+                    return Result.Ok(new { branch = newBranch });
+                case "git worktree-create":
+                    await Git.EnsureSafe(root, true);
+                    var worktreeBranch = command.Require("branch");
+                    var worktreePath = Path.GetFullPath(command.Require("path"));
+                    await Git.Require(root, "check-ref-format", "--branch", worktreeBranch);
+                    if (Directory.Exists(worktreePath) || File.Exists(worktreePath)) throw new InvalidOperationException("Worktree path already exists; no worktree created.");
+                    await Git.Require(root, "worktree", "add", "-b", worktreeBranch, worktreePath);
+                    return Result.Ok(new { branch = worktreeBranch, path = worktreePath });
                 default: throw new ArgumentException("Unknown command. Use --help.");
             }
         }
@@ -1144,6 +1159,8 @@ public sealed class Cli
             "repo locate" => ["query"],
             "repo ownership" => ["file"],
             "git issue-start" => ["issue", "branch"],
+            "git branch-create" => ["branch"],
+            "git worktree-create" => ["branch", "path"],
             "github review-comments" => ["pr"],
             "github actions" => ["run-id", "failed-logs"],
             "dotnet verify" => ["base", "project"],
@@ -1170,7 +1187,7 @@ public sealed class Cli
     public List<string> Words { get; } = [];
     public Dictionary<string, string?> Options { get; } = new(StringComparer.Ordinal);
     static readonly HashSet<string> Flags = ["json", "help", "version", "dry-run", "bin", "apply", "safe-input", "binlog", "failed-logs"];
-    static readonly HashSet<string> Values = ["root", "toolkit", "set", "home", "codex-home", "base", "baseline", "query", "issue", "branch", "pr", "run-id", "project", "file", "sha256", "input", "output", "skill", "results", "configuration", "test", "class", "category", "filter", "process-id", "signal", "duration-seconds"];
+    static readonly HashSet<string> Values = ["root", "toolkit", "set", "home", "codex-home", "base", "baseline", "query", "issue", "branch", "path", "pr", "run-id", "project", "file", "sha256", "input", "output", "skill", "results", "configuration", "test", "class", "category", "filter", "process-id", "signal", "duration-seconds"];
     public string? Get(string name) => Options.GetValueOrDefault(name);
     public bool Flag(string name) => Options.ContainsKey(name);
     public string Require(string name) => Get(name) is { Length: > 0 } v ? v : throw new ArgumentException($"--{name} is required.");
