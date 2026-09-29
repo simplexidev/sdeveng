@@ -1,4 +1,5 @@
 using System.Net;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace SdevEng.Tests;
 
@@ -41,11 +42,42 @@ public sealed class GitHubStatusAndReviewCommentReaderTests
         var client = new StubReadClient([
             """[{"number":9,"head":{"ref":"feature/x"}}]""",
             """{"head":{"ref":"feature/x"},"reviewDecision":"APPROVED","statusCheckRollup":[]}"""]);
-        var module = new AgentTool.GitHubCommandModule(new GitHubPrStatusReader(client));
-        var result = await module.Execute(Cli.Parse(["github", "pr-status"]), AgentTool.FindToolkit(), repo.Root,
+        var services = new ServiceCollection();
+        services.AddLogging();
+        AgentTool.AgentToolModule.Register(services);
+        services.AddSingleton<IGitHubReadClient>(client);
+        using var provider = services.BuildServiceProvider();
+        var result = await provider.GetRequiredService<AgentTool.AgentToolRuntime>().Execute(Cli.Parse(["github", "pr-status"]), AgentTool.FindToolkit(), repo.Root,
             new(new(), new(), new(), new()), CancellationToken.None);
         Assert.Equal("ok", result.Status);
         Assert.Equal(new Uri("https://api.github.com/repos/o/r/pulls?head=o%3Afeature%2Fx&state=open&per_page=100"), client.Endpoints[0]);
+    }
+
+    [Fact]
+    public async Task ReviewCommentsCommandUsesRegisteredReaderAndWritesPaginatedArtifact()
+    {
+        using var repo = new TemporaryGitRepository();
+        repo.Run("remote", "add", "origin", "https://github.com/o/r.git");
+        var secondPage = new Uri("https://api.github.com/repos/o/r/pulls/9/comments?page=2");
+        var client = new StubReadClient([
+            """[{"id":17,"body":"first"}]""",
+            """[{"id":18,"body":"second"}]"""
+        ], [secondPage]);
+        var services = new ServiceCollection();
+        services.AddLogging();
+        AgentTool.AgentToolModule.Register(services);
+        services.AddSingleton<IGitHubReadClient>(client);
+        using var provider = services.BuildServiceProvider();
+
+        var result = await provider.GetRequiredService<AgentTool.AgentToolRuntime>().Execute(Cli.Parse(["github", "review-comments", "--pr", "9"]), AgentTool.FindToolkit(), repo.Root,
+            new(new(), new(), new(), new()), CancellationToken.None);
+
+        Assert.Equal("ok", result.Status);
+        Assert.Equal(new Uri("https://api.github.com/repos/o/r/pulls/9/comments?per_page=100"), client.Endpoints[0]);
+        Assert.Equal(secondPage, client.Endpoints[1]);
+        var report = Assert.IsType<ProcessReport>(result.Data);
+        using var artifact = System.Text.Json.JsonDocument.Parse(await File.ReadAllTextAsync(report.Artifact));
+        Assert.Equal(new long[] { 17, 18 }, artifact.RootElement.EnumerateArray().Select(comment => comment.GetProperty("id").GetInt64()));
     }
 
     [Fact]
@@ -65,17 +97,19 @@ public sealed class GitHubStatusAndReviewCommentReaderTests
         Assert.Equal(new Uri("https://api.github.com/repos/o/r/pulls/9/comments?per_page=100"), client.Endpoints[0]);
     }
 
-    sealed class StubReadClient(params string[] bodies) : IGitHubReadClient
+    sealed class StubReadClient(string[] bodies, Uri[]? nextPages = null) : IGitHubReadClient
     {
-        public StubReadClient(string body, string? link = null) : this(new[] { body }) => Link = link;
+        public StubReadClient(string body, string? link = null) : this([body], null) => Link = link;
         public List<Uri> Endpoints { get; } = [];
         string? Link { get; }
         int _index;
         public Task<HttpResponseMessage> GetAsync(Uri endpoint, CancellationToken cancellationToken = default)
         {
             Endpoints.Add(endpoint);
-            var response = new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(bodies[_index++]) };
-            if (Link is not null) response.Headers.TryAddWithoutValidation("Link", Link);
+            var index = _index++;
+            var response = new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(bodies[index]) };
+            var link = index == 0 && nextPages is { Length: > 0 } ? $"<{nextPages[0]}>; rel=\"next\"" : Link;
+            if (link is not null) response.Headers.TryAddWithoutValidation("Link", link);
             return Task.FromResult(response);
         }
     }

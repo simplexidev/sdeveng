@@ -1171,7 +1171,12 @@ public static class AgentTool
     public sealed class GitHubCommandModule : ICommandModule
     {
         private readonly GitHubPrStatusReader? _prStatusReader;
-        public GitHubCommandModule(GitHubPrStatusReader? prStatusReader = null) => _prStatusReader = prStatusReader;
+        private readonly GitHubReviewCommentReader? _reviewCommentReader;
+        public GitHubCommandModule(GitHubPrStatusReader? prStatusReader = null, GitHubReviewCommentReader? reviewCommentReader = null)
+        {
+            _prStatusReader = prStatusReader;
+            _reviewCommentReader = reviewCommentReader;
+        }
         private static (string Owner, string Repository) GitHubRepositoryTarget(string remote)
         {
             string path;
@@ -1209,7 +1214,22 @@ public static class AgentTool
                     return Result.Ok(await reader.ReadCurrentBranchAsync(owner, repository, branch, cancellationToken));
                 case "github review-comments":
                     var pr = command.PositiveInt("pr").ToString(CultureInfo.InvariantCulture);
-                    return await RunArtifact("gh", ["api", $"repos/{{owner}}/{{repo}}/pulls/{pr}/comments", "--paginate"], root, artifacts, settings.Output);
+                    var reviewReader = _reviewCommentReader ?? throw new InvalidOperationException("GitHub review comment reader is unavailable.");
+                    var originUrl = (await Git.Require(root, "remote", "get-url", "origin")).Trim();
+                    var (reviewOwner, reviewRepository) = GitHubRepositoryTarget(originUrl);
+                    var comments = new List<JsonElement>();
+                    Uri? page = null;
+                    do
+                    {
+                        var result = await reviewReader.ReadPageAsync(reviewOwner, reviewRepository, int.Parse(pr, CultureInfo.InvariantCulture), page, cancellationToken);
+                        comments.AddRange(result.Comments.Select(comment => comment.Raw));
+                        page = result.NextPage;
+                    } while (page is not null);
+                    SafeFiles.NoLinks(artifacts);
+                    Directory.CreateDirectory(artifacts);
+                    var path = Path.Combine(artifacts, $"github-review-comments-{DateTime.UtcNow:yyyyMMddTHHmmss}-{Guid.NewGuid():N}.log");
+                    await File.WriteAllTextAsync(path, JsonSerializer.Serialize(comments), cancellationToken);
+                    return Result.Ok(new ProcessReport(0, Output.SummarizeFile(path, settings.Output), path));
                 case "github actions": return await GitHub.Actions(root, artifacts, command.Get("run-id"), command.Flag("failed-logs"), settings.Output);
                 default: throw new ArgumentException("Unknown command. Use --help.");
             }
