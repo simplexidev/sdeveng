@@ -31,6 +31,50 @@ public interface IGitHubReadClient
     Task<HttpResponseMessage> GetAsync(Uri endpoint, CancellationToken cancellationToken = default);
 }
 
+public sealed record GitHubRepositoryMetadata(
+    long Id, string FullName, Uri HtmlUrl, string? Description, string DefaultBranch,
+    bool IsPrivate, bool IsArchived, string Visibility, DateTimeOffset? PushedAt, DateTimeOffset? UpdatedAt);
+
+/// <summary>Reads typed repository metadata through the shared GitHub read transport.</summary>
+public sealed class GitHubRepositoryMetadataReader(IGitHubReadClient client)
+{
+    static readonly Uri ApiRoot = new("https://api.github.com/");
+
+    public async Task<GitHubRepositoryMetadata> ReadAsync(string owner, string repository, CancellationToken cancellationToken = default)
+    {
+        static string Segment(string value, string name) =>
+            !string.IsNullOrWhiteSpace(value) && Regex.IsMatch(value, @"^[A-Za-z0-9_.-]+$", RegexOptions.CultureInvariant)
+                ? Uri.EscapeDataString(value) : throw new ArgumentException($"{name} must be a GitHub owner or repository name.", name);
+
+        var endpoint = new Uri(ApiRoot, $"repos/{Segment(owner, nameof(owner))}/{Segment(repository, nameof(repository))}");
+        using var response = await client.GetAsync(endpoint, cancellationToken);
+        response.EnsureSuccessStatusCode();
+        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+        var root = document.RootElement;
+        static string RequiredString(JsonElement value, string name) =>
+            value.TryGetProperty(name, out var property) && property.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(property.GetString())
+                ? property.GetString()! : throw new JsonException($"GitHub repository response is missing '{name}'.");
+        static bool RequiredBoolean(JsonElement value, string name) =>
+            value.TryGetProperty(name, out var property) && property.ValueKind is JsonValueKind.True or JsonValueKind.False
+                ? property.GetBoolean() : throw new JsonException($"GitHub repository response is missing '{name}'.");
+        static DateTimeOffset? OptionalDate(JsonElement value, string name) =>
+            value.TryGetProperty(name, out var property) && property.ValueKind == JsonValueKind.String
+                ? DateTimeOffset.Parse(property.GetString()!, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind) : null;
+
+        if (!root.TryGetProperty("id", out var id) || !id.TryGetInt64(out var repositoryId) || repositoryId <= 0)
+            throw new JsonException("GitHub repository response has an invalid 'id'.");
+        if (!Uri.TryCreate(RequiredString(root, "html_url"), UriKind.Absolute, out var htmlUrl) || htmlUrl.Scheme != Uri.UriSchemeHttps)
+            throw new JsonException("GitHub repository response has an invalid 'html_url'.");
+        var fullName = RequiredString(root, "full_name");
+        var visibility = root.TryGetProperty("visibility", out var visibilityValue) && visibilityValue.ValueKind == JsonValueKind.String
+            ? visibilityValue.GetString()! : RequiredBoolean(root, "private") ? "private" : "public";
+        return new(repositoryId, fullName, htmlUrl, root.TryGetProperty("description", out var description) && description.ValueKind == JsonValueKind.String ? description.GetString() : null,
+            RequiredString(root, "default_branch"), RequiredBoolean(root, "private"), RequiredBoolean(root, "archived"), visibility,
+            OptionalDate(root, "pushed_at"), OptionalDate(root, "updated_at"));
+    }
+}
+
 /// <summary>Performs mutations against the GitHub API.</summary>
 public interface IGitHubWriteClient
 {
