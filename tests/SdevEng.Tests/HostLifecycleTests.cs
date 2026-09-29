@@ -298,11 +298,30 @@ public sealed class HostLifecycleTests
 
         using var data = System.Text.Json.JsonDocument.Parse(System.Text.Json.JsonSerializer.Serialize(result.Data, AgentTool.Json));
         Assert.Equal(4, data.RootElement.GetProperty("checks").GetArrayLength());
+        var prerequisites = data.RootElement.GetProperty("prerequisites");
+        Assert.Equal("ok", prerequisites.GetProperty("required").GetProperty("status").GetString());
+        Assert.Equal(2, prerequisites.GetProperty("required").GetProperty("checks").GetArrayLength());
+        Assert.Equal("informational", prerequisites.GetProperty("optional").GetProperty("status").GetString());
+        Assert.Equal(2, prerequisites.GetProperty("optional").GetProperty("checks").GetArrayLength());
+        Assert.Equal("ok", result.Status);
         Assert.True(data.RootElement.TryGetProperty("installation", out _));
         var github = data.RootElement.GetProperty("checks").EnumerateArray().Single(check => check.GetProperty("tool").GetString() == "gh");
         Assert.True(github.TryGetProperty("available", out _));
         Assert.True(github.TryGetProperty("authenticated", out _));
         Assert.False(github.GetProperty("required").GetBoolean());
+    }
+
+    [Fact]
+    public void DoctorRequiredFailureClassificationDoesNotPromoteOptionalGap()
+    {
+        object[] checks = [new { required = true, available = false }, new { required = false, available = false }];
+        var result = AgentTool.DoctorPrerequisiteDiagnostics.Classify(checks, requiredOk: false);
+
+        Assert.Equal("failed", result.RequiredStatus);
+        Assert.Single(result.Required);
+        Assert.Equal("informational", result.OptionalStatus);
+        Assert.Single(result.Optional);
+        Assert.Equal(false, result.Optional[0].GetType().GetProperty("available")!.GetValue(result.Optional[0]));
     }
 
     [Theory]
