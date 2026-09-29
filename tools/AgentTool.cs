@@ -140,6 +140,55 @@ public sealed class GitHubIssueReader(IGitHubReadClient client)
         ? url : throw new JsonException("GitHub response has an invalid 'html_url'.");
 }
 
+public sealed record GitHubCheck(int Id, string Name, string Status, string? Conclusion, Uri? DetailsUrl);
+public sealed record GitHubWorkflow(long Id, string Name, string State, Uri HtmlUrl);
+public sealed record GitHubWorkflowRun(long Id, string Name, string Status, string? Conclusion, Uri HtmlUrl);
+
+/// <summary>Reads typed check and workflow data through the shared GitHub read transport.</summary>
+public sealed class GitHubChecksWorkflowReader(IGitHubReadClient client)
+{
+    static readonly Uri ApiRoot = new("https://api.github.com/");
+
+    public async Task<IReadOnlyList<GitHubCheck>> ReadChecksAsync(string owner, string repository, string reference, CancellationToken cancellationToken = default)
+    {
+        var root = await ReadAsync($"repos/{Segment(owner, nameof(owner))}/{Segment(repository, nameof(repository))}/commits/{Segment(reference, nameof(reference))}/check-runs", cancellationToken);
+        return Array(root, "check_runs").Select(item => new GitHubCheck(Integer(item, "id"), RequiredString(item, "name"), RequiredString(item, "status"), OptionalString(item, "conclusion"), OptionalUrl(item, "html_url"))).ToArray();
+    }
+
+    public async Task<IReadOnlyList<GitHubWorkflow>> ReadWorkflowsAsync(string owner, string repository, CancellationToken cancellationToken = default)
+    {
+        var root = await ReadAsync($"repos/{Segment(owner, nameof(owner))}/{Segment(repository, nameof(repository))}/actions/workflows", cancellationToken);
+        return Array(root, "workflows").Select(item => new GitHubWorkflow(Long(item, "id"), RequiredString(item, "name"), RequiredString(item, "state"), RequiredUrl(item, "html_url"))).ToArray();
+    }
+
+    public async Task<IReadOnlyList<GitHubWorkflowRun>> ReadWorkflowRunsAsync(string owner, string repository, CancellationToken cancellationToken = default)
+    {
+        var root = await ReadAsync($"repos/{Segment(owner, nameof(owner))}/{Segment(repository, nameof(repository))}/actions/runs", cancellationToken);
+        return Array(root, "workflow_runs").Select(item => new GitHubWorkflowRun(Long(item, "id"), RequiredString(item, "name"), RequiredString(item, "status"), OptionalString(item, "conclusion"), RequiredUrl(item, "html_url"))).ToArray();
+    }
+
+    async Task<JsonElement> ReadAsync(string path, CancellationToken cancellationToken)
+    {
+        using var response = await client.GetAsync(new Uri(ApiRoot, path), cancellationToken);
+        response.EnsureSuccessStatusCode();
+        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+        return document.RootElement.Clone();
+    }
+
+    static string Segment(string value, string name) => !string.IsNullOrWhiteSpace(value) && Regex.IsMatch(value, @"^[A-Za-z0-9_.-]+$", RegexOptions.CultureInvariant)
+        ? Uri.EscapeDataString(value) : throw new ArgumentException($"{name} must be a GitHub owner, repository, or reference.", name);
+    static JsonElement[] Array(JsonElement root, string name) => root.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Array
+        ? value.EnumerateArray().ToArray() : throw new JsonException($"GitHub response is missing '{name}'.");
+    static string RequiredString(JsonElement root, string name) => root.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(value.GetString())
+        ? value.GetString()! : throw new JsonException($"GitHub response is missing '{name}'.");
+    static string? OptionalString(JsonElement root, string name) => root.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+    static int Integer(JsonElement root, string name) => root.TryGetProperty(name, out var value) && value.TryGetInt32(out var number) && number > 0 ? number : throw new JsonException($"GitHub response has an invalid '{name}'.");
+    static long Long(JsonElement root, string name) => root.TryGetProperty(name, out var value) && value.TryGetInt64(out var number) && number > 0 ? number : throw new JsonException($"GitHub response has an invalid '{name}'.");
+    static Uri RequiredUrl(JsonElement root, string name) => OptionalUrl(root, name) ?? throw new JsonException($"GitHub response has an invalid '{name}'.");
+    static Uri? OptionalUrl(JsonElement root, string name) => Uri.TryCreate(OptionalString(root, name), UriKind.Absolute, out var url) && url.Scheme == Uri.UriSchemeHttps ? url : null;
+}
+
 /// <summary>Performs mutations against the GitHub API.</summary>
 public interface IGitHubWriteClient
 {
