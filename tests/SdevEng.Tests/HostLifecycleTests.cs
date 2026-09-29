@@ -301,6 +301,19 @@ public sealed class HostLifecycleTests
         Assert.True(data.RootElement.TryGetProperty("installation", out _));
     }
 
+    [Theory]
+    [InlineData(0, "10.0.100", 0, "Microsoft.NETCore.App 10.0.0 [/dotnet/shared/Microsoft.NETCore.App]", true, true)]
+    [InlineData(0, "9.0.200", 0, "Microsoft.NETCore.App 10.0.0 [/dotnet/shared/Microsoft.NETCore.App]", false, true)]
+    [InlineData(-1, "", -1, "", false, false)]
+    [InlineData(0, "not-a-version", 0, "Microsoft.NETCore.App 9.0.0 [/dotnet/shared/Microsoft.NETCore.App]", false, false)]
+    public void DoctorReportsDotnetSdkAndTargetRuntimeFromLocalFacts(int sdkExit, string sdkOutput, int runtimeExit, string runtimeOutput, bool sdkAvailable, bool runtimeAvailable)
+    {
+        var state = AgentTool.DotnetDoctorDiagnostics.Evaluate(sdkExit, sdkOutput, runtimeExit, runtimeOutput);
+
+        Assert.Equal(sdkAvailable, state.SdkAvailable);
+        Assert.Equal(runtimeAvailable, state.RuntimeAvailable);
+    }
+
     [Fact]
     public async Task GitModuleOwnsOnlyRequestedGitCommandsAndDispatchesState()
     {

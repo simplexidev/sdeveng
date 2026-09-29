@@ -536,14 +536,46 @@ public static class AgentTool
                 {
                     var r = await Processes.Run(tool, args, toolkit);
                     var ok = r.ExitCode == 0 && (tool != "dotnet" || Version.TryParse(r.Output.Trim().Split('-')[0], out var v) && v.Major >= 10);
+                    if (tool == "dotnet")
+                    {
+                        ProcessResult runtimeResult;
+                        try { runtimeResult = await Processes.Run("dotnet", ["--list-runtimes"], toolkit); }
+                        catch (System.ComponentModel.Win32Exception) { runtimeResult = new(-1, ""); }
+                        var diagnostics = DotnetDoctorDiagnostics.Evaluate(r.ExitCode, r.Output, runtimeResult.ExitCode, runtimeResult.Output);
+                        checks.Add(new { tool, required, available = diagnostics.SdkAvailable, summary = Output.Compact(r.Output, settings.Output), sdkAvailable = diagnostics.SdkAvailable, sdkVersion = diagnostics.SdkVersion, runtimeAvailable = diagnostics.RuntimeAvailable, runtimes = diagnostics.Runtimes });
+                        if (!diagnostics.SdkAvailable || !diagnostics.RuntimeAvailable) requiredOk = false;
+                        continue;
+                    }
                     checks.Add(new { tool, required, available = ok, summary = Output.Compact(r.Output, settings.Output) });
                     if (required && !ok) requiredOk = false;
                 }
-                catch (System.ComponentModel.Win32Exception) { checks.Add(new { tool, required, available = false }); if (required) requiredOk = false; }
+                catch (System.ComponentModel.Win32Exception)
+                {
+                    checks.Add(tool == "dotnet"
+                        ? new { tool, required, available = false, sdkAvailable = false, sdkVersion = (string?)null, runtimeAvailable = false, runtimes = Array.Empty<string>() }
+                        : new { tool, required, available = false });
+                    if (required) requiredOk = false;
+                }
             }
             var home = c.Get("home") ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
             var codex = c.Get("codex-home") ?? (c.Get("home") is null ? Environment.GetEnvironmentVariable("CODEX_HOME") : null) ?? Path.Combine(home, ".codex");
             return new(requiredOk ? "ok" : "failed", new { checks, toolkit, codex, skills = Path.Combine(home, ".agents/skills"), installation = Installer.Inspect(codex), jev = new { settings.Jev.Mode, credentials = JevCredentials.Status(), settings.Jev.Model }, upstream = "Run upstream status for integration policy; listed integrations are not automatically installed.", optionalTools = settings.Toolkit.OptionalTools.Select(t => new { name = t, available = Processes.OnPath(t) }) }, requiredOk ? 0 : 1);
+        }
+    }
+
+    internal static class DotnetDoctorDiagnostics
+    {
+        public sealed record State(bool SdkAvailable, string? SdkVersion, bool RuntimeAvailable, string[] Runtimes);
+
+        public static State Evaluate(int sdkExitCode, string sdkOutput, int runtimeExitCode, string runtimeOutput)
+        {
+            var sdkVersion = sdkOutput.Trim();
+            var sdkAvailable = sdkExitCode == 0 && Version.TryParse(sdkVersion.Split('-')[0], out var sdk) && sdk.Major >= 10;
+            var runtimes = runtimeOutput.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Where(line => line.StartsWith("Microsoft.NETCore.App ", StringComparison.Ordinal)
+                    && Version.TryParse(line["Microsoft.NETCore.App ".Length..].Split(' ')[0], out var version) && version.Major == 10)
+                .ToArray();
+            return new(sdkAvailable, sdkAvailable ? sdkVersion : null, runtimeExitCode == 0 && runtimes.Length > 0, runtimes);
         }
     }
 
