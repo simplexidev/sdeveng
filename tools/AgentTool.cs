@@ -367,6 +367,7 @@ public static class AgentTool
             services.AddSingleton<ICommandModule, ValidateCommandModule>();
             services.AddSingleton<ICommandModule, EvalCommandModule>();
             services.AddSingleton<ICommandModule, ReleaseCommandModule>();
+            services.AddSingleton<ICommandModule, RunCommandModule>();
             services.AddSingleton<ICommandModule, ResultsCommandModule>();
             return services;
         }

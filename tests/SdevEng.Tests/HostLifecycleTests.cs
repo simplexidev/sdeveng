@@ -95,6 +95,12 @@ public sealed class HostLifecycleTests
             ("validate", typeof(AgentTool.ValidateCommandModule)),
             ("eval", typeof(AgentTool.EvalCommandModule)),
             ("release", typeof(AgentTool.ReleaseCommandModule)),
+            ("run status", typeof(AgentTool.RunCommandModule)),
+            ("run explain", typeof(AgentTool.RunCommandModule)),
+            ("run resume", typeof(AgentTool.RunCommandModule)),
+            ("run cancel", typeof(AgentTool.RunCommandModule)),
+            ("run list", typeof(AgentTool.RunCommandModule)),
+            ("run abandon", typeof(AgentTool.RunCommandModule)),
             ("results init", typeof(AgentTool.ResultsCommandModule)),
             ("results new", typeof(AgentTool.ResultsCommandModule)),
             ("results list", typeof(AgentTool.ResultsCommandModule)),
@@ -110,7 +116,7 @@ public sealed class HostLifecycleTests
             new AgentTool.ReportCommandModule(), new AgentTool.JevCommandModule(),
             new AgentTool.UpstreamCommandModule(), new AgentTool.ValidateCommandModule(),
             new AgentTool.EvalCommandModule(), new AgentTool.ReleaseCommandModule(),
-            new AgentTool.ResultsCommandModule()
+            new AgentTool.RunCommandModule(), new AgentTool.ResultsCommandModule()
         };
 
         Assert.DoesNotContain(modules, module => module.GetType().Name.Contains("ExistingCommands", StringComparison.Ordinal));
@@ -118,6 +124,38 @@ public sealed class HostLifecycleTests
         {
             var parsed = Cli.Parse(command.Split(' '));
             Assert.Equal(intendedModule, Assert.Single(modules, module => module.CanHandle(parsed)).GetType());
+        }
+    }
+
+    [Fact]
+    public async Task RegisteredHostDispatchesAllRunOperations()
+    {
+        using var repo = new TemporaryGitRepository();
+        var runDirectory = Path.Combine(repo.Root, ".sdeveng", "runs");
+        var resumable = Guid.NewGuid();
+        var abandonable = Guid.NewGuid();
+        LocalRunEventStore.AppendTransition(runDirectory, resumable, null, "created");
+        LocalRunEventStore.AppendTransition(runDirectory, resumable, "created", "paused");
+        LocalRunEventStore.AppendTransition(runDirectory, abandonable, null, "running");
+
+        var services = new ServiceCollection();
+        services.AddLogging();
+        AgentTool.AgentToolModule.Register(services);
+        using var provider = services.BuildServiceProvider();
+        var runtime = provider.GetRequiredService<AgentTool.AgentToolRuntime>();
+        var settings = new Settings(new(), new(), new(), new());
+        var toolkit = AgentTool.FindToolkit();
+        var operations = new[]
+        {
+            $"run status {resumable:D}", $"run explain {resumable:D}", $"run resume {resumable:D}",
+            $"run cancel {resumable:D}", "run list", $"run abandon {abandonable:D}"
+        };
+
+        foreach (var operation in operations)
+        {
+            var result = await runtime.Execute(Cli.Parse(operation.Split(' ')), toolkit, repo.Root, settings);
+            Assert.Equal("ok", result.Status);
+            Assert.Equal(0, result.ExitCode);
         }
     }
 
