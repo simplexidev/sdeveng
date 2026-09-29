@@ -9,7 +9,7 @@ public sealed class GitHubStatusAndReviewCommentReaderTests
     {
         var client = new StubReadClient("""{"head":{"ref":"feature/x"},"user":{"login":"alice"},"reviewDecision":"CHANGES_REQUESTED","statusCheckRollup":[{"name":"CI / test","status":"COMPLETED","conclusion":"SUCCESS","detailsUrl":"https://github.com/o/r/actions/runs/2","workflow":"CI"}]}""");
         var result = await new GitHubPrStatusReader(client).ReadAsync("o", "r", 9);
-        Assert.Equal(new Uri("https://api.github.com/repos/o/r/pulls/9"), client.Endpoint);
+        Assert.Equal(new Uri("https://api.github.com/repos/o/r/pulls/9"), client.Endpoints[0]);
         Assert.Equal("feature/x", result.HeadBranch);
         Assert.Equal("alice", result.Author);
         Assert.Equal("CHANGES_REQUESTED", result.ReviewDecision);
@@ -18,6 +18,34 @@ public sealed class GitHubStatusAndReviewCommentReaderTests
         Assert.Equal("SUCCESS", check.State);
         Assert.Equal("https://github.com/o/r/actions/runs/2", check.Link?.ToString());
         Assert.Equal("CI", check.Workflow);
+    }
+
+    [Fact]
+    public async Task FindsCurrentBranchPullRequestThenReadsItsStatus()
+    {
+        var client = new StubReadClient([
+            """[{"number":9,"head":{"ref":"feature/x"}}]""",
+            """{"head":{"ref":"feature/x"},"user":{"login":"alice"},"reviewDecision":"APPROVED","statusCheckRollup":[]}"""]);
+        var result = await new GitHubPrStatusReader(client).ReadCurrentBranchAsync("o", "r", "feature/x");
+        Assert.Equal("feature/x", result.HeadBranch);
+        Assert.Equal(new Uri("https://api.github.com/repos/o/r/pulls/9"), client.Endpoints[1]);
+        Assert.Equal("https://api.github.com/repos/o/r/pulls?head=o%3Afeature%2Fx&state=open&per_page=100", client.Endpoints[0].AbsoluteUri);
+    }
+
+    [Fact]
+    public async Task PrStatusCommandUsesCurrentBranchAndOriginThroughTypedReader()
+    {
+        using var repo = new TemporaryGitRepository();
+        repo.Run("remote", "add", "origin", "https://github.com/o/r.git");
+        repo.Run("switch", "-c", "feature/x");
+        var client = new StubReadClient([
+            """[{"number":9,"head":{"ref":"feature/x"}}]""",
+            """{"head":{"ref":"feature/x"},"reviewDecision":"APPROVED","statusCheckRollup":[]}"""]);
+        var module = new AgentTool.GitHubCommandModule(new GitHubPrStatusReader(client));
+        var result = await module.Execute(Cli.Parse(["github", "pr-status"]), AgentTool.FindToolkit(), repo.Root,
+            new(new(), new(), new(), new()), CancellationToken.None);
+        Assert.Equal("ok", result.Status);
+        Assert.Equal(new Uri("https://api.github.com/repos/o/r/pulls?head=o%3Afeature%2Fx&state=open&per_page=100"), client.Endpoints[0]);
     }
 
     [Fact]
@@ -34,17 +62,20 @@ public sealed class GitHubStatusAndReviewCommentReaderTests
         Assert.Equal("@@", comment.DiffHunk);
         Assert.Equal("RIGHT", comment.Side);
         Assert.Equal(new Uri("https://api.github.com/repos/o/r/pulls/9/comments?page=2"), result.NextPage);
-        Assert.Equal(new Uri("https://api.github.com/repos/o/r/pulls/9/comments?per_page=100"), client.Endpoint);
+        Assert.Equal(new Uri("https://api.github.com/repos/o/r/pulls/9/comments?per_page=100"), client.Endpoints[0]);
     }
 
-    sealed class StubReadClient(string body, string? link = null) : IGitHubReadClient
+    sealed class StubReadClient(params string[] bodies) : IGitHubReadClient
     {
-        public Uri? Endpoint { get; private set; }
+        public StubReadClient(string body, string? link = null) : this(new[] { body }) => Link = link;
+        public List<Uri> Endpoints { get; } = [];
+        string? Link { get; }
+        int _index;
         public Task<HttpResponseMessage> GetAsync(Uri endpoint, CancellationToken cancellationToken = default)
         {
-            Endpoint = endpoint;
-            var response = new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body) };
-            if (link is not null) response.Headers.TryAddWithoutValidation("Link", link);
+            Endpoints.Add(endpoint);
+            var response = new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(bodies[_index++]) };
+            if (Link is not null) response.Headers.TryAddWithoutValidation("Link", Link);
             return Task.FromResult(response);
         }
     }
