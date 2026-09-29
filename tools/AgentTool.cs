@@ -1312,6 +1312,17 @@ public static class Processes
     }
 }
 
+public static class GitOwnershipMarkers
+{
+    // Stored in the repository's local Git config under branch.<name>.
+    public const string BranchConfigKey = "sdeveng-owned";
+    public const string BranchConfigValue = "true";
+
+    // Stored in the linked worktree's private Git directory, never its checkout.
+    public const string WorktreeFileName = "sdeveng-owned-worktree";
+    public const string WorktreeFileContents = "sdeveng-owned-worktree-v1\n";
+}
+
 public static class Git
 {
     private static async Task<string[]> ReadOwnedPaths(string root, string file)
