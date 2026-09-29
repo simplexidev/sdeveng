@@ -71,6 +71,19 @@ public sealed record GitHubPrStatus(string? HeadBranch, string? Author, string? 
 public sealed class GitHubPrStatusReader(IGitHubReadClient client)
 {
     static readonly Uri ApiRoot = new("https://api.github.com/");
+    public async Task<GitHubPrStatus> ReadCurrentBranchAsync(string owner, string repository, string branch, CancellationToken cancellationToken = default)
+    {
+        static string Part(string value, string name) => !string.IsNullOrWhiteSpace(value) && Regex.IsMatch(value, @"^[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*$", RegexOptions.CultureInvariant) ? Uri.EscapeDataString(value) : throw new ArgumentException($"{name} is invalid.", name);
+        var query = Uri.EscapeDataString($"{owner}:{branch}");
+        using var response = await GitHubTransport.GetAsync(client, new Uri(ApiRoot, $"repos/{Part(owner, nameof(owner))}/{Part(repository, nameof(repository))}/pulls?head={query}&state=open&per_page=100"), cancellationToken);
+        using var document = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(cancellationToken), cancellationToken: cancellationToken);
+        if (document.RootElement.ValueKind != JsonValueKind.Array) throw new JsonException("GitHub pull request lookup response must be an array.");
+        var match = document.RootElement.EnumerateArray().FirstOrDefault(p => string.Equals(Nested(p, "head", "ref"), branch, StringComparison.Ordinal));
+        if (match.ValueKind != JsonValueKind.Object || !match.TryGetProperty("number", out var numberValue) || !numberValue.TryGetInt32(out var number) || number <= 0)
+            throw new InvalidOperationException("No open pull request matches the current branch.");
+        return await ReadAsync(owner, repository, number, cancellationToken);
+    }
+    static string? Nested(JsonElement value, string parent, string child) => value.TryGetProperty(parent, out var p) && p.ValueKind == JsonValueKind.Object && p.TryGetProperty(child, out var c) && c.ValueKind == JsonValueKind.String ? c.GetString() : null;
     public async Task<GitHubPrStatus> ReadAsync(string owner, string repository, int number, CancellationToken cancellationToken = default)
     {
         if (number <= 0) throw new ArgumentOutOfRangeException(nameof(number));
@@ -78,7 +91,6 @@ public sealed class GitHubPrStatusReader(IGitHubReadClient client)
         using var response = await GitHubTransport.GetAsync(client, new Uri(ApiRoot, $"repos/{Part(owner, nameof(owner))}/{Part(repository, nameof(repository))}/pulls/{number.ToString(CultureInfo.InvariantCulture)}"), cancellationToken);
         using var document = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(cancellationToken), cancellationToken: cancellationToken);
         var root = document.RootElement;
-        static string? Nested(JsonElement value, string parent, string child) => value.TryGetProperty(parent, out var p) && p.ValueKind == JsonValueKind.Object && p.TryGetProperty(child, out var c) && c.ValueKind == JsonValueKind.String ? c.GetString() : null;
         var checks = root.TryGetProperty("statusCheckRollup", out var rollup) && rollup.ValueKind == JsonValueKind.Array
             ? rollup.EnumerateArray().Select(c => new GitHubPrStatusCheck(Text(c, "name") ?? Text(c, "context") ?? "", Text(c, "state") ?? Text(c, "conclusion"), Text(c, "bucket"), Https(Text(c, "link") ?? Text(c, "detailsUrl")), Text(c, "workflow"), c.Clone())).ToArray()
             : Array.Empty<GitHubPrStatusCheck>();
@@ -1158,6 +1170,22 @@ public static class AgentTool
 
     public sealed class GitHubCommandModule : ICommandModule
     {
+        private readonly GitHubPrStatusReader? _prStatusReader;
+        public GitHubCommandModule(GitHubPrStatusReader? prStatusReader = null) => _prStatusReader = prStatusReader;
+        private static (string Owner, string Repository) GitHubRepositoryTarget(string remote)
+        {
+            string path;
+            if (Uri.TryCreate(remote, UriKind.Absolute, out var uri) && uri.Scheme is "https" or "http")
+            {
+                if (!string.Equals(uri.Host, "github.com", StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("Origin is not a GitHub repository.");
+                path = uri.AbsolutePath;
+            }
+            else if (remote.StartsWith("git@github.com:", StringComparison.OrdinalIgnoreCase)) path = remote["git@github.com:".Length..];
+            else throw new InvalidOperationException("Origin is not a GitHub repository.");
+            var parts = path.Trim('/').TrimEnd('/').Split('/');
+            if (parts.Length != 2 || string.IsNullOrWhiteSpace(parts[0]) || string.IsNullOrWhiteSpace(parts[1])) throw new InvalidOperationException("Origin is not a GitHub repository.");
+            return (parts[0], parts[1].EndsWith(".git", StringComparison.OrdinalIgnoreCase) ? parts[1][..^4] : parts[1]);
+        }
         public bool CanHandle(Cli command) => command.Command is "github prepare-pr" or "github pr-status" or "github review-comments" or "github actions";
 
         public async Task<Result> Execute(Cli command, string toolkit, string root, Settings settings, CancellationToken cancellationToken)
@@ -1172,7 +1200,13 @@ public static class AgentTool
                     var diff = await Processes.Run("git", ["diff", "--check"], root);
                     var staged = await Processes.Run("git", ["diff", "--cached", "--check"], root);
                     return new(diff.ExitCode != 0 || staged.ExitCode != 0 ? "failed" : "ok", new { state = await Git.State(root), whitespace = Output.Compact(diff.Output + staged.Output, settings.Output), next = "Review explicit file scope before staging. Commit/push/PR creation remains caller-controlled; never merge without approval." }, diff.ExitCode != 0 || staged.ExitCode != 0 ? 1 : 0);
-                case "github pr-status": return await RunArtifact("gh", ["pr", "status", "--json", "headRefName,author,reviewDecision,statusCheckRollup"], root, artifacts, settings.Output);
+                case "github pr-status":
+                    var reader = _prStatusReader ?? throw new InvalidOperationException("GitHub pull request status reader is unavailable.");
+                    var branch = (await Git.Require(root, "branch", "--show-current")).Trim();
+                    if (string.IsNullOrWhiteSpace(branch)) throw new InvalidOperationException("Current checkout is detached; pull request status is unavailable.");
+                    var origin = (await Git.Require(root, "remote", "get-url", "origin")).Trim();
+                    var (owner, repository) = GitHubRepositoryTarget(origin);
+                    return Result.Ok(await reader.ReadCurrentBranchAsync(owner, repository, branch, cancellationToken));
                 case "github review-comments":
                     var pr = command.PositiveInt("pr").ToString(CultureInfo.InvariantCulture);
                     return await RunArtifact("gh", ["api", $"repos/{{owner}}/{{repo}}/pulls/{pr}/comments", "--paginate"], root, artifacts, settings.Output);
