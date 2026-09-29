@@ -25,6 +25,18 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace SdevEng;
 
+/// <summary>Performs read-only requests against the GitHub API.</summary>
+public interface IGitHubReadClient
+{
+    Task<HttpResponseMessage> GetAsync(Uri endpoint, CancellationToken cancellationToken = default);
+}
+
+/// <summary>Performs mutations against the GitHub API.</summary>
+public interface IGitHubWriteClient
+{
+    Task<HttpResponseMessage> SendAsync(HttpMethod method, Uri endpoint, HttpContent? content = null, CancellationToken cancellationToken = default);
+}
+
 public static class LocalRunEventStore
 {
     public static object List(string directory)
