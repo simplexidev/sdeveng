@@ -219,7 +219,9 @@ public static class AgentTool
         doctor
         repo changed-files [--base REF] | summary [--base REF] | locate --query TEXT | health | hygiene
         repo affected-projects [--base REF] | ownership --file PATH
-        git state | summary [--base REF] | conflict-forecast --base REF | prepare-commit | issue-start --issue NUMBER --branch NAME
+        git state | summary [--base REF] | conflict-forecast --base REF | prepare-commit
+        git stage-owned --paths-file FILE | commit-owned --paths-file FILE --message TEXT
+        git issue-start --issue NUMBER --branch NAME
         git branch-create --branch NAME | worktree-create --branch NAME --path DIR
         github pr-status | review-comments --pr NUMBER | prepare-pr
         github actions [--run-id NUMBER] [--failed-logs]
@@ -246,7 +248,7 @@ public static class AgentTool
         JEV input: {"capability":"configured-id","purpose":"allowed-purpose","deterministicNarrowed":true,"state":"sanitized excerpt","instructions":"bounded question","criteria":...}
         Screen input: same routing metadata plus {"query":"question","candidates":[{"id":"path","text":"safe excerpt"}]}
         JEV defaults to auto; missing/invalid/uncertain answers return REVIEW for Codex.
-        No command merges PRs, commits, pushes, installs external tools, or pulls Git updates.
+        No command merges PRs or pushes. git commit-owned creates a local commit from an exact validated staged path set.
         """;
 
     public static async Task<int> Main(string[] args)
@@ -618,7 +620,7 @@ public static class AgentTool
 
     public sealed class GitCommandModule : ICommandModule
     {
-        public bool CanHandle(Cli command) => command.Command is "git state" or "git summary" or "git conflict-forecast" or "git prepare-commit" or "git issue-start" or "git branch-create" or "git worktree-create";
+        public bool CanHandle(Cli command) => command.Command is "git state" or "git summary" or "git conflict-forecast" or "git prepare-commit" or "git stage-owned" or "git commit-owned" or "git issue-start" or "git branch-create" or "git worktree-create";
 
         public async Task<Result> Execute(Cli command, string toolkit, string root, Settings settings, CancellationToken cancellationToken)
         {
@@ -634,6 +636,8 @@ public static class AgentTool
                     var diff = await Processes.Run("git", ["diff", "--check"], root);
                     var staged = await Processes.Run("git", ["diff", "--cached", "--check"], root);
                     return new(diff.ExitCode != 0 || staged.ExitCode != 0 ? "failed" : "ok", new { state = await Git.State(root), whitespace = Output.Compact(diff.Output + staged.Output, settings.Output), next = "Review explicit file scope before staging. Commit/push/PR creation remains caller-controlled; never merge without approval." }, diff.ExitCode != 0 || staged.ExitCode != 0 ? 1 : 0);
+                case "git stage-owned": return Result.Ok(await Git.StageOwned(root, command.Require("paths-file")));
+                case "git commit-owned": return Result.Ok(await Git.CommitOwned(root, command.Require("paths-file"), command.Require("message")));
                 case "git issue-start":
                     await Git.EnsureSafe(root, true);
                     var issue = command.PositiveInt("issue"); var branch = command.Require("branch");
@@ -1159,6 +1163,8 @@ public sealed class Cli
             "repo locate" => ["query"],
             "repo ownership" => ["file"],
             "git issue-start" => ["issue", "branch"],
+            "git stage-owned" => ["paths-file"],
+            "git commit-owned" => ["paths-file", "message"],
             "git branch-create" => ["branch"],
             "git worktree-create" => ["branch", "path"],
             "github review-comments" => ["pr"],
@@ -1187,7 +1193,7 @@ public sealed class Cli
     public List<string> Words { get; } = [];
     public Dictionary<string, string?> Options { get; } = new(StringComparer.Ordinal);
     static readonly HashSet<string> Flags = ["json", "help", "version", "dry-run", "bin", "apply", "safe-input", "binlog", "failed-logs"];
-    static readonly HashSet<string> Values = ["root", "toolkit", "set", "home", "codex-home", "base", "baseline", "query", "issue", "branch", "path", "pr", "run-id", "project", "file", "sha256", "input", "output", "skill", "results", "configuration", "test", "class", "category", "filter", "process-id", "signal", "duration-seconds"];
+    static readonly HashSet<string> Values = ["root", "toolkit", "set", "home", "codex-home", "base", "baseline", "query", "issue", "branch", "path", "paths-file", "message", "pr", "run-id", "project", "file", "sha256", "input", "output", "skill", "results", "configuration", "test", "class", "category", "filter", "process-id", "signal", "duration-seconds"];
     public string? Get(string name) => Options.GetValueOrDefault(name);
     public bool Flag(string name) => Options.ContainsKey(name);
     public string Require(string name) => Get(name) is { Length: > 0 } v ? v : throw new ArgumentException($"--{name} is required.");
@@ -1280,6 +1286,55 @@ public static class Processes
 
 public static class Git
 {
+    private static async Task<string[]> ReadOwnedPaths(string root, string file)
+    {
+        var actual = Path.GetFullPath((await Require(root, "rev-parse", "--show-toplevel")).Trim());
+        using var json = JsonDocument.Parse(await File.ReadAllBytesAsync(file));
+        if (json.RootElement.ValueKind != JsonValueKind.Array) throw new InvalidOperationException("Paths file must contain a JSON array.");
+        var paths = new List<string>();
+        foreach (var item in json.RootElement.EnumerateArray())
+        {
+            if (item.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(item.GetString())) throw new InvalidOperationException("Every owned path must be a non-empty string.");
+            var raw = item.GetString()!;
+            if (Path.IsPathRooted(raw) || raw.StartsWith('/') || raw.Contains('\\')) throw new InvalidOperationException($"Owned path must be repository-relative with '/' separators: {raw}");
+            var segments = raw.Split('/');
+            if (segments.Any(segment => segment is "" or "." or ".." || segment.Equals(".git", StringComparison.OrdinalIgnoreCase))) throw new InvalidOperationException($"Unsafe owned path: {raw}");
+            var full = Path.GetFullPath(Path.Combine(actual, Path.Combine(segments)));
+            if (!full.StartsWith(actual + Path.DirectorySeparatorChar, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)) throw new InvalidOperationException($"Owned path resolves outside repository: {raw}");
+            var current = actual;
+            foreach (var segment in segments)
+            {
+                current = Path.Combine(current, segment);
+                if ((Directory.Exists(current) || File.Exists(current)) && (File.GetAttributes(current) & FileAttributes.ReparsePoint) != 0) throw new InvalidOperationException($"Owned path traverses a symbolic link: {raw}");
+            }
+            paths.Add(string.Join('/', segments));
+        }
+        if (paths.Count == 0 || paths.Distinct(StringComparer.Ordinal).Count() != paths.Count) throw new InvalidOperationException("Paths file must contain a non-empty array of unique paths.");
+        var changed = (await Changed(actual)).ToHashSet(StringComparer.Ordinal);
+        var unavailable = paths.Where(path => !changed.Contains(path)).ToArray();
+        if (unavailable.Length > 0) throw new InvalidOperationException("Owned paths are not currently changed, deleted, or untracked: " + string.Join(", ", unavailable));
+        return paths.Order(StringComparer.Ordinal).ToArray();
+    }
+    public static async Task<object> StageOwned(string root, string pathsFile)
+    {
+        var paths = await ReadOwnedPaths(root, pathsFile);
+        await Require(root, new[] { "add", "--" }.Concat(paths.Select(path => ":(literal)" + path)).ToArray());
+        return new { paths, count = paths.Length };
+    }
+    public static async Task<object> CommitOwned(string root, string pathsFile, string message)
+    {
+        if (string.IsNullOrWhiteSpace(message)) throw new InvalidOperationException("Commit message must be non-empty.");
+        var paths = await ReadOwnedPaths(root, pathsFile);
+        var state = await State(root);
+        if (state.Operations.Count != 0) throw new InvalidOperationException("Unfinished Git operation detected; no commit performed.");
+        var staged = (await ChangedPaths(root, staged: true)).Paths.Order(StringComparer.Ordinal).ToArray();
+        if (!paths.SequenceEqual(staged, StringComparer.Ordinal)) throw new InvalidOperationException("Staged path set must exactly match the owned path set; no commit performed.");
+        await Require(root, "commit", "-m", message);
+        var sha = (await Require(root, "rev-parse", "HEAD")).Trim();
+        var committed = (await Require(root, "diff-tree", "--root", "--no-commit-id", "--name-only", "--no-renames", "-r", "-z", "HEAD")).Split('\0', StringSplitOptions.RemoveEmptyEntries).Order(StringComparer.Ordinal).ToArray();
+        if (!paths.SequenceEqual(committed, StringComparer.Ordinal)) throw new InvalidOperationException("Committed path set did not match the owned path set.");
+        return new { sha, paths = committed, count = committed.Length };
+    }
     public static async Task<string> Require(string root, params string[] args)
     {
         var r = await Processes.Run("git", args, root);
