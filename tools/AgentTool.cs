@@ -1281,7 +1281,19 @@ public static class Git
         }
         var status = await Require(actual, "status", "--porcelain=v1", "-z", "--untracked-files=all");
         var branch = await Processes.Run("git", ["symbolic-ref", "--quiet", "--short", "HEAD"], root);
-        return new(actual, branch.ExitCode == 0 ? branch.Output.Trim() : null, status.Length == 0, operations, status.Split('\0', StringSplitOptions.RemoveEmptyEntries));
+        var remoteNames = await Processes.Run("git", ["remote"], actual);
+        var remotes = new List<(string name, string url, string direction)>();
+        if (remoteNames.ExitCode == 0)
+        foreach (var name in remoteNames.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var urls = await Processes.Run("git", ["remote", "get-url", "--all", name], actual);
+            if (urls.ExitCode == 0)
+                remotes.AddRange(urls.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(url => (name, url, "(fetch)")));
+            var pushUrls = await Processes.Run("git", ["remote", "get-url", "--push", "--all", name], actual);
+            if (pushUrls.ExitCode == 0)
+                remotes.AddRange(pushUrls.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(url => (name, url, "(push)")));
+        }
+        return new(actual, branch.ExitCode == 0 ? branch.Output.Trim() : null, status.Length == 0, operations, status.Split('\0', StringSplitOptions.RemoveEmptyEntries), remotes.ToArray());
     }
     public static async Task EnsureSafe(string root, bool requireClean)
     {
@@ -1323,7 +1335,7 @@ public static class Git
         return new { schemaVersion = 1, kind = "git-conflict-forecast", baseRef, head, target, mergeBase, hasConflicts = result.ExitCode == 1, conflictCount = conflicts.Length, paths, pathsTruncated = conflicts.Length > paths.Length, evidence = conflicts.Take(limits.MaxItems), note = "Forecast only: refs, index and worktree were not changed. Rename and custom merge-driver behavior may differ in a real merge." };
     }
 }
-public record GitState(string Root, string? Branch, bool Clean, List<string> Operations, string[] Entries);
+public record GitState(string Root, string? Branch, bool Clean, List<string> Operations, string[] Entries, (string name, string url, string direction)[] Remotes);
 
 public static class Repository
 {
