@@ -671,7 +671,8 @@ public static class AgentTool
                     var pushState = await Git.State(root);
                     if (pushState.Operations.Count != 0) throw new InvalidOperationException("Unfinished Git operation detected; no push performed.");
                     var attemptedHead = pushState.Head;
-                    await Git.Require(root, "push", "--", remote, "refs/heads/" + pushBranch + ":refs/heads/" + pushBranch);
+                    var push = await Processes.Run("git", ["push", "--", remote, "refs/heads/" + pushBranch + ":refs/heads/" + pushBranch], root);
+                    if (push.ExitCode != 0) return new("failed", new { remote, branch = pushBranch, head = attemptedHead, recovery = "Push failed; the local branch remains available. Inspect the remote and retry the named branch after resolving the failure.", evidence = Output.Compact(Secrets.Redact(push.Output), settings.Output) }, 1);
                     return Result.Ok(new { remote, branch = pushBranch, head = attemptedHead });
                 case "git worktree-remove-owned":
                     var removePath = Path.GetFullPath(command.Require("path"));
@@ -1357,6 +1358,8 @@ public static class Git
     public static async Task<object> StageOwned(string root, string pathsFile)
     {
         var paths = await ReadOwnedPaths(root, pathsFile);
+        var unrelated = (await Changed(root)).Except(paths, StringComparer.Ordinal).ToArray();
+        if (unrelated.Length > 0) throw new InvalidOperationException("Unrelated workspace changes detected; no paths staged: " + string.Join(", ", unrelated));
         await Require(root, new[] { "add", "--" }.Concat(paths.Select(path => ":(literal)" + path)).ToArray());
         return new { paths, count = paths.Length };
     }
