@@ -224,6 +224,7 @@ public static class AgentTool
         git issue-start --issue NUMBER --branch NAME
         git branch-create --branch NAME | push-owned --remote NAME --branch NAME
         git worktree-create --branch NAME --path DIR | worktree-remove-owned --path DIR
+        git stale-base --base REF --expected SHA | abandon-owned --branch NAME --path DIR
         github pr-status | review-comments --pr NUMBER | prepare-pr
         github actions [--run-id NUMBER] [--failed-logs]
         dotnet inspect [--project PATH] | build-plan [--base REF] [--project PATH] [--configuration NAME] [--binlog]
@@ -621,7 +622,7 @@ public static class AgentTool
 
     public sealed class GitCommandModule : ICommandModule
     {
-        public bool CanHandle(Cli command) => command.Command is "git state" or "git summary" or "git conflict-forecast" or "git prepare-commit" or "git stage-owned" or "git commit-owned" or "git issue-start" or "git branch-create" or "git worktree-create" or "git push-owned" or "git worktree-remove-owned";
+        public bool CanHandle(Cli command) => command.Command is "git state" or "git summary" or "git conflict-forecast" or "git prepare-commit" or "git stage-owned" or "git commit-owned" or "git issue-start" or "git branch-create" or "git worktree-create" or "git push-owned" or "git worktree-remove-owned" or "git stale-base" or "git abandon-owned";
 
         public async Task<Result> Execute(Cli command, string toolkit, string root, Settings settings, CancellationToken cancellationToken)
         {
@@ -631,6 +632,12 @@ public static class AgentTool
             {
                 case "git state": return Result.Ok(await Git.State(root));
                 case "git summary": return Result.Ok(await Repository.Summary(root, command.Get("base"), settings.Output));
+                case "git stale-base":
+                    var expected = command.Require("expected");
+                    if (!Regex.IsMatch(expected, "\\A[0-9a-fA-F]{40,64}\\z")) throw new ArgumentException("Expected base must be a full commit ID.");
+                    var baseRef = command.Require("base");
+                    var actual = (await Git.Require(root, "rev-parse", "--verify", baseRef + "^{commit}")).Trim();
+                    return Result.Ok(new { baseRef, expected, actual, stale = !string.Equals(expected, actual, StringComparison.OrdinalIgnoreCase) });
                 case "git conflict-forecast": return Result.Ok(await Git.ConflictForecast(root, command.Require("base"), settings.Output));
                 case "git prepare-commit":
                     await Git.EnsureSafe(root, false);
@@ -687,6 +694,25 @@ public static class AgentTool
                     if (removeState.Operations.Count != 0) throw new InvalidOperationException("Linked worktree has an unfinished Git operation; nothing removed.");
                     await Git.Require(root, "worktree", "remove", removePath);
                     return Result.Ok(new { path = removePath });
+                case "git abandon-owned":
+                    var abandonBranch = command.Require("branch");
+                    var abandonPath = Path.GetFullPath(command.Require("path"));
+                    await Git.Require(root, "check-ref-format", "--branch", abandonBranch);
+                    var primary = Path.GetFullPath((await Git.Require(root, "rev-parse", "--show-toplevel")).Trim());
+                    if (string.Equals(primary, abandonPath, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)) throw new InvalidOperationException("Primary worktree cannot be abandoned.");
+                    var listed = (await Git.Require(root, "worktree", "list", "--porcelain")).Split('\n', StringSplitOptions.RemoveEmptyEntries);
+                    if (!listed.Any(line => line == "worktree " + abandonPath) || !Directory.Exists(abandonPath)) throw new InvalidOperationException("Named linked worktree is unavailable.");
+                    var state = await Git.State(abandonPath);
+                    if (!string.Equals(state.Root, abandonPath, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal) || state.Branch != abandonBranch || !state.Clean || state.Operations.Count != 0) throw new InvalidOperationException("Named worktree is dirty, busy, or on another branch.");
+                    var markerPath = Path.Combine((await Git.Require(abandonPath, "rev-parse", "--absolute-git-dir")).Trim(), GitOwnershipMarkers.WorktreeFileName);
+                    if (!File.Exists(markerPath) || File.ReadAllText(markerPath) != GitOwnershipMarkers.WorktreeFileContents ||
+                        (await Git.Require(root, "config", "--get", "branch." + abandonBranch + "." + GitOwnershipMarkers.BranchConfigKey)).Trim() != GitOwnershipMarkers.BranchConfigValue)
+                        throw new InvalidOperationException("Worktree and branch ownership markers are required.");
+                    if ((await Processes.Run("git", ["merge-base", "--is-ancestor", "refs/heads/" + abandonBranch, "HEAD"], root)).ExitCode != 0)
+                        throw new InvalidOperationException("Owned branch contains commits not merged into the primary HEAD; nothing removed.");
+                    await Git.Require(root, "worktree", "remove", abandonPath);
+                    await Git.Require(root, "branch", "-d", abandonBranch);
+                    return Result.Ok(new { branch = abandonBranch, path = abandonPath, removed = true });
                 default: throw new ArgumentException("Unknown command. Use --help.");
             }
         }
@@ -1196,6 +1222,8 @@ public sealed class Cli
             "git worktree-create" => ["branch", "path"],
             "git push-owned" => ["remote", "branch"],
             "git worktree-remove-owned" => ["path"],
+            "git stale-base" => ["base", "expected"],
+            "git abandon-owned" => ["branch", "path"],
             "github review-comments" => ["pr"],
             "github actions" => ["run-id", "failed-logs"],
             "dotnet verify" => ["base", "project"],
@@ -1222,7 +1250,7 @@ public sealed class Cli
     public List<string> Words { get; } = [];
     public Dictionary<string, string?> Options { get; } = new(StringComparer.Ordinal);
     static readonly HashSet<string> Flags = ["json", "help", "version", "dry-run", "bin", "apply", "safe-input", "binlog", "failed-logs"];
-    static readonly HashSet<string> Values = ["root", "toolkit", "set", "home", "codex-home", "base", "baseline", "query", "issue", "branch", "remote", "path", "paths-file", "message", "pr", "run-id", "project", "file", "sha256", "input", "output", "skill", "results", "configuration", "test", "class", "category", "filter", "process-id", "signal", "duration-seconds"];
+    static readonly HashSet<string> Values = ["root", "toolkit", "set", "home", "codex-home", "base", "expected", "baseline", "query", "issue", "branch", "remote", "path", "paths-file", "message", "pr", "run-id", "project", "file", "sha256", "input", "output", "skill", "results", "configuration", "test", "class", "category", "filter", "process-id", "signal", "duration-seconds"];
     public string? Get(string name) => Options.GetValueOrDefault(name);
     public bool Flag(string name) => Options.ContainsKey(name);
     public string Require(string name) => Get(name) is { Length: > 0 } v ? v : throw new ArgumentException($"--{name} is required.");
