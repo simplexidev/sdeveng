@@ -3,6 +3,7 @@ namespace SdevEng.Tests;
 public class GitSafetyTests
 {
     [Fact] public async Task DirtyWorkIsPreserved() { using var repo = new TemporaryGitRepository(); repo.Write("user.txt", "keep"); await Assert.ThrowsAsync<InvalidOperationException>(() => Git.EnsureSafe(repo.Root, true)); Assert.Equal("keep", File.ReadAllText(Path.Combine(repo.Root, "user.txt"))); }
+    [Fact] public async Task StateReadsRepositoryRootAndStructuredRemoteIdentity() { using var repo = new TemporaryGitRepository(); repo.Run("remote", "add", "origin", "https://example.test/org/repo with space.git"); var state = await Git.State(repo.Root); Assert.Equal(repo.Root, state.Root); Assert.Contains(state.Remotes, remote => remote.name == "origin" && remote.url == "https://example.test/org/repo with space.git" && remote.direction == "(fetch)"); Assert.Contains(state.Remotes, remote => remote.name == "origin" && remote.url == "https://example.test/org/repo with space.git" && remote.direction == "(push)"); }
     [Theory]
     [InlineData("MERGE_HEAD")]
     [InlineData("CHERRY_PICK_HEAD")]
