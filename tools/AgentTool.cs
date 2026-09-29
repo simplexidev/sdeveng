@@ -32,6 +32,17 @@ public interface IGitHubReadClient
     Task<HttpResponseMessage> GetAsync(Uri endpoint, CancellationToken cancellationToken = default);
 }
 
+/// <summary>Production unauthenticated GitHub API read transport.</summary>
+public sealed class GitHubReadClient(HttpClient http) : IGitHubReadClient
+{
+    public async Task<HttpResponseMessage> GetAsync(Uri endpoint, CancellationToken cancellationToken = default)
+    {
+        if (endpoint is null || endpoint.Scheme != Uri.UriSchemeHttps || endpoint.Host != "api.github.com")
+            throw new ArgumentException("GitHub reads must target the HTTPS api.github.com host.", nameof(endpoint));
+        return await http.GetAsync(endpoint, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+    }
+}
+
 public sealed class GitHubTransportException(string message, HttpStatusCode? statusCode = null, Exception? innerException = null)
     : HttpRequestException(message, innerException, statusCode);
 
@@ -548,6 +559,18 @@ public static class AgentTool
         public static IServiceCollection Register(IServiceCollection services)
         {
             services.AddSingleton<AgentToolRuntime>();
+            services.AddSingleton(_ =>
+            {
+                var client = new HttpClient();
+                client.DefaultRequestHeaders.Accept.ParseAdd("application/vnd.github+json");
+                client.DefaultRequestHeaders.UserAgent.ParseAdd("sdeveng");
+                return client;
+            });
+            services.AddTransient<GitHubReadClient>();
+            services.AddTransient<IGitHubReadClient>(provider => provider.GetRequiredService<GitHubReadClient>());
+            services.AddTransient<GitHubRepositoryMetadataReader>();
+            services.AddTransient<GitHubIssueReader>();
+            services.AddTransient<GitHubChecksWorkflowReader>();
             services.AddSingleton<ICommandModule, InstallerCommandModule>();
             services.AddSingleton<ICommandModule, ConfigurationCommandModule>();
             services.AddSingleton<ICommandModule, DoctorCommandModule>();
