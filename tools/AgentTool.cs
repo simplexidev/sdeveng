@@ -123,6 +123,46 @@ public sealed record GitHubRepositoryMetadata(
     long Id, string FullName, Uri HtmlUrl, string? Description, string DefaultBranch,
     bool IsPrivate, bool IsArchived, string Visibility, DateTimeOffset? PushedAt, DateTimeOffset? UpdatedAt);
 
+public sealed record GitHubCommitHead(string Sha);
+public sealed record GitHubCompareFile(string Filename, string Status, string? PreviousFilename);
+public sealed record GitHubCompare(string? HeadCommitSha, IReadOnlyList<GitHubCompareFile> Files);
+
+/// <summary>Reads repository HEAD and bounded compare facts through the shared GitHub read transport.</summary>
+public sealed class GitHubCommitReader(IGitHubReadClient client)
+{
+    static readonly Uri ApiRoot = new("https://api.github.com/");
+
+    public async Task<GitHubCommitHead> ReadHeadAsync(string owner, string repository, CancellationToken cancellationToken = default)
+    {
+        var root = await ReadAsync($"repos/{Segment(owner, nameof(owner))}/{Segment(repository, nameof(repository))}/commits/HEAD", cancellationToken);
+        return new(RequiredString(root, "sha"));
+    }
+
+    public async Task<GitHubCompare> CompareToHeadAsync(string owner, string repository, string baseReference, CancellationToken cancellationToken = default)
+    {
+        var root = await ReadAsync($"repos/{Segment(owner, nameof(owner))}/{Segment(repository, nameof(repository))}/compare/{Segment(baseReference, nameof(baseReference))}...HEAD", cancellationToken);
+        var files = root.TryGetProperty("files", out var value) && value.ValueKind == JsonValueKind.Array
+            ? value.EnumerateArray().Select(file => new GitHubCompareFile(RequiredString(file, "filename"), RequiredString(file, "status"), OptionalString(file, "previous_filename"))).ToArray()
+            : throw new JsonException("GitHub compare response is missing 'files'.");
+        return new(OptionalNestedString(root, "head_commit", "sha"), files);
+    }
+
+    async Task<JsonElement> ReadAsync(string path, CancellationToken cancellationToken)
+    {
+        using var response = await GitHubTransport.GetAsync(client, new Uri(ApiRoot, path), cancellationToken);
+        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+        return document.RootElement.Clone();
+    }
+
+    static string Segment(string value, string name) => !string.IsNullOrWhiteSpace(value) && Regex.IsMatch(value, @"^[A-Za-z0-9_.-]+$", RegexOptions.CultureInvariant)
+        ? Uri.EscapeDataString(value) : throw new ArgumentException($"{name} must be a GitHub owner, repository, or reference.", name);
+    static string RequiredString(JsonElement value, string name) => value.TryGetProperty(name, out var property) && property.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(property.GetString())
+        ? property.GetString()! : throw new JsonException($"GitHub response is missing '{name}'.");
+    static string? OptionalString(JsonElement value, string name) => value.TryGetProperty(name, out var property) && property.ValueKind == JsonValueKind.String ? property.GetString() : null;
+    static string? OptionalNestedString(JsonElement value, string parent, string name) => value.TryGetProperty(parent, out var nested) && nested.ValueKind == JsonValueKind.Object ? OptionalString(nested, name) : null;
+}
+
 /// <summary>Reads typed repository metadata through the shared GitHub read transport.</summary>
 public sealed class GitHubRepositoryMetadataReader(IGitHubReadClient client)
 {
@@ -699,6 +739,7 @@ public static class AgentTool
             });
             services.AddTransient<GitHubReadClient>();
             services.AddTransient<IGitHubReadClient>(provider => provider.GetRequiredService<GitHubReadClient>());
+            services.AddTransient<GitHubCommitReader>();
             services.AddTransient<GitHubRepositoryMetadataReader>();
             services.AddTransient<GitHubIssueReader>();
             services.AddTransient<GitHubChecksWorkflowReader>();
