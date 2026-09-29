@@ -645,7 +645,7 @@ public static class AgentTool
                     await Git.Require(root, "check-ref-format", "--branch", branch);
                     var info = await Processes.Run("gh", ["issue", "view", issue.ToString(CultureInfo.InvariantCulture), "--json", "state"], root);
                     if (info.ExitCode != 0 || JsonNode.Parse(info.Output)?["state"]?.GetValue<string>() != "OPEN") throw new InvalidOperationException("Issue is unavailable or not open; no branch created.");
-                    await Git.Require(root, "switch", "-c", branch);
+                    await AgentTool.Execute(Cli.Parse(["git", "branch-create", "--branch", branch]), toolkit, root, settings);
                     return Result.Ok(new { branch, issue });
                 case "git branch-create":
                     await Git.EnsureSafe(root, true);
