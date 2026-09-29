@@ -1271,7 +1271,7 @@ public static class Git
     }
     public static async Task<GitState> State(string root)
     {
-        var actual = (await Require(root, "rev-parse", "--show-toplevel")).Trim();
+        var actual = Path.GetFullPath((await Require(root, "rev-parse", "--show-toplevel")).Trim());
         var operations = new List<string>();
         foreach (var op in new[] { "MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "rebase-merge", "rebase-apply", "BISECT_LOG", "sequencer", "index.lock" })
         {
