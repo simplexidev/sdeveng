@@ -1317,11 +1317,8 @@ public static class Git
         var upstream = await Processes.Run("git", ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"], root);
         if (upstream.ExitCode != 0) return null;
         var name = upstream.Output.Trim();
-        var divergence = await Processes.Run("git", ["rev-list", "--left-right", "--count", $"HEAD...{name}"], root);
-        if (divergence.ExitCode != 0) return new(name, null, null);
-        var counts = divergence.Output.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
-        return counts.Length == 2 && int.TryParse(counts[0], out var ahead) && int.TryParse(counts[1], out var behind)
-            ? new(name, ahead, behind) : new(name, null, null);
+        var divergence = await Divergence(root, "HEAD", name);
+        return new(name, divergence?.Ahead, divergence?.Behind);
     }
     public static async Task EnsureSafe(string root, bool requireClean)
     {
@@ -1335,26 +1332,52 @@ public static class Git
     public static async Task<string[]> Changed(string root, string? baseRef = null)
     {
         var names = new HashSet<string>(StringComparer.Ordinal);
-        async Task Add(params string[] args) { foreach (var p in (await Require(root, args)).Split('\0', StringSplitOptions.RemoveEmptyEntries)) names.Add(p); }
         if (baseRef is not null)
         {
             var sha = (await Require(root, "rev-parse", "--verify", "--end-of-options", baseRef + "^{commit}")).Trim();
-            var ancestor = (await Require(root, "merge-base", sha, "HEAD")).Trim();
-            await Add("diff", "--name-only", "--no-renames", "-z", ancestor, "--");
+            var ancestor = await MergeBase(root, sha, "HEAD");
+            names.UnionWith((await ChangedPaths(root, ancestor.Commit, staged: false)).Paths);
         }
         else
         {
-            await Add("diff", "--name-only", "--no-renames", "-z", "--");
-            await Add("diff", "--cached", "--name-only", "--no-renames", "-z", "--");
+            names.UnionWith((await ChangedPaths(root, staged: false)).Paths);
+            names.UnionWith((await ChangedPaths(root, staged: true)).Paths);
         }
-        await Add("ls-files", "--others", "--exclude-standard", "-z");
+        names.UnionWith((await UntrackedPaths(root)).Paths);
         return names.Order(StringComparer.Ordinal).ToArray();
+    }
+    public static async Task<GitChangedPaths> ChangedPaths(string root, string? from = null, bool staged = false)
+    {
+        var args = new List<string> { "diff" };
+        if (staged) args.Add("--cached");
+        args.AddRange(["--name-only", "--no-renames", "-z"]);
+        if (from is not null) args.Add(from);
+        args.Add("--");
+        var paths = (await Require(root, args.ToArray())).Split('\0', StringSplitOptions.RemoveEmptyEntries)
+            .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+        return new(paths);
+    }
+    public static async Task<GitChangedPaths> UntrackedPaths(string root)
+    {
+        var paths = (await Require(root, "ls-files", "--others", "--exclude-standard", "-z")).Split('\0', StringSplitOptions.RemoveEmptyEntries)
+            .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+        return new(paths);
+    }
+    public static async Task<GitMergeBase> MergeBase(string root, string left, string right) =>
+        new((await Require(root, "merge-base", left, right)).Trim());
+    public static async Task<GitDivergence?> Divergence(string root, string left, string right)
+    {
+        var result = await Processes.Run("git", ["rev-list", "--left-right", "--count", $"{left}...{right}"], root);
+        if (result.ExitCode != 0) return null;
+        var counts = result.Output.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+        return counts.Length == 2 && int.TryParse(counts[0], out var ahead) && int.TryParse(counts[1], out var behind)
+            ? new(ahead, behind) : null;
     }
     public static async Task<object> ConflictForecast(string root, string baseRef, OutputSettings limits)
     {
         var target = (await Require(root, "rev-parse", "--verify", "--end-of-options", baseRef + "^{commit}")).Trim();
         var head = (await Require(root, "rev-parse", "HEAD^{commit}")).Trim();
-        var mergeBase = (await Require(root, "merge-base", head, target)).Trim();
+        var mergeBase = (await MergeBase(root, head, target)).Commit;
         var result = await Processes.Run("git", ["merge-tree", "--write-tree", "--name-only", "--messages", head, target], root);
         if (result.ExitCode is not (0 or 1)) throw new InvalidOperationException("Git merge-tree could not forecast conflicts: " + Secrets.Redact(string.Join(' ', Output.Compact(result.Output, limits))));
         var lines = result.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
@@ -1365,6 +1388,9 @@ public static class Git
 }
 public record GitState(string Root, string Head, string? Branch, bool Clean, List<string> Operations, string[] Entries, (string name, string url, string direction)[] Remotes, GitUpstream? Upstream);
 public record GitUpstream(string Name, int? Ahead, int? Behind);
+public record GitChangedPaths(string[] Paths);
+public record GitMergeBase(string Commit);
+public record GitDivergence(int Ahead, int Behind);
 
 public static class Repository
 {
