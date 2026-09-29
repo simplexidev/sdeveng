@@ -1009,6 +1009,10 @@ public static class AgentTool
 
     public sealed class GitCommandModule : ICommandModule
     {
+        private readonly GitHubIssueReader? _issueReader;
+
+        public GitCommandModule(GitHubIssueReader? issueReader = null) => _issueReader = issueReader;
+
         public bool CanHandle(Cli command) => command.Command is "git state" or "git summary" or "git conflict-forecast" or "git prepare-commit" or "git stage-owned" or "git commit-owned" or "git issue-start" or "git branch-create" or "git worktree-create" or "git push-owned" or "git worktree-remove-owned" or "git stale-base" or "git abandon-owned";
 
         public async Task<Result> Execute(Cli command, string toolkit, string root, Settings settings, CancellationToken cancellationToken)
@@ -1037,8 +1041,14 @@ public static class AgentTool
                     await Git.EnsureSafe(root, true);
                     var issue = command.PositiveInt("issue"); var branch = command.Require("branch");
                     await Git.Require(root, "check-ref-format", "--branch", branch);
-                    var info = await Processes.Run("gh", ["issue", "view", issue.ToString(CultureInfo.InvariantCulture), "--json", "state"], root);
-                    if (info.ExitCode != 0 || JsonNode.Parse(info.Output)?["state"]?.GetValue<string>() != "OPEN") throw new InvalidOperationException("Issue is unavailable or not open; no branch created.");
+                    var reader = _issueReader ?? throw new InvalidOperationException("GitHub issue reader is unavailable; no branch created.");
+                    var originUrl = (await Git.Require(root, "remote", "get-url", "origin")).Trim();
+                    var (owner, repository) = GitHubRepositoryTarget(originUrl);
+                    GitHubIssue issueInfo;
+                    try { issueInfo = await reader.ReadIssueAsync(owner, repository, issue, cancellationToken); }
+                    catch (Exception exception) when (exception is HttpRequestException or JsonException or InvalidOperationException)
+                    { throw new InvalidOperationException("Issue is unavailable or not open; no branch created."); }
+                    if (!string.Equals(issueInfo.State, "open", StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("Issue is unavailable or not open; no branch created.");
                     await AgentTool.Execute(Cli.Parse(["git", "branch-create", "--branch", branch]), toolkit, root, settings);
                     return Result.Ok(new { branch, issue });
                 case "git branch-create":
@@ -1102,6 +1112,21 @@ public static class AgentTool
                     return Result.Ok(new { branch = abandonBranch, path = abandonPath, removed = true });
                 default: throw new ArgumentException("Unknown command. Use --help.");
             }
+        }
+
+        private static (string Owner, string Repository) GitHubRepositoryTarget(string remote)
+        {
+            string path;
+            if (Uri.TryCreate(remote, UriKind.Absolute, out var uri) && uri.Scheme is "https" or "http")
+            {
+                if (!string.Equals(uri.Host, "github.com", StringComparison.OrdinalIgnoreCase)) throw new InvalidOperationException("Origin is not a GitHub repository; no branch created.");
+                path = uri.AbsolutePath;
+            }
+            else if (remote.StartsWith("git@github.com:", StringComparison.OrdinalIgnoreCase)) path = remote["git@github.com:".Length..];
+            else throw new InvalidOperationException("Origin is not a GitHub repository; no branch created.");
+            var parts = path.Trim('/').TrimEnd('/').Split('/');
+            if (parts.Length != 2 || string.IsNullOrWhiteSpace(parts[0]) || string.IsNullOrWhiteSpace(parts[1])) throw new InvalidOperationException("Origin is not a GitHub repository; no branch created.");
+            return (parts[0], parts[1].EndsWith(".git", StringComparison.OrdinalIgnoreCase) ? parts[1][..^4] : parts[1]);
         }
     }
 
