@@ -222,7 +222,8 @@ public static class AgentTool
         git state | summary [--base REF] | conflict-forecast --base REF | prepare-commit
         git stage-owned --paths-file FILE | commit-owned --paths-file FILE --message TEXT
         git issue-start --issue NUMBER --branch NAME
-        git branch-create --branch NAME | worktree-create --branch NAME --path DIR
+        git branch-create --branch NAME | push-owned --remote NAME --branch NAME
+        git worktree-create --branch NAME --path DIR | worktree-remove-owned --path DIR
         github pr-status | review-comments --pr NUMBER | prepare-pr
         github actions [--run-id NUMBER] [--failed-logs]
         dotnet inspect [--project PATH] | build-plan [--base REF] [--project PATH] [--configuration NAME] [--binlog]
@@ -248,7 +249,7 @@ public static class AgentTool
         JEV input: {"capability":"configured-id","purpose":"allowed-purpose","deterministicNarrowed":true,"state":"sanitized excerpt","instructions":"bounded question","criteria":...}
         Screen input: same routing metadata plus {"query":"question","candidates":[{"id":"path","text":"safe excerpt"}]}
         JEV defaults to auto; missing/invalid/uncertain answers return REVIEW for Codex.
-        No command merges PRs or pushes. git commit-owned creates a local commit from an exact validated staged path set.
+        No command merges PRs, force-pushes, rewrites history, cleans unrelated paths, or installs external tools. git push-owned normally pushes one named local branch; git commit-owned creates a local commit from an exact validated staged path set.
         """;
 
     public static async Task<int> Main(string[] args)
@@ -620,7 +621,7 @@ public static class AgentTool
 
     public sealed class GitCommandModule : ICommandModule
     {
-        public bool CanHandle(Cli command) => command.Command is "git state" or "git summary" or "git conflict-forecast" or "git prepare-commit" or "git stage-owned" or "git commit-owned" or "git issue-start" or "git branch-create" or "git worktree-create";
+        public bool CanHandle(Cli command) => command.Command is "git state" or "git summary" or "git conflict-forecast" or "git prepare-commit" or "git stage-owned" or "git commit-owned" or "git issue-start" or "git branch-create" or "git worktree-create" or "git push-owned" or "git worktree-remove-owned";
 
         public async Task<Result> Execute(Cli command, string toolkit, string root, Settings settings, CancellationToken cancellationToken)
         {
@@ -660,6 +661,31 @@ public static class AgentTool
                     if (Directory.Exists(worktreePath) || File.Exists(worktreePath)) throw new InvalidOperationException("Worktree path already exists; no worktree created.");
                     await Git.Require(root, "worktree", "add", "-b", worktreeBranch, worktreePath);
                     return Result.Ok(new { branch = worktreeBranch, path = worktreePath });
+                case "git push-owned":
+                    var remote = command.Require("remote");
+                    var pushBranch = command.Require("branch");
+                    await Git.Require(root, "check-ref-format", "--branch", pushBranch);
+                    var localRef = await Processes.Run("git", ["show-ref", "--verify", "--quiet", "refs/heads/" + pushBranch], root);
+                    if (localRef.ExitCode != 0) throw new InvalidOperationException("Named local branch does not exist; no push performed.");
+                    await Git.Require(root, "remote", "get-url", remote);
+                    var pushState = await Git.State(root);
+                    if (pushState.Operations.Count != 0) throw new InvalidOperationException("Unfinished Git operation detected; no push performed.");
+                    var attemptedHead = pushState.Head;
+                    await Git.Require(root, "push", "--", remote, "refs/heads/" + pushBranch + ":refs/heads/" + pushBranch);
+                    return Result.Ok(new { remote, branch = pushBranch, head = attemptedHead });
+                case "git worktree-remove-owned":
+                    var removePath = Path.GetFullPath(command.Require("path"));
+                    var repoRoot = Path.GetFullPath((await Git.Require(root, "rev-parse", "--show-toplevel")).Trim());
+                    if (string.Equals(removePath, repoRoot, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)) throw new InvalidOperationException("Primary repository worktree cannot be removed.");
+                    var worktrees = (await Git.Require(root, "worktree", "list", "--porcelain")).Split('\n', StringSplitOptions.RemoveEmptyEntries);
+                    var registered = worktrees.Where(line => line.StartsWith("worktree ", StringComparison.Ordinal)).Select(line => Path.GetFullPath(line[9..])).Any(path => string.Equals(path, removePath, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal));
+                    if (!registered || !Directory.Exists(removePath)) throw new InvalidOperationException("Path is not a registered linked worktree; nothing removed.");
+                    var removeState = await Git.State(removePath);
+                    if (!string.Equals(removeState.Root, removePath, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)) throw new InvalidOperationException("Path does not resolve to the named worktree; nothing removed.");
+                    if (!removeState.Clean) throw new InvalidOperationException("Linked worktree is dirty; nothing removed.");
+                    if (removeState.Operations.Count != 0) throw new InvalidOperationException("Linked worktree has an unfinished Git operation; nothing removed.");
+                    await Git.Require(root, "worktree", "remove", removePath);
+                    return Result.Ok(new { path = removePath });
                 default: throw new ArgumentException("Unknown command. Use --help.");
             }
         }
@@ -1167,6 +1193,8 @@ public sealed class Cli
             "git commit-owned" => ["paths-file", "message"],
             "git branch-create" => ["branch"],
             "git worktree-create" => ["branch", "path"],
+            "git push-owned" => ["remote", "branch"],
+            "git worktree-remove-owned" => ["path"],
             "github review-comments" => ["pr"],
             "github actions" => ["run-id", "failed-logs"],
             "dotnet verify" => ["base", "project"],
@@ -1193,7 +1221,7 @@ public sealed class Cli
     public List<string> Words { get; } = [];
     public Dictionary<string, string?> Options { get; } = new(StringComparer.Ordinal);
     static readonly HashSet<string> Flags = ["json", "help", "version", "dry-run", "bin", "apply", "safe-input", "binlog", "failed-logs"];
-    static readonly HashSet<string> Values = ["root", "toolkit", "set", "home", "codex-home", "base", "baseline", "query", "issue", "branch", "path", "paths-file", "message", "pr", "run-id", "project", "file", "sha256", "input", "output", "skill", "results", "configuration", "test", "class", "category", "filter", "process-id", "signal", "duration-seconds"];
+    static readonly HashSet<string> Values = ["root", "toolkit", "set", "home", "codex-home", "base", "baseline", "query", "issue", "branch", "remote", "path", "paths-file", "message", "pr", "run-id", "project", "file", "sha256", "input", "output", "skill", "results", "configuration", "test", "class", "category", "filter", "process-id", "signal", "duration-seconds"];
     public string? Get(string name) => Options.GetValueOrDefault(name);
     public bool Flag(string name) => Options.ContainsKey(name);
     public string Require(string name) => Get(name) is { Length: > 0 } v ? v : throw new ArgumentException($"--{name} is required.");
