@@ -1172,10 +1172,12 @@ public static class AgentTool
     {
         private readonly GitHubPrStatusReader? _prStatusReader;
         private readonly GitHubReviewCommentReader? _reviewCommentReader;
-        public GitHubCommandModule(GitHubPrStatusReader? prStatusReader = null, GitHubReviewCommentReader? reviewCommentReader = null)
+        private readonly GitHubActionsReader? _actionsReader;
+        public GitHubCommandModule(GitHubPrStatusReader? prStatusReader = null, GitHubReviewCommentReader? reviewCommentReader = null, GitHubActionsReader? actionsReader = null)
         {
             _prStatusReader = prStatusReader;
             _reviewCommentReader = reviewCommentReader;
+            _actionsReader = actionsReader;
         }
         private static (string Owner, string Repository) GitHubRepositoryTarget(string remote)
         {
@@ -1230,7 +1232,11 @@ public static class AgentTool
                     var path = Path.Combine(artifacts, $"github-review-comments-{DateTime.UtcNow:yyyyMMddTHHmmss}-{Guid.NewGuid():N}.log");
                     await File.WriteAllTextAsync(path, JsonSerializer.Serialize(comments), cancellationToken);
                     return Result.Ok(new ProcessReport(0, Output.SummarizeFile(path, settings.Output), path));
-                case "github actions": return await GitHub.Actions(root, artifacts, command.Get("run-id"), command.Flag("failed-logs"), settings.Output);
+                case "github actions":
+                    var actionsReader = _actionsReader ?? throw new InvalidOperationException("GitHub Actions reader is unavailable.");
+                    var actionsOrigin = (await Git.Require(root, "remote", "get-url", "origin")).Trim();
+                    var (actionsOwner, actionsRepository) = GitHubRepositoryTarget(actionsOrigin);
+                    return await GitHub.Actions(actionsReader, actionsOwner, actionsRepository, artifacts, command.Get("run-id"), command.Flag("failed-logs"), settings.Output, cancellationToken);
                 default: throw new ArgumentException("Unknown command. Use --help.");
             }
         }
@@ -2044,16 +2050,42 @@ public static class Repository
 
 public static class GitHub
 {
-    public static async Task<Result> Actions(string root, string artifacts, string? runId, bool failedLogs, OutputSettings limits)
+    public static async Task<Result> Actions(GitHubActionsReader reader, string owner, string repository, string artifacts, string? runId, bool failedLogs, OutputSettings limits, CancellationToken cancellationToken = default)
     {
         if (failedLogs && runId is null) throw new ArgumentException("--failed-logs requires --run-id.");
         if (runId is not null && (!long.TryParse(runId, NumberStyles.None, CultureInfo.InvariantCulture, out var id) || id <= 0)) throw new ArgumentException("--run-id must be a positive integer.");
-        if (failedLogs) return await AgentTool.RunArtifact("gh", ["run", "view", runId!, "--log-failed"], root, artifacts, limits);
-        var fields = "databaseId,name,displayTitle,workflowName,status,conclusion,event,headBranch,headSha,url,createdAt,updatedAt";
-        var arguments = runId is null ? new[] { "run", "list", "--limit", limits.MaxItems.ToString(CultureInfo.InvariantCulture), "--json", fields } : ["run", "view", runId, "--json", fields + ",jobs"];
-        var result = await Processes.Run("gh", arguments, root);
-        if (result.ExitCode != 0) return new("failed", new { evidence = Output.Compact(result.Output, limits) }, 1);
-        return Result.Ok(ParseActions(result.Output, runId is null, limits));
+        var (ownerName, repositoryName) = (owner, repository);
+        if (failedLogs)
+        {
+            var logs = await reader.ReadFailedLogsAsync(ownerName, repositoryName, long.Parse(runId!, CultureInfo.InvariantCulture), limits.MaxItems, limits.MaxOutputChars, cancellationToken);
+            SafeFiles.NoLinks(artifacts); Directory.CreateDirectory(artifacts);
+            var path = Path.Combine(artifacts, $"actions-{DateTime.UtcNow:yyyyMMddTHHmmss}-{Guid.NewGuid():N}.log");
+            await File.WriteAllTextAsync(path, string.Join(Environment.NewLine, logs.Select(log => $"## {log.JobName ?? log.JobId.ToString(CultureInfo.InvariantCulture)}{Environment.NewLine}{log.Log}")), cancellationToken);
+            return new("ok", new ProcessReport(0, Output.SummarizeFile(path, limits), path), 0);
+        }
+        if (runId is null)
+        {
+            var runs = await reader.ReadRunsAsync(ownerName, repositoryName, limits.MaxItems, cancellationToken);
+            return Result.Ok(SummarizeActions(runs, null, limits));
+        }
+        var detail = await reader.ReadRunAsync(ownerName, repositoryName, long.Parse(runId, CultureInfo.InvariantCulture), 200, cancellationToken);
+        return Result.Ok(SummarizeActions([detail.Run], detail.Jobs, limits));
+    }
+
+    static object SummarizeActions(IReadOnlyList<GitHubActionRun> sourceRuns, IReadOnlyList<GitHubActionJob>? sourceJobs, OutputSettings limits)
+    {
+        var runs = sourceRuns.Take(limits.MaxItems).Select(run => new { id = (object?)run.Id, workflow = run.Workflow, title = run.Title, status = run.Status, conclusion = run.Conclusion, @event = run.Event, branch = run.Branch, sha = run.Sha, url = run.Url.ToString(), createdAt = run.CreatedAt?.ToString("O", CultureInfo.InvariantCulture), updatedAt = run.UpdatedAt?.ToString("O", CultureInfo.InvariantCulture) }).ToArray();
+        var jobs = new List<object>(); var failedJobs = 0; var cancelledJobs = 0;
+        foreach (var job in sourceJobs ?? [])
+        {
+            if (job.Conclusion is "failure" or "timed_out" or "action_required") failedJobs++;
+            if (job.Conclusion == "cancelled") cancelledJobs++;
+            if (jobs.Count >= limits.MaxItems) continue;
+            var failedSteps = job.FailedSteps.Take(limits.MaxItems).Select(step => new { name = step.Name, number = (object?)step.Number, conclusion = step.Conclusion }).ToArray();
+            jobs.Add(new { id = (object?)job.Id, name = job.Name, status = job.Status, conclusion = job.Conclusion, startedAt = job.StartedAt?.ToString("O", CultureInfo.InvariantCulture), completedAt = job.CompletedAt?.ToString("O", CultureInfo.InvariantCulture), url = job.Url?.ToString(), failedSteps });
+        }
+        var jobCount = sourceJobs?.Count ?? 0;
+        return new { schemaVersion = 1, kind = "github-actions-summary", mode = sourceJobs is null ? "runs" : "run", runCount = sourceRuns.Count, runs, runsTruncated = sourceRuns.Count > runs.Length, jobCount, failedJobs, cancelledJobs, jobs, jobsTruncated = jobCount > jobs.Count, next = failedJobs > 0 ? "Fetch --failed-logs for this run and diagnose the earliest causal failure." : null };
     }
 
     public static object ParseActions(string json, bool list, OutputSettings limits)

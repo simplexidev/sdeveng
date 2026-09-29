@@ -4,7 +4,11 @@ public class CommandSafetyTests
 {
     [Fact] public void UnsupportedDryRunCannotSilentlyMutate() => Assert.Throws<ArgumentException>(() => Cli.Parse(["git", "issue-start", "--issue", "42", "--branch", "fix", "--dry-run"]).ValidateCommand("git issue-start"));
     [Fact] public void UnknownOptionsCannotBeSilentlyIgnored() => Assert.Throws<ArgumentException>(() => Cli.Parse(["repo", "health", "--apply"]).ValidateCommand("repo health"));
-    [Fact] public async Task FailedActionLogsRequireASpecificRun() => await Assert.ThrowsAsync<ArgumentException>(() => GitHub.Actions(AgentTool.FindToolkit(), Path.Combine(Path.GetTempPath(), "unused"), null, true, new()));
+    [Fact] public async Task FailedActionLogsRequireASpecificRun() => await Assert.ThrowsAsync<ArgumentException>(() => GitHub.Actions(new GitHubActionsReader(new RejectingReadClient()), "owner", "repository", Path.Combine(Path.GetTempPath(), "unused"), null, true, new()));
+    sealed class RejectingReadClient : IGitHubReadClient
+    {
+        public Task<HttpResponseMessage> GetAsync(Uri endpoint, CancellationToken cancellationToken = default) => throw new InvalidOperationException("No read is expected.");
+    }
     [Fact]
     public void ZeroErrorCountIsNotAnError()
     {
