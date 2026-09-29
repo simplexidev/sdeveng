@@ -219,6 +219,17 @@ public class MetadataTests
         }
     }
     [Fact]
+    public void FactoryCommitAndPushSkillsUseOwnedGitMutations()
+    {
+        var prepareCommit = File.ReadAllText(Path.Combine(Root, "plugins/sdeveng/skills/prepare-commit/SKILL.md"));
+        var finishPr = File.ReadAllText(Path.Combine(Root, "plugins/sdeveng/skills/finish-pr/SKILL.md"));
+        Assert.Contains("sdeveng git stage-owned --paths-file FILE", prepareCommit, StringComparison.Ordinal);
+        Assert.Contains("sdeveng git commit-owned --paths-file FILE --message TEXT", prepareCommit, StringComparison.Ordinal);
+        Assert.Contains("sdeveng git stage-owned --paths-file FILE", finishPr, StringComparison.Ordinal);
+        Assert.Contains("sdeveng git commit-owned --paths-file FILE --message TEXT", finishPr, StringComparison.Ordinal);
+        Assert.Contains("sdeveng git push-owned --remote NAME --branch NAME", finishPr, StringComparison.Ordinal);
+    }
+    [Fact]
     public void DotnetSkillsProvenanceIsPinnedCompleteAndReferenceOnly()
     {
         var manifest = JsonNode.Parse(File.ReadAllText(Path.Combine(Root, "upstream/dotnet-skills.json")))!;
