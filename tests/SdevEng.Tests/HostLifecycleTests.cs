@@ -299,6 +299,10 @@ public sealed class HostLifecycleTests
         using var data = System.Text.Json.JsonDocument.Parse(System.Text.Json.JsonSerializer.Serialize(result.Data, AgentTool.Json));
         Assert.Equal(4, data.RootElement.GetProperty("checks").GetArrayLength());
         Assert.True(data.RootElement.TryGetProperty("installation", out _));
+        var github = data.RootElement.GetProperty("checks").EnumerateArray().Single(check => check.GetProperty("tool").GetString() == "gh");
+        Assert.True(github.TryGetProperty("available", out _));
+        Assert.True(github.TryGetProperty("authenticated", out _));
+        Assert.False(github.GetProperty("required").GetBoolean());
     }
 
     [Theory]
@@ -312,6 +316,18 @@ public sealed class HostLifecycleTests
 
         Assert.Equal(sdkAvailable, state.SdkAvailable);
         Assert.Equal(runtimeAvailable, state.RuntimeAvailable);
+    }
+
+    [Theory]
+    [InlineData(true, 0, true)]
+    [InlineData(true, 1, false)]
+    [InlineData(false, -1, null)]
+    public void DoctorSeparatesGitHubAvailabilityFromAuthentication(bool available, int authExit, bool? authenticated)
+    {
+        var state = AgentTool.GitHubDoctorDiagnostics.Evaluate(available, authExit);
+
+        Assert.Equal(available, state.Available);
+        Assert.Equal(authenticated, state.Authenticated);
     }
 
     [Fact]

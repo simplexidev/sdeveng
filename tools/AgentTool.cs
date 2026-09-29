@@ -546,6 +546,15 @@ public static class AgentTool
                         if (!diagnostics.SdkAvailable || !diagnostics.RuntimeAvailable) requiredOk = false;
                         continue;
                     }
+                    if (tool == "gh")
+                    {
+                        ProcessResult authResult;
+                        try { authResult = await Processes.Run("gh", ["auth", "status"], toolkit); }
+                        catch (System.ComponentModel.Win32Exception) { authResult = new(-1, ""); }
+                        var diagnostics = GitHubDoctorDiagnostics.Evaluate(ok, authResult.ExitCode);
+                        checks.Add(new { tool, required, available = diagnostics.Available, authenticated = diagnostics.Authenticated, summary = Output.Compact(r.Output, settings.Output) });
+                        continue;
+                    }
                     checks.Add(new { tool, required, available = ok, summary = Output.Compact(r.Output, settings.Output) });
                     if (required && !ok) requiredOk = false;
                 }
@@ -561,6 +570,14 @@ public static class AgentTool
             var codex = c.Get("codex-home") ?? (c.Get("home") is null ? Environment.GetEnvironmentVariable("CODEX_HOME") : null) ?? Path.Combine(home, ".codex");
             return new(requiredOk ? "ok" : "failed", new { checks, toolkit, codex, skills = Path.Combine(home, ".agents/skills"), installation = Installer.Inspect(codex), jev = new { settings.Jev.Mode, credentials = JevCredentials.Status(), settings.Jev.Model }, upstream = "Run upstream status for integration policy; listed integrations are not automatically installed.", optionalTools = settings.Toolkit.OptionalTools.Select(t => new { name = t, available = Processes.OnPath(t) }) }, requiredOk ? 0 : 1);
         }
+    }
+
+    internal static class GitHubDoctorDiagnostics
+    {
+        public sealed record State(bool Available, bool? Authenticated);
+
+        public static State Evaluate(bool available, int authExitCode) =>
+            new(available, available ? authExitCode == 0 : null);
     }
 
     internal static class DotnetDoctorDiagnostics
