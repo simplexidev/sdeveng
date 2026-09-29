@@ -1281,17 +1281,32 @@ public static class Git
         }
         var status = await Require(actual, "status", "--porcelain=v1", "-z", "--untracked-files=all");
         var branch = await Processes.Run("git", ["symbolic-ref", "--quiet", "--short", "HEAD"], root);
-        var remoteNames = await Processes.Run("git", ["remote"], actual);
         var remotes = new List<(string name, string url, string direction)>();
-        if (remoteNames.ExitCode == 0)
-        foreach (var name in remoteNames.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        var configuredRemotes = await Processes.Run("git", ["config", "--null", "--get-regexp", "^remote\\..*\\.(url|pushurl)$"], actual);
+        if (configuredRemotes.ExitCode is 0 or 1)
         {
-            var urls = await Processes.Run("git", ["remote", "get-url", "--all", name], actual);
-            if (urls.ExitCode == 0)
-                remotes.AddRange(urls.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(url => (name, url, "(fetch)")));
-            var pushUrls = await Processes.Run("git", ["remote", "get-url", "--push", "--all", name], actual);
-            if (pushUrls.ExitCode == 0)
-                remotes.AddRange(pushUrls.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(url => (name, url, "(push)")));
+            var values = configuredRemotes.Output.Split('\0', StringSplitOptions.RemoveEmptyEntries);
+            for (var i = 0; i < values.Length; i++)
+            {
+                var separator = values[i].IndexOf('\n');
+                if (separator <= 0) continue;
+                var key = values[i][..separator];
+                var url = values[i][(separator + 1)..];
+                var prefix = "remote.";
+                var suffix = key.EndsWith(".pushurl", StringComparison.Ordinal) ? ".pushurl" : ".url";
+                if (!key.StartsWith(prefix, StringComparison.Ordinal) || !key.EndsWith(suffix, StringComparison.Ordinal)) continue;
+                var name = key[prefix.Length..^suffix.Length];
+                if (name.Length == 0) continue;
+                var direction = suffix == ".pushurl" ? "(push)" : "(fetch)";
+                remotes.Add((name, url, direction));
+            }
+        }
+        var remoteNames = remotes.Select(remote => remote.name).Distinct(StringComparer.Ordinal).ToArray();
+        foreach (var name in remoteNames)
+        {
+            var hasPushUrl = remotes.Any(remote => remote.name == name && remote.direction == "(push)");
+            if (!hasPushUrl)
+                remotes.AddRange(remotes.Where(remote => remote.name == name && remote.direction == "(fetch)").Select(remote => (remote.name, remote.url, "(push)")).ToArray());
         }
         return new(actual, branch.ExitCode == 0 ? branch.Output.Trim() : null, status.Length == 0, operations, status.Split('\0', StringSplitOptions.RemoveEmptyEntries), remotes.ToArray());
     }
