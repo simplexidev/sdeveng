@@ -1322,6 +1322,8 @@ public static class AgentTool
 
     public sealed class UpstreamCommandModule : ICommandModule
     {
+        readonly GitHubCommitReader? _commitReader;
+        public UpstreamCommandModule(GitHubCommitReader? commitReader = null) => _commitReader = commitReader;
         public bool CanHandle(Cli command) => command.Command is "upstream status" or "upstream update" or "upstream dotnet-skills";
 
         public async Task<Result> Execute(Cli command, string toolkit, string root, Settings settings, CancellationToken cancellationToken)
@@ -1332,8 +1334,8 @@ public static class AgentTool
             return command.Command switch
             {
                 "upstream status" => Result.Ok(new { plugins = JsonNode.Parse(File.ReadAllText(Path.Combine(toolkit, "upstream/dotnet-skills.json"))), tools = JsonNode.Parse(File.ReadAllText(Path.Combine(toolkit, "upstream/tools.json"))), versions = JsonNode.Parse(File.ReadAllText(Path.Combine(toolkit, "upstream/versions.json"))) }),
-                "upstream update" => await Upstream(toolkit, artifacts, command.Flag("dry-run")),
-                "upstream dotnet-skills" => await DotnetSkillsDrift.Run(toolkit, artifacts, command.Words.Skip(2).SingleOrDefault(), command.Flag("dry-run")),
+                "upstream update" => await Upstream(toolkit, artifacts, command.Flag("dry-run"), _commitReader),
+                "upstream dotnet-skills" => await DotnetSkillsDrift.Run(toolkit, artifacts, command.Words.Skip(2).SingleOrDefault(), command.Flag("dry-run"), _commitReader),
                 _ => throw new ArgumentException("Unknown command. Use --help.")
             };
         }
@@ -1555,7 +1557,7 @@ public static class AgentTool
         return await client.Judge(payload, policy, purpose, capability);
     }
 
-    static async Task<Result> Upstream(string toolkit, string artifacts, bool dryRun)
+    static async Task<Result> Upstream(string toolkit, string artifacts, bool dryRun, GitHubCommitReader? commitReader)
     {
         var versions = JsonNode.Parse(File.ReadAllText(Path.Combine(toolkit, "upstream/versions.json")))!["repositories"]!.AsArray();
         var rows = new List<object>();
@@ -1563,8 +1565,14 @@ public static class AgentTool
         {
             var repo = entry!["repository"]!.GetValue<string>(); var pinned = entry["revision"]?.GetValue<string>();
             if (dryRun) { rows.Add(new { repo, pinned, query = $"gh api repos/{repo}/commits/HEAD --jq .sha" }); continue; }
-            var r = await Processes.Run("gh", ["api", $"repos/{repo}/commits/HEAD", "--jq", ".sha"], toolkit);
-            rows.Add(new { repo, pinned, latest = r.ExitCode == 0 ? r.Output.Trim() : null, status = r.ExitCode != 0 ? "unavailable" : r.Output.Trim() == pinned ? "current" : "review-update" });
+            try
+            {
+                var parts = repo.Split('/', 2);
+                if (parts.Length != 2) throw new FormatException("Upstream repository must be owner/repository.");
+                var latest = (await (commitReader ?? throw new InvalidOperationException("GitHub commit reader is unavailable.")).ReadHeadAsync(parts[0], parts[1])).Sha;
+                rows.Add(new { repo, pinned, latest, status = latest == pinned ? "current" : "review-update" });
+            }
+            catch (GitHubTransportException) { rows.Add(new { repo, pinned, latest = (string?)null, status = "unavailable" }); }
         }
         if (dryRun) return Result.Ok(rows);
         SafeFiles.NoLinks(artifacts); Directory.CreateDirectory(artifacts);
@@ -1622,7 +1630,7 @@ public record ProcessResult(int ExitCode, string Output);
 public static class DotnetSkillsDrift
 {
     // This compares only public Git metadata. It deliberately never checks out, runs, or imports upstream files.
-    public static async Task<Result> Run(string toolkit, string artifacts, string? operation, bool dryRun)
+    public static async Task<Result> Run(string toolkit, string artifacts, string? operation, bool dryRun, GitHubCommitReader? commitReader = null)
     {
         if (operation is not ("status" or "diff" or "check")) throw new ArgumentException("Usage: upstream dotnet-skills <status|diff|check> [--dry-run].");
         var manifest = JsonNode.Parse(File.ReadAllText(Path.Combine(toolkit, "upstream/dotnet-skills.json"))) ?? throw new FormatException("Dotnet skills provenance manifest is empty.");
@@ -1631,13 +1639,26 @@ public static class DotnetSkillsDrift
         if (operation == "status")
         {
             if (dryRun) return Result.Ok(new { kind = "dotnet-skills-status", repository, pinned, query = $"gh api repos/{repository}/commits/HEAD --jq .sha", policy = "Public metadata only; no source is downloaded or executed." });
-            var head = await Processes.Run("gh", ["api", $"repos/{repository}/commits/HEAD", "--jq", ".sha"], toolkit);
-            return new(head.ExitCode == 0 ? "ok" : "unavailable", new { kind = "dotnet-skills-status", repository, pinned, latest = head.ExitCode == 0 ? head.Output.Trim() : null, status = head.ExitCode == 0 && head.Output.Trim() == pinned ? "current" : "review-update", policy = "Public metadata only; no source is downloaded or executed." }, head.ExitCode == 0 ? 0 : 1);
+            try
+            {
+                var parts = repository.Split('/', 2);
+                if (parts.Length != 2) throw new FormatException("Upstream repository must be owner/repository.");
+                var latest = (await (commitReader ?? throw new InvalidOperationException("GitHub commit reader is unavailable.")).ReadHeadAsync(parts[0], parts[1])).Sha;
+                return Result.Ok(new { kind = "dotnet-skills-status", repository, pinned, latest, status = latest == pinned ? "current" : "review-update", policy = "Public metadata only; no source is downloaded or executed." });
+            }
+            catch (GitHubTransportException) { return new("unavailable", new { kind = "dotnet-skills-status", repository, pinned, latest = (string?)null, status = "review-update", policy = "Public metadata only; no source is downloaded or executed." }, 1); }
         }
         if (dryRun) return Result.Ok(new { kind = "dotnet-skills-diff", repository, pinned, query = $"gh api repos/{repository}/compare/{pinned}...HEAD", policy = "Only changed decision paths are reported; no upstream code is executed, merged, or copied." });
-        var response = await Processes.Run("gh", ["api", $"repos/{repository}/compare/{pinned}...HEAD"], toolkit);
-        if (response.ExitCode != 0) return new("unavailable", new { kind = "dotnet-skills-diff", repository, pinned, policy = "Comparison unavailable; no source was downloaded or executed." }, 1);
-        var analysis = Analyze(manifest, JsonNode.Parse(response.Output) ?? throw new FormatException("Upstream comparison is empty."));
+        JsonObject authoritative;
+        try
+        {
+            var parts = repository.Split('/', 2);
+            if (parts.Length != 2) throw new FormatException("Upstream repository must be owner/repository.");
+            var compare = await (commitReader ?? throw new InvalidOperationException("GitHub commit reader is unavailable.")).CompareToHeadAsync(parts[0], parts[1], pinned);
+            authoritative = new JsonObject { ["head_commit"] = new JsonObject { ["sha"] = compare.HeadCommitSha }, ["files"] = new JsonArray(compare.Files.Select(file => (JsonNode?)new JsonObject { ["filename"] = file.Filename, ["status"] = file.Status, ["previous_filename"] = file.PreviousFilename }).ToArray()) };
+        }
+        catch (GitHubTransportException) { return new("unavailable", new { kind = "dotnet-skills-diff", repository, pinned, policy = "Comparison unavailable; no source was downloaded or executed." }, 1); }
+        var analysis = Analyze(manifest, authoritative);
         SafeFiles.NoLinks(artifacts); Directory.CreateDirectory(artifacts);
         var report = Path.Combine(artifacts, "dotnet-skills-drift.json"); SafeFiles.Atomic(report, JsonSerializer.Serialize(analysis, AgentTool.Json));
         var review = analysis["classification"]?.GetValue<string>() is "relevant" or "review-required";
