@@ -701,7 +701,7 @@ public static class AgentTool
                     var primary = Path.GetFullPath((await Git.Require(root, "rev-parse", "--show-toplevel")).Trim());
                     if (string.Equals(primary, abandonPath, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)) throw new InvalidOperationException("Primary worktree cannot be abandoned.");
                     var listed = (await Git.Require(root, "worktree", "list", "--porcelain")).Split('\n', StringSplitOptions.RemoveEmptyEntries);
-                    if (!listed.Any(line => line == "worktree " + abandonPath) || !Directory.Exists(abandonPath)) throw new InvalidOperationException("Named linked worktree is unavailable.");
+                    if (!listed.Where(line => line.StartsWith("worktree ", StringComparison.Ordinal)).Select(line => Path.GetFullPath(line[9..].TrimEnd('\r'))).Any(path => string.Equals(path, abandonPath, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)) || !Directory.Exists(abandonPath)) throw new InvalidOperationException("Named linked worktree is unavailable.");
                     var state = await Git.State(abandonPath);
                     if (!string.Equals(state.Root, abandonPath, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal) || state.Branch != abandonBranch || !state.Clean || state.Operations.Count != 0) throw new InvalidOperationException("Named worktree is dirty, busy, or on another branch.");
                     var markerPath = Path.Combine((await Git.Require(abandonPath, "rev-parse", "--absolute-git-dir")).Trim(), GitOwnershipMarkers.WorktreeFileName);
