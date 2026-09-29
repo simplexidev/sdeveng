@@ -8,6 +8,7 @@
 
 using System.Diagnostics;
 using System.Globalization;
+using System.Net;
 using System.Net.Http.Headers;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
@@ -31,6 +32,27 @@ public interface IGitHubReadClient
     Task<HttpResponseMessage> GetAsync(Uri endpoint, CancellationToken cancellationToken = default);
 }
 
+public sealed class GitHubTransportException(string message, HttpStatusCode? statusCode = null, Exception? innerException = null)
+    : HttpRequestException(message, innerException, statusCode);
+
+/// <summary>Normalizes GitHub transport and HTTP failures without exposing response bodies.</summary>
+public static class GitHubTransport
+{
+    public static async Task<HttpResponseMessage> GetAsync(IGitHubReadClient client, Uri endpoint, CancellationToken cancellationToken = default)
+    {
+        HttpResponseMessage response;
+        try { response = await client.GetAsync(endpoint, cancellationToken); }
+        catch (HttpRequestException error) { throw new GitHubTransportException("GitHub request failed at the transport layer.", error.StatusCode, error); }
+        if (!response.IsSuccessStatusCode)
+        {
+            var status = response.StatusCode;
+            response.Dispose();
+            throw new GitHubTransportException($"GitHub returned HTTP {(int)status} ({status}).", status);
+        }
+        return response;
+    }
+}
+
 public sealed record GitHubRepositoryMetadata(
     long Id, string FullName, Uri HtmlUrl, string? Description, string DefaultBranch,
     bool IsPrivate, bool IsArchived, string Visibility, DateTimeOffset? PushedAt, DateTimeOffset? UpdatedAt);
@@ -47,8 +69,7 @@ public sealed class GitHubRepositoryMetadataReader(IGitHubReadClient client)
                 ? Uri.EscapeDataString(value) : throw new ArgumentException($"{name} must be a GitHub owner or repository name.", name);
 
         var endpoint = new Uri(ApiRoot, $"repos/{Segment(owner, nameof(owner))}/{Segment(repository, nameof(repository))}");
-        using var response = await client.GetAsync(endpoint, cancellationToken);
-        response.EnsureSuccessStatusCode();
+        using var response = await GitHubTransport.GetAsync(client, endpoint, cancellationToken);
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
         using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
         var root = document.RootElement;
@@ -101,8 +122,7 @@ public sealed class GitHubIssueReader(IGitHubReadClient client)
         if (number <= 0) throw new ArgumentOutOfRangeException(nameof(number), "GitHub issue or pull request number must be positive.");
         var resource = pullRequest ? "pulls" : "issues";
         var endpoint = new Uri(ApiRoot, $"repos/{Segment(owner, nameof(owner))}/{Segment(repository, nameof(repository))}/{resource}/{number.ToString(CultureInfo.InvariantCulture)}");
-        using var response = await client.GetAsync(endpoint, cancellationToken);
-        response.EnsureSuccessStatusCode();
+        using var response = await GitHubTransport.GetAsync(client, endpoint, cancellationToken);
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
         using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
         return document.RootElement.Clone();
@@ -169,8 +189,7 @@ public sealed class GitHubChecksWorkflowReader(IGitHubReadClient client)
 
     async Task<JsonElement> ReadAsync(string path, CancellationToken cancellationToken)
     {
-        using var response = await client.GetAsync(new Uri(ApiRoot, path), cancellationToken);
-        response.EnsureSuccessStatusCode();
+        using var response = await GitHubTransport.GetAsync(client, new Uri(ApiRoot, path), cancellationToken);
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
         using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
         return document.RootElement.Clone();
