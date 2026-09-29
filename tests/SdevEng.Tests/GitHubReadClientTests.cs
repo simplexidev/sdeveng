@@ -24,6 +24,7 @@ public sealed class GitHubReadClientTests
         Assert.IsType<GitHubReadClient>(provider.GetRequiredService<IGitHubReadClient>());
         Assert.NotNull(provider.GetRequiredService<GitHubIssueReader>());
         Assert.NotNull(provider.GetRequiredService<GitHubChecksWorkflowReader>());
+        Assert.NotNull(provider.GetRequiredService<GitHubActionsReader>());
         Assert.NotNull(provider.GetRequiredService<GitHubPrStatusReader>());
         Assert.NotNull(provider.GetRequiredService<GitHubReviewCommentReader>());
     }

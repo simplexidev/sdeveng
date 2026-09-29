@@ -230,6 +230,82 @@ public sealed record GitHubCheck(int Id, string Name, string Status, string? Con
 public sealed record GitHubWorkflow(long Id, string Name, string State, Uri HtmlUrl);
 public sealed record GitHubWorkflowRun(long Id, string Name, string Status, string? Conclusion, Uri HtmlUrl);
 
+public sealed record GitHubActionRun(long Id, string Workflow, string? Title, string Status, string? Conclusion, string Event, string? Branch, string? Sha, Uri Url, DateTimeOffset? CreatedAt, DateTimeOffset? UpdatedAt);
+public sealed record GitHubActionStep(string? Name, int? Number, string? Conclusion);
+public sealed record GitHubActionJob(long Id, string? Name, string? Status, string? Conclusion, DateTimeOffset? StartedAt, DateTimeOffset? CompletedAt, Uri? Url, IReadOnlyList<GitHubActionStep> FailedSteps);
+public sealed record GitHubActionRunDetail(GitHubActionRun Run, IReadOnlyList<GitHubActionJob> Jobs);
+public sealed record GitHubActionFailedLog(long JobId, string? JobName, string Log);
+
+/// <summary>Reads bounded Actions run and failure evidence through the shared GitHub read transport.</summary>
+public sealed class GitHubActionsReader(IGitHubReadClient client)
+{
+    static readonly Uri ApiRoot = new("https://api.github.com/");
+    public async Task<IReadOnlyList<GitHubActionRun>> ReadRunsAsync(string owner, string repository, int limit, CancellationToken cancellationToken = default)
+    {
+        ValidateLimit(limit);
+        var root = await ReadJsonAsync($"repos/{Part(owner, nameof(owner))}/{Part(repository, nameof(repository))}/actions/runs?per_page={limit.ToString(CultureInfo.InvariantCulture)}", cancellationToken);
+        return Array(root, "workflow_runs").Select(ParseRun).ToArray();
+    }
+    public async Task<GitHubActionRunDetail> ReadRunAsync(string owner, string repository, long runId, int maxItems, CancellationToken cancellationToken = default)
+    {
+        ValidateRunId(runId); ValidateLimit(maxItems);
+        var prefix = $"repos/{Part(owner, nameof(owner))}/{Part(repository, nameof(repository))}/actions/runs/{runId.ToString(CultureInfo.InvariantCulture)}";
+        var run = ParseRun(await ReadJsonAsync(prefix, cancellationToken));
+        var jobs = await ReadJsonAsync(prefix + "/jobs?per_page=" + maxItems.ToString(CultureInfo.InvariantCulture), cancellationToken);
+        return new(run, Array(jobs, "jobs").Take(maxItems).Select(ParseJob).ToArray());
+    }
+    public async Task<IReadOnlyList<GitHubActionFailedLog>> ReadFailedLogsAsync(string owner, string repository, long runId, int maxItems, int maxOutputChars, CancellationToken cancellationToken = default)
+    {
+        ValidateRunId(runId); ValidateLimit(maxItems);
+        if (maxOutputChars < 1) throw new ArgumentOutOfRangeException(nameof(maxOutputChars));
+        var path = $"repos/{Part(owner, nameof(owner))}/{Part(repository, nameof(repository))}/actions/runs/{runId.ToString(CultureInfo.InvariantCulture)}/jobs?per_page={maxItems.ToString(CultureInfo.InvariantCulture)}";
+        var root = await ReadJsonAsync(path, cancellationToken);
+        var failures = Array(root, "jobs").Select(ParseJob).Where(job => job.Conclusion is "failure" or "cancelled" or "timed_out" or "action_required").Take(maxItems).ToArray();
+        var output = new List<GitHubActionFailedLog>(); var remaining = maxOutputChars;
+        foreach (var job in failures)
+        {
+            if (remaining <= 0) break;
+            using var response = await GitHubTransport.GetAsync(client, new Uri(ApiRoot, $"repos/{Part(owner, nameof(owner))}/{Part(repository, nameof(repository))}/actions/jobs/{job.Id.ToString(CultureInfo.InvariantCulture)}/logs"), cancellationToken);
+            await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+            using var reader = new StreamReader(stream);
+            var buffer = new char[Math.Min(remaining + 1, 8192)];
+            var count = await reader.ReadBlockAsync(buffer.AsMemory(), cancellationToken);
+            var truncated = count > remaining;
+            var marker = "\n[truncated]";
+            if (truncated && marker.Length > remaining) marker = marker[..remaining];
+            var length = truncated ? Math.Max(0, remaining - marker.Length) : count;
+            output.Add(new(job.Id, job.Name, new string(buffer, 0, length) + (truncated ? marker : "")));
+            remaining -= length + (truncated ? marker.Length : 0);
+        }
+        return output;
+    }
+    async Task<JsonElement> ReadJsonAsync(string path, CancellationToken cancellationToken)
+    {
+        using var response = await GitHubTransport.GetAsync(client, new Uri(ApiRoot, path), cancellationToken);
+        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+        return document.RootElement.Clone();
+    }
+    static GitHubActionRun ParseRun(JsonElement value) => new(Long(value, "id"), Nested(value, "workflow", "name") ?? Text(value, "name") ?? "", Text(value, "display_title"), RequiredText(value, "status"), Text(value, "conclusion"), RequiredText(value, "event"), Text(value, "head_branch"), Text(value, "head_sha"), RequiredUrl(value, "html_url"), Date(value, "created_at"), Date(value, "updated_at"));
+    static GitHubActionJob ParseJob(JsonElement value)
+    {
+        var steps = value.TryGetProperty("steps", out var array) && array.ValueKind == JsonValueKind.Array ? array.EnumerateArray().Where(step => Text(step, "conclusion") is "failure" or "cancelled" or "timed_out").Select(step => new GitHubActionStep(Text(step, "name"), Int(step, "number"), Text(step, "conclusion"))).ToArray() : System.Array.Empty<GitHubActionStep>();
+        return new(Long(value, "id"), Text(value, "name"), Text(value, "status"), Text(value, "conclusion"), Date(value, "started_at"), Date(value, "completed_at"), OptionalUrl(value, "html_url"), steps);
+    }
+    static void ValidateRunId(long id) { if (id <= 0) throw new ArgumentOutOfRangeException(nameof(id)); }
+    static void ValidateLimit(int value) { if (value is < 1 or > 200) throw new ArgumentOutOfRangeException(nameof(value)); }
+    static string Part(string value, string name) => !string.IsNullOrWhiteSpace(value) && Regex.IsMatch(value, @"^[A-Za-z0-9_.-]+$", RegexOptions.CultureInvariant) ? Uri.EscapeDataString(value) : throw new ArgumentException($"{name} must be a GitHub owner or repository name.", name);
+    static JsonElement[] Array(JsonElement root, string name) => root.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Array ? value.EnumerateArray().ToArray() : throw new JsonException($"GitHub response is missing '{name}'.");
+    static string? Text(JsonElement value, string name) => value.TryGetProperty(name, out var item) && item.ValueKind == JsonValueKind.String ? item.GetString() : null;
+    static string RequiredText(JsonElement value, string name) => Text(value, name) is { Length: > 0 } text ? text : throw new JsonException($"GitHub Actions response is missing '{name}'.");
+    static string? Nested(JsonElement value, string parent, string child) => value.TryGetProperty(parent, out var item) && item.ValueKind == JsonValueKind.Object ? Text(item, child) : null;
+    static long Long(JsonElement value, string name) => value.TryGetProperty(name, out var item) && item.TryGetInt64(out var result) && result > 0 ? result : throw new JsonException($"GitHub Actions response has an invalid '{name}'.");
+    static int? Int(JsonElement value, string name) => value.TryGetProperty(name, out var item) && item.TryGetInt32(out var result) ? result : null;
+    static DateTimeOffset? Date(JsonElement value, string name) => DateTimeOffset.TryParse(Text(value, name), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var result) ? result : null;
+    static Uri RequiredUrl(JsonElement value, string name) => OptionalUrl(value, name) ?? throw new JsonException($"GitHub Actions response has an invalid '{name}'.");
+    static Uri? OptionalUrl(JsonElement value, string name) => Uri.TryCreate(Text(value, name), UriKind.Absolute, out var result) && result.Scheme == Uri.UriSchemeHttps ? result : null;
+}
+
 /// <summary>Reads typed check and workflow data through the shared GitHub read transport.</summary>
 public sealed class GitHubChecksWorkflowReader(IGitHubReadClient client)
 {
@@ -626,6 +702,7 @@ public static class AgentTool
             services.AddTransient<GitHubRepositoryMetadataReader>();
             services.AddTransient<GitHubIssueReader>();
             services.AddTransient<GitHubChecksWorkflowReader>();
+            services.AddTransient<GitHubActionsReader>();
             services.AddTransient<GitHubPrStatusReader>();
             services.AddTransient<GitHubReviewCommentReader>();
             services.AddSingleton<ICommandModule, InstallerCommandModule>();
