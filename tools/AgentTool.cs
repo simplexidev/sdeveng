@@ -1281,6 +1281,7 @@ public static class Git
         }
         var status = await Require(actual, "status", "--porcelain=v1", "-z", "--untracked-files=all");
         var branch = await Processes.Run("git", ["symbolic-ref", "--quiet", "--short", "HEAD"], root);
+        var head = (await Require(actual, "rev-parse", "HEAD")).Trim();
         var remotes = new List<(string name, string url, string direction)>();
         var configuredRemotes = await Processes.Run("git", ["config", "--null", "--get-regexp", "^remote\\..*\\.(url|pushurl)$"], actual);
         if (configuredRemotes.ExitCode is 0 or 1)
@@ -1308,7 +1309,19 @@ public static class Git
             if (!hasPushUrl)
                 remotes.AddRange(remotes.Where(remote => remote.name == name && remote.direction == "(fetch)").Select(remote => (remote.name, remote.url, "(push)")).ToArray());
         }
-        return new(actual, branch.ExitCode == 0 ? branch.Output.Trim() : null, status.Length == 0, operations, status.Split('\0', StringSplitOptions.RemoveEmptyEntries), remotes.ToArray());
+        var upstream = await ReadUpstream(actual);
+        return new(actual, head, branch.ExitCode == 0 ? branch.Output.Trim() : null, status.Length == 0, operations, status.Split('\0', StringSplitOptions.RemoveEmptyEntries), remotes.ToArray(), upstream);
+    }
+    private static async Task<GitUpstream?> ReadUpstream(string root)
+    {
+        var upstream = await Processes.Run("git", ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"], root);
+        if (upstream.ExitCode != 0) return null;
+        var name = upstream.Output.Trim();
+        var divergence = await Processes.Run("git", ["rev-list", "--left-right", "--count", $"HEAD...{name}"], root);
+        if (divergence.ExitCode != 0) return new(name, null, null);
+        var counts = divergence.Output.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+        return counts.Length == 2 && int.TryParse(counts[0], out var ahead) && int.TryParse(counts[1], out var behind)
+            ? new(name, ahead, behind) : new(name, null, null);
     }
     public static async Task EnsureSafe(string root, bool requireClean)
     {
@@ -1350,7 +1363,8 @@ public static class Git
         return new { schemaVersion = 1, kind = "git-conflict-forecast", baseRef, head, target, mergeBase, hasConflicts = result.ExitCode == 1, conflictCount = conflicts.Length, paths, pathsTruncated = conflicts.Length > paths.Length, evidence = conflicts.Take(limits.MaxItems), note = "Forecast only: refs, index and worktree were not changed. Rename and custom merge-driver behavior may differ in a real merge." };
     }
 }
-public record GitState(string Root, string? Branch, bool Clean, List<string> Operations, string[] Entries, (string name, string url, string direction)[] Remotes);
+public record GitState(string Root, string Head, string? Branch, bool Clean, List<string> Operations, string[] Entries, (string name, string url, string direction)[] Remotes, GitUpstream? Upstream);
+public record GitUpstream(string Name, int? Ahead, int? Behind);
 
 public static class Repository
 {
@@ -1358,15 +1372,7 @@ public static class Repository
     {
         var state = await Git.State(root);
         var changed = await Git.Changed(root, baseRef);
-        var upstream = await Processes.Run("git", ["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"], root);
-        int? ahead = null, behind = null; string? upstreamName = null;
-        if (upstream.ExitCode == 0)
-        {
-            upstreamName = upstream.Output.Trim();
-            var divergence = await Processes.Run("git", ["rev-list", "--left-right", "--count", $"HEAD...{upstreamName}"], root);
-            var counts = divergence.Output.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
-            if (divergence.ExitCode == 0 && counts.Length == 2 && int.TryParse(counts[0], out var local) && int.TryParse(counts[1], out var remote)) { ahead = local; behind = remote; }
-        }
+        var upstream = state.Upstream;
         var byExtension = changed.GroupBy(path => Path.GetExtension(path).ToLowerInvariant() is { Length: > 0 } extension ? extension : "(none)", StringComparer.Ordinal)
             .OrderByDescending(group => group.Count()).ThenBy(group => group.Key, StringComparer.Ordinal).ToDictionary(group => group.Key, group => group.Count(), StringComparer.Ordinal);
         var byArea = changed.GroupBy(path => path.Replace('\\', '/').Split('/', 2)[0], StringComparer.Ordinal)
@@ -1376,7 +1382,7 @@ public static class Repository
             schemaVersion = 1,
             kind = "repository-summary",
             state = new { state.Branch, state.Clean, state.Operations, entries = state.Entries.Take(limits.MaxItems), entriesTruncated = state.Entries.Length > limits.MaxItems },
-            upstream = new { name = upstreamName, ahead, behind },
+            upstream = new { name = upstream?.Name, ahead = upstream?.Ahead, behind = upstream?.Behind },
             changes = new { baseRef, count = changed.Length, files = changed.Take(limits.MaxItems), truncated = changed.Length > limits.MaxItems, byExtension, byArea }
         };
     }
@@ -1480,7 +1486,7 @@ public static class Results
     {
         RequireWords(words, 2, "Usage: results new <audit|handoff|review|report> <name>.");
         var type = words[0]; var directory = Type(type); var name = SafeName(words[1]); Init(root); var now = DateTimeOffset.UtcNow;
-        var head = (await Git.Require(root, "rev-parse", "HEAD")).Trim(); var branch = (await Processes.Run("git", ["branch", "--show-current"], root)).Output.Trim();
+        var state = await Git.State(root); var head = state.Head; var branch = state.Branch ?? "";
         var file = Path.Combine(Root(root), directory, $"{now:yyyyMMddTHHmmssZ}-{name}.md"); if (File.Exists(file)) throw new IOException("A result already exists for this timestamp and name; retry.");
         var title = CultureInfo.InvariantCulture.TextInfo.ToTitleCase(type) + ": " + name.Replace('-', ' ');
         SafeFiles.Atomic(file, $"""
