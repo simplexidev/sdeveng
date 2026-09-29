@@ -63,6 +63,8 @@ public sealed class HostLifecycleTests
             ("git summary", typeof(AgentTool.GitCommandModule)),
             ("git conflict-forecast", typeof(AgentTool.GitCommandModule)),
             ("git prepare-commit", typeof(AgentTool.GitCommandModule)),
+            ("git stage-owned", typeof(AgentTool.GitCommandModule)),
+            ("git commit-owned", typeof(AgentTool.GitCommandModule)),
             ("git issue-start", typeof(AgentTool.GitCommandModule)),
             ("git branch-create", typeof(AgentTool.GitCommandModule)),
             ("git worktree-create", typeof(AgentTool.GitCommandModule)),
@@ -355,7 +357,7 @@ public sealed class HostLifecycleTests
     public async Task GitModuleOwnsOnlyRequestedGitCommandsAndDispatchesState()
     {
         var module = new AgentTool.GitCommandModule();
-        foreach (var command in new[] { "git state", "git summary", "git conflict-forecast", "git prepare-commit", "git issue-start", "git branch-create", "git worktree-create" })
+        foreach (var command in new[] { "git state", "git summary", "git conflict-forecast", "git prepare-commit", "git stage-owned", "git commit-owned", "git issue-start", "git branch-create", "git worktree-create" })
             Assert.True(module.CanHandle(Cli.Parse(command.Split(' '))));
         Assert.False(module.CanHandle(Cli.Parse(["repo", "summary"])));
 
