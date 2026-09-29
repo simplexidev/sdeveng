@@ -568,7 +568,26 @@ public static class AgentTool
             }
             var home = c.Get("home") ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
             var codex = c.Get("codex-home") ?? (c.Get("home") is null ? Environment.GetEnvironmentVariable("CODEX_HOME") : null) ?? Path.Combine(home, ".codex");
-            return new(requiredOk ? "ok" : "failed", new { checks, toolkit, codex, skills = Path.Combine(home, ".agents/skills"), installation = Installer.Inspect(codex), jev = new { settings.Jev.Mode, credentials = JevCredentials.Status(), settings.Jev.Model }, upstream = "Run upstream status for integration policy; listed integrations are not automatically installed.", optionalTools = settings.Toolkit.OptionalTools.Select(t => new { name = t, available = Processes.OnPath(t) }) }, requiredOk ? 0 : 1);
+            var classification = DoctorPrerequisiteDiagnostics.Classify(checks, requiredOk);
+            var optionalTools = settings.Toolkit.OptionalTools.Select(t => new { name = t, available = Processes.OnPath(t) }).ToArray();
+            return new(requiredOk ? "ok" : "failed", new { checks, prerequisites = new { required = new { status = classification.RequiredStatus, checks = classification.Required }, optional = new { status = classification.OptionalStatus, checks = classification.Optional, tools = optionalTools } }, toolkit, codex, skills = Path.Combine(home, ".agents/skills"), installation = Installer.Inspect(codex), jev = new { settings.Jev.Mode, credentials = JevCredentials.Status(), settings.Jev.Model }, upstream = "Run upstream status for integration policy; listed integrations are not automatically installed.", optionalTools }, requiredOk ? 0 : 1);
+        }
+    }
+
+    internal static class DoctorPrerequisiteDiagnostics
+    {
+        public sealed record Classification(string RequiredStatus, object[] Required, string OptionalStatus, object[] Optional);
+
+        public static Classification Classify(IEnumerable<object> checks, bool requiredOk)
+        {
+            var required = new List<object>();
+            var optional = new List<object>();
+            foreach (var check in checks)
+            {
+                var isRequired = (bool)check.GetType().GetProperty("required")!.GetValue(check)!;
+                (isRequired ? required : optional).Add(check);
+            }
+            return new(requiredOk ? "ok" : "failed", required.ToArray(), "informational", optional.ToArray());
         }
     }
 
