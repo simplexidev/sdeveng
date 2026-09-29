@@ -64,6 +64,61 @@ public static class GitHubTransport
     }
 }
 
+public sealed record GitHubPrStatusCheck(string Name, string? State, string? Bucket, Uri? Link, string? Workflow, JsonElement Raw);
+public sealed record GitHubPrStatus(string? HeadBranch, string? Author, string? ReviewDecision, IReadOnlyList<GitHubPrStatusCheck> Checks, JsonElement Raw);
+
+/// <summary>Reads the fields used by github pr-status from the GitHub pull request API.</summary>
+public sealed class GitHubPrStatusReader(IGitHubReadClient client)
+{
+    static readonly Uri ApiRoot = new("https://api.github.com/");
+    public async Task<GitHubPrStatus> ReadAsync(string owner, string repository, int number, CancellationToken cancellationToken = default)
+    {
+        if (number <= 0) throw new ArgumentOutOfRangeException(nameof(number));
+        static string Part(string value, string name) => !string.IsNullOrWhiteSpace(value) && Regex.IsMatch(value, @"^[A-Za-z0-9_.-]+$", RegexOptions.CultureInvariant) ? Uri.EscapeDataString(value) : throw new ArgumentException($"{name} is invalid.", name);
+        using var response = await GitHubTransport.GetAsync(client, new Uri(ApiRoot, $"repos/{Part(owner, nameof(owner))}/{Part(repository, nameof(repository))}/pulls/{number.ToString(CultureInfo.InvariantCulture)}"), cancellationToken);
+        using var document = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(cancellationToken), cancellationToken: cancellationToken);
+        var root = document.RootElement;
+        static string? Nested(JsonElement value, string parent, string child) => value.TryGetProperty(parent, out var p) && p.ValueKind == JsonValueKind.Object && p.TryGetProperty(child, out var c) && c.ValueKind == JsonValueKind.String ? c.GetString() : null;
+        var checks = root.TryGetProperty("statusCheckRollup", out var rollup) && rollup.ValueKind == JsonValueKind.Array
+            ? rollup.EnumerateArray().Select(c => new GitHubPrStatusCheck(Text(c, "name") ?? Text(c, "context") ?? "", Text(c, "state") ?? Text(c, "conclusion"), Text(c, "bucket"), Https(Text(c, "link") ?? Text(c, "detailsUrl")), Text(c, "workflow"), c.Clone())).ToArray()
+            : Array.Empty<GitHubPrStatusCheck>();
+        return new GitHubPrStatus(Nested(root, "head", "ref") ?? Text(root, "headRefName"), Nested(root, "user", "login") ?? Nested(root, "author", "login"), Text(root, "reviewDecision"), checks, root.Clone());
+    }
+    static string? Text(JsonElement e, string name) => e.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.String ? p.GetString() : null;
+    static Uri? Https(string? s) => Uri.TryCreate(s, UriKind.Absolute, out var u) && u.Scheme == Uri.UriSchemeHttps ? u : null;
+}
+
+public sealed record GitHubReviewComment(long Id, long? ReviewId, string? NodeId, string? Path, int? Position, int? OriginalPosition, string? CommitId, string? OriginalCommitId, string? Author, string? Body, DateTimeOffset? CreatedAt, DateTimeOffset? UpdatedAt, Uri? HtmlUrl, Uri? PullRequestUrl, long? InReplyToId, string? AuthorAssociation, int? StartLine, int? OriginalStartLine, string? StartSide, int? Line, int? OriginalLine, string? Side, string? DiffHunk, JsonElement Raw);
+public sealed record GitHubReviewCommentPage(IReadOnlyList<GitHubReviewComment> Comments, Uri? NextPage);
+
+/// <summary>Reads one bounded page of inline pull request review comments.</summary>
+public sealed class GitHubReviewCommentReader(IGitHubReadClient client)
+{
+    static readonly Uri ApiRoot = new("https://api.github.com/");
+    public async Task<GitHubReviewCommentPage> ReadPageAsync(string owner, string repository, int number, Uri? page = null, CancellationToken cancellationToken = default)
+    {
+        if (number <= 0) throw new ArgumentOutOfRangeException(nameof(number));
+        static string Part(string value, string name) => !string.IsNullOrWhiteSpace(value) && Regex.IsMatch(value, @"^[A-Za-z0-9_.-]+$", RegexOptions.CultureInvariant) ? Uri.EscapeDataString(value) : throw new ArgumentException($"{name} is invalid.", name);
+        var endpoint = page ?? new Uri(ApiRoot, $"repos/{Part(owner, nameof(owner))}/{Part(repository, nameof(repository))}/pulls/{number.ToString(CultureInfo.InvariantCulture)}/comments?per_page=100");
+        if (endpoint.Scheme != Uri.UriSchemeHttps || endpoint.Host != "api.github.com") throw new ArgumentException("Page must target api.github.com.", nameof(page));
+        using var response = await GitHubTransport.GetAsync(client, endpoint, cancellationToken);
+        using var document = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(cancellationToken), cancellationToken: cancellationToken);
+        if (document.RootElement.ValueKind != JsonValueKind.Array) throw new JsonException("GitHub review comments response must be an array.");
+        var comments = document.RootElement.EnumerateArray().Select(Parse).ToArray();
+        Uri? next = null;
+        if (response.Headers.TryGetValues("Link", out var links)) foreach (var link in links.SelectMany(x => x.Split(',')))
+            if (link.Contains("rel=\"next\"", StringComparison.Ordinal) && Uri.TryCreate(link.Split(';')[0].Trim().Trim('<', '>'), UriKind.Absolute, out var parsed)) { next = parsed; break; }
+        return new(comments, next);
+    }
+    static GitHubReviewComment Parse(JsonElement e) => new(Long(e, "id") ?? throw new JsonException("Review comment is missing id."), Long(e, "pull_request_review_id"), Str(e,"node_id"), Str(e,"path"), Int(e,"position"), Int(e,"original_position"), Str(e,"commit_id"), Str(e,"original_commit_id"), Nested(e,"user","login"), Str(e,"body"), Date(e,"created_at"), Date(e,"updated_at"), Url(e,"html_url"), Url(e,"pull_request_url"), Long(e,"in_reply_to_id"), Str(e,"author_association"), Int(e,"start_line"), Int(e,"original_start_line"), Str(e,"start_side"), Int(e,"line"), Int(e,"original_line"), Str(e,"side"), Str(e,"diff_hunk"), e.Clone());
+    static string? Str(JsonElement e,string n) => e.TryGetProperty(n,out var p)&&p.ValueKind==JsonValueKind.String?p.GetString():null;
+    static long? Long(JsonElement e,string n) => e.TryGetProperty(n,out var p)&&p.TryGetInt64(out var v)?v:null;
+    static int? Int(JsonElement e,string n) => e.TryGetProperty(n,out var p)&&p.TryGetInt32(out var v)?v:null;
+    static DateTimeOffset? Date(JsonElement e,string n) => DateTimeOffset.TryParse(Str(e,n),CultureInfo.InvariantCulture,DateTimeStyles.RoundtripKind,out var v)?v:null;
+    static Uri? Url(JsonElement e,string n) => Uri.TryCreate(Str(e,n),UriKind.Absolute,out var u)&&u.Scheme==Uri.UriSchemeHttps?u:null;
+    static string? Nested(JsonElement e,string p,string n) => e.TryGetProperty(p,out var v)&&v.ValueKind==JsonValueKind.Object?Str(v,n):null;
+}
+
 public sealed record GitHubRepositoryMetadata(
     long Id, string FullName, Uri HtmlUrl, string? Description, string DefaultBranch,
     bool IsPrivate, bool IsArchived, string Visibility, DateTimeOffset? PushedAt, DateTimeOffset? UpdatedAt);
@@ -571,6 +626,8 @@ public static class AgentTool
             services.AddTransient<GitHubRepositoryMetadataReader>();
             services.AddTransient<GitHubIssueReader>();
             services.AddTransient<GitHubChecksWorkflowReader>();
+            services.AddTransient<GitHubPrStatusReader>();
+            services.AddTransient<GitHubReviewCommentReader>();
             services.AddSingleton<ICommandModule, InstallerCommandModule>();
             services.AddSingleton<ICommandModule, ConfigurationCommandModule>();
             services.AddSingleton<ICommandModule, DoctorCommandModule>();
