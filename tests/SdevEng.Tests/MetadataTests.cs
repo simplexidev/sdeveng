@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Json.Schema;
+using Microsoft.Extensions.DependencyInjection;
 using Tomlyn;
 using YamlDotNet.Serialization;
 
@@ -186,10 +187,8 @@ public class MetadataTests
         Assert.Equal(1, contracts.Select(contract => contract!["schemaVersion"]!.GetValue<int>()).Distinct().Single());
         var services = new Microsoft.Extensions.DependencyInjection.ServiceCollection();
         AgentTool.AgentToolModule.Register(services);
-        var modules = services
-            .Where(descriptor => descriptor.ServiceType == typeof(AgentTool.ICommandModule))
-            .Select(descriptor => (AgentTool.ICommandModule)Activator.CreateInstance(descriptor.ImplementationType!)!)
-            .ToArray();
+        using var provider = services.BuildServiceProvider();
+        var modules = provider.GetServices<AgentTool.ICommandModule>().ToArray();
         Assert.All(commands.Where(command => command != "version"), command =>
         {
             var cli = SdevEng.Cli.Parse(command.Split(' '));
