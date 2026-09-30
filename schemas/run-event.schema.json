@@ -15,7 +15,7 @@
     },
     "sequence": { "type": "integer", "minimum": 1 },
     "occurredAt": { "type": "string", "format": "date-time" },
-    "eventType": { "enum": ["state-transition", "external-identifier-recorded", "operation-completed", "start-work-progress", "ci-check-snapshot", "ci-failure-evidence"] },
+    "eventType": { "enum": ["state-transition", "external-identifier-recorded", "operation-completed", "start-work-progress", "ci-check-snapshot", "ci-failure-evidence", "ci-rerun"] },
     "fromState": { "type": ["string", "null"], "minLength": 1 },
     "toState": { "type": "string", "minLength": 1 },
     "externalSystem": { "type": "string", "minLength": 1 },
@@ -36,6 +36,8 @@
     "failureClass": { "type": "string", "minLength": 1, "maxLength": 64 },
     "truncated": { "type": "boolean" },
     "excerpt": { "type": "string", "minLength": 1, "maxLength": 4096 }
+    ,"rerunVersion": { "const": 1 },
+    "repository": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$" }
   },
   "oneOf": [
     {
@@ -66,6 +68,11 @@
     {
       "properties": { "eventType": { "const": "ci-failure-evidence" }, "commitSha": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" } },
       "required": ["evidenceVersion", "commitSha", "providerRunId", "providerJobId", "failureClass", "truncated", "excerpt"],
+      "not": { "anyOf": [{ "required": ["fromState"] }, { "required": ["toState"] }, { "required": ["externalSystem"] }, { "required": ["identifierType"] }, { "required": ["identifier"] }, { "required": ["detail"] }, { "required": ["operation"] }] }
+    },
+    {
+      "properties": { "eventType": { "const": "ci-rerun" }, "commitSha": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" } },
+      "required": ["rerunVersion", "repository", "commitSha", "providerRunId", "providerJobId"],
       "not": { "anyOf": [{ "required": ["fromState"] }, { "required": ["toState"] }, { "required": ["externalSystem"] }, { "required": ["identifierType"] }, { "required": ["identifier"] }, { "required": ["detail"] }, { "required": ["operation"] }] }
     }
   ],

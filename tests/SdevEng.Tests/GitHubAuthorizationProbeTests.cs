@@ -19,7 +19,7 @@ public sealed class GitHubAuthorizationProbeTests
         const string secret = "gho_super_secret_token";
         var process = new FakeProcess(
             new(0, "https://github.com/acme/widget.git\n"), new(0, "Logged in to github.com account test\nToken scopes: read:org"),
-            new(0, "[]"), new(0, "{\"permissions\":{\"push\":true}}"), new(0, "abcdef123456"), new(1, "network timeout"), new(0, "[]"));
+            new(0, "[]"), new(0, "{\"permissions\":{\"push\":true}}"), new(0, "abcdef123456"), new(1, "network timeout"), new(1, "network timeout"));
         var result = await new AgentTool.GitHubAuthorizationProbe(process).ProbeAsync("/repo");
         Assert.Equal("allowed", result.Capabilities[0].State);
         Assert.Equal("unknown", result.Capabilities[1].State);
@@ -40,7 +40,7 @@ public sealed class GitHubAuthorizationProbeTests
         var result = await new AgentTool.GitHubAuthorizationProbe(process).ProbeAsync("/repo");
         Assert.Equal("allowed", result.Capabilities[1].State);
         Assert.Equal("allowed", result.Capabilities[3].State);
-        Assert.Equal("unknown", result.Capabilities[4].State);
+        Assert.Equal("allowed", result.Capabilities[4].State);
         Assert.Contains(process.Calls, call => call.Executable == "git" && call.Arguments.SequenceEqual(new[] { "push", "--dry-run", "--porcelain", "origin", "HEAD:refs/heads/roadmap/sdeveng-capability-probe-abcdef123456" }));
     }
 

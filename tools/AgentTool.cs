@@ -938,6 +938,9 @@ public sealed class GitHubWriteClient(HttpClient http, IGitHubCredentialProvider
             parts.Length == 7 && parts[0] == "repos" && parts[1].Length > 0 && parts[2].Length > 0 &&
             parts[3] == "issues" && int.TryParse(parts[4], NumberStyles.None, CultureInfo.InvariantCulture, out var deleteIssueNumber) && deleteIssueNumber > 0 &&
             parts[5] == "labels" && parts[6] == Uri.EscapeDataString("READY") && method == HttpMethod.Delete;
+        allowed |= parts.Length == 7 && parts[0] == "repos" && parts[1].Length > 0 && parts[2].Length > 0 &&
+            parts[3] == "actions" && parts[4] == "jobs" && Regex.IsMatch(parts[5], @"^[1-9][0-9]{0,31}$", RegexOptions.CultureInvariant) &&
+            parts[6] == "rerun" && method == HttpMethod.Post;
         if (!allowed) throw new InvalidOperationException("GitHub mutation is not allowlisted.");
         string? token;
         try { token = await credentials.GetTokenAsync(cancellationToken); }
@@ -954,6 +957,18 @@ public sealed class GitHubWriteClient(HttpClient http, IGitHubCredentialProvider
         {
             throw new HttpRequestException("GitHub mutation request failed.");
         }
+    }
+}
+
+/// <summary>Typed single-job GitHub Actions rerun mutation.</summary>
+public sealed class GitHubActionsJobRerunWriter(IGitHubWriteClient client)
+{
+    public Task<HttpResponseMessage> RerunAsync(string repository, string jobId, CancellationToken cancellationToken = default)
+    {
+        if (!Regex.IsMatch(repository ?? "", @"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$", RegexOptions.CultureInvariant) ||
+            !Regex.IsMatch(jobId ?? "", @"^[1-9][0-9]{0,31}$", RegexOptions.CultureInvariant))
+            throw new ArgumentException("Rerun requires an exact repository and provider job ID.");
+        return client.SendAsync(HttpMethod.Post, new Uri($"https://api.github.com/repos/{repository}/actions/jobs/{jobId}/rerun"), cancellationToken: cancellationToken);
     }
 }
 
@@ -1193,6 +1208,13 @@ public static class LocalRunEventStore
         return AppendSnapshot(directory, runId, payload);
     }
 
+    public static JsonElement AppendCiRerunEvent(string directory, Guid runId, string repository, string commitSha, string providerRunId, string providerJobId)
+    {
+        var payload = new { schemaVersion = 1, runId = runId.ToString("D"), sequence = 0, occurredAt = DateTimeOffset.UtcNow,
+            eventType = "ci-rerun", rerunVersion = 1, repository, commitSha = commitSha.ToLowerInvariant(), providerRunId, providerJobId };
+        return AppendSnapshot(directory, runId, payload);
+    }
+
     private static JsonElement AppendSnapshot(string directory, Guid runId, object snapshot)
     {
         var path = Path.Combine(directory, runId.ToString("D"));
@@ -1314,6 +1336,16 @@ public static class LocalRunEventStore
                         item.GetProperty("excerpt").ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(item.GetProperty("excerpt").GetString()) ||
                         item.GetProperty("excerpt").GetString()!.Length > 4096 || Secrets.LooksSensitive(item.GetProperty("excerpt").GetString()!))
                         throw new InvalidDataException("Run CI failure evidence is invalid.");
+                }
+                else if (type == "ci-rerun")
+                {
+                    if (!properties.SetEquals(["schemaVersion", "runId", "sequence", "occurredAt", "eventType", "rerunVersion", "repository", "commitSha", "providerRunId", "providerJobId"]) ||
+                        item.GetProperty("rerunVersion").GetInt32() != 1 ||
+                        !Regex.IsMatch(item.GetProperty("repository").GetString() ?? "", @"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$", RegexOptions.CultureInvariant) ||
+                        !Regex.IsMatch(item.GetProperty("commitSha").GetString() ?? "", @"^(?:[0-9a-f]{40}|[0-9a-f]{64})$", RegexOptions.CultureInvariant) ||
+                        !Regex.IsMatch(item.GetProperty("providerRunId").GetString() ?? "", @"^[1-9][0-9]{0,31}$", RegexOptions.CultureInvariant) ||
+                        !Regex.IsMatch(item.GetProperty("providerJobId").GetString() ?? "", @"^[1-9][0-9]{0,31}$", RegexOptions.CultureInvariant))
+                        throw new InvalidDataException("Run CI rerun event is invalid.");
                 }
                 else throw new InvalidDataException("Run event type is invalid.");
                 events.Add(item.Clone());
@@ -1441,6 +1473,48 @@ public static class LocalRunEventStore
         finally { if (File.Exists(temporary)) File.Delete(temporary); }
         using var document = JsonDocument.Parse(bytes);
         return document.RootElement.Clone();
+    }
+}
+
+public sealed record CiRerunResult(string Status, string? Repository, string? ProviderRunId, string? ProviderJobId, string? Reason);
+
+/// <summary>Coordinates only explicit, evidence-backed single-job reruns.</summary>
+public interface IGitHubAuthorizationProbe
+{
+    Task<AgentTool.GitHubCapabilities> ProbeAsync(string root, CancellationToken cancellationToken = default);
+}
+
+public sealed class CiRerunCoordinator(IGitHubAuthorizationProbe authorizationProbe, IGitHubWriteClient writeClient)
+{
+    public async Task<CiRerunResult> RerunAsync(string runDirectory, Guid runId, string currentCommitSha, string root, CancellationToken cancellationToken = default)
+    {
+        var events = LocalRunEventStore.Read(runDirectory, runId);
+        var evidence = events.LastOrDefault(item => item.GetProperty("eventType").GetString() == "ci-failure-evidence");
+        if (evidence.ValueKind == JsonValueKind.Undefined) return Ineligible("persisted failure evidence is missing");
+        var repositories = events.Where(item => item.GetProperty("eventType").GetString() == "external-identifier-recorded" &&
+            item.GetProperty("externalSystem").GetString() == "git" && item.GetProperty("identifierType").GetString() == "repository")
+            .Select(item => item.GetProperty("identifier").GetString()!).Distinct(StringComparer.Ordinal).ToArray();
+        if (repositories.Length != 1 || !Regex.IsMatch(repositories[0], @"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$", RegexOptions.CultureInvariant))
+            return Ineligible("persisted canonical repository identity is missing or ambiguous");
+        var repository = repositories[0];
+        var commit = evidence.GetProperty("commitSha").GetString()!;
+        var run = evidence.GetProperty("providerRunId").GetString()!;
+        var job = evidence.GetProperty("providerJobId").GetString()!;
+        var failureClass = evidence.GetProperty("failureClass").GetString()!;
+        if (!Regex.IsMatch(currentCommitSha ?? "", @"^(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$", RegexOptions.CultureInvariant) || !string.Equals(commit, currentCommitSha, StringComparison.OrdinalIgnoreCase))
+            return Ineligible("failure evidence commit is stale");
+        if (failureClass is not ("timeout" or "infrastructure")) return Ineligible("failure class is not retryable by default");
+        if (events.Any(item => item.GetProperty("eventType").GetString() == "ci-rerun" && item.GetProperty("repository").GetString() == repository && item.GetProperty("commitSha").GetString() == commit && item.GetProperty("providerRunId").GetString() == run && item.GetProperty("providerJobId").GetString() == job))
+            return Ineligible("this failure identity already has a rerun event");
+        var capability = await authorizationProbe.ProbeAsync(root, cancellationToken);
+        if (!capability.Capabilities.Any(item => item.Operation == "workflow-rerun" && item.TargetRepository == repository && item.State == "allowed"))
+            return Ineligible("workflow-rerun capability is not allowed");
+        using var response = await new GitHubActionsJobRerunWriter(writeClient).RerunAsync(repository, job, cancellationToken);
+        if (!response.IsSuccessStatusCode) return Ineligible("GitHub rejected the job rerun");
+        LocalRunEventStore.AppendCiRerunEvent(runDirectory, runId, repository, commit, run, job);
+        return new("rerun-requested", repository, run, job, null);
+
+        CiRerunResult Ineligible(string reason) => new("not-eligible", null, null, null, reason);
     }
 }
 
@@ -1979,6 +2053,8 @@ public static class AgentTool
             services.AddTransient<GitHubWriteClient>();
             services.AddTransient<IGitHubWriteClient>(provider => provider.GetRequiredService<GitHubWriteClient>());
             services.AddTransient<GitHubIssueLabelWriter>();
+            services.AddTransient<GitHubActionsJobRerunWriter>();
+            services.AddTransient<CiRerunCoordinator>();
             services.AddTransient<GitHubCommitReader>();
             services.AddTransient<GitHubRepositoryMetadataReader>();
             services.AddTransient<GitHubIssueReader>();
@@ -1991,6 +2067,7 @@ public static class AgentTool
             services.AddSingleton<ITriageSemanticClassifier, AbstainingTriageSemanticClassifier>();
             services.AddSingleton<IGitHubAuthorizationProcess, GitHubAuthorizationProcess>();
             services.AddTransient<GitHubAuthorizationProbe>();
+            services.AddTransient<IGitHubAuthorizationProbe>(provider => provider.GetRequiredService<GitHubAuthorizationProbe>());
             services.AddSingleton<ICommandModule, InstallerCommandModule>();
             services.AddSingleton<ICommandModule, ConfigurationCommandModule>();
             services.AddSingleton<ICommandModule, DoctorCommandModule>();
@@ -2415,7 +2492,7 @@ public static class AgentTool
     }
 
     /// <summary>Performs bounded authenticated, read-only GitHub authorization probes for the origin repository.</summary>
-    public sealed class GitHubAuthorizationProbe(IGitHubAuthorizationProcess process)
+    public sealed class GitHubAuthorizationProbe(IGitHubAuthorizationProcess process) : IGitHubAuthorizationProbe
     {
         public async Task<GitHubCapabilities> ProbeAsync(string root, CancellationToken cancellationToken = default)
         {
@@ -2444,17 +2521,28 @@ public static class AgentTool
             var credentialEvidence = auth.ExitCode == 0 ? authEvidence : "";
             var prCreate = PullRequestCreateCapability(target, repo, credentialEvidence);
             var branchPush = await BranchPushCapability(root, target, cancellationToken);
-            var workflowRerun = await WorkflowRerunCapability(root, target);
+            var workflowRerun = await WorkflowRerunCapability(root, target, repo);
             return new("github-capabilities", [read, label, branchPush, prCreate, workflowRerun]);
         }
 
-        async Task<GitHubCapability> WorkflowRerunCapability(string root, string target)
+        async Task<GitHubCapability> WorkflowRerunCapability(string root, string target, ProcessResult repo)
         {
             ProcessResult actions;
             try { actions = await process.Run("gh", ["api", "--method", "GET", $"repos/{target}/actions/runs?per_page=1"], root); }
             catch { return Cap("workflow-rerun", target, "unknown", "actions-runs-get", "Actions read evidence unavailable; rerun write permission is unproven"); }
             if (ExplicitReject(actions.Output))
                 return Cap("workflow-rerun", target, "denied", "actions-runs-get", "GitHub explicitly denied authenticated Actions access");
+            try
+            {
+                if (repo.ExitCode != 0) throw new InvalidDataException("Repository permissions are unavailable.");
+                using var repoDocument = JsonDocument.Parse(repo.Output);
+                var permissions = repoDocument.RootElement.GetProperty("permissions");
+                var canWrite = permissions.TryGetProperty("push", out var push) && push.ValueKind == JsonValueKind.True ||
+                    permissions.TryGetProperty("admin", out var admin) && admin.ValueKind == JsonValueKind.True;
+                if (actions.ExitCode == 0 && canWrite)
+                    return Cap("workflow-rerun", target, "allowed", "actions-runs-get", "authenticated Actions read succeeded and repository permissions confirm write access");
+            }
+            catch { }
             return Cap("workflow-rerun", target, "unknown", "actions-runs-get", actions.ExitCode == 0
                 ? "authenticated Actions GET succeeded; it does not prove rerun write permission"
                 : "Actions GET did not establish access or rerun write permission");
