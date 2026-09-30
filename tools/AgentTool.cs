@@ -845,6 +845,31 @@ public sealed record GitHubIssueLabelWriteResult(string Status, string TargetRep
 /// <summary>Adds selected configured area, risk, and complexity labels to the canonical origin issue without replacing existing labels.</summary>
 public sealed class GitHubIssueLabelWriter(IGitHubWriteClient client, GitHubIssueReader issueReader)
 {
+    public async Task<GitHubIssueLabelWriteResult> AddConfiguredStatusLabelAsync(
+        string currentOriginRepository, int issueNumber, string label, AgentTool.GitHubCapabilities capabilities,
+        JsonElement labelCatalog, CancellationToken cancellationToken = default)
+    {
+        if (issueNumber <= 0) throw new ArgumentOutOfRangeException(nameof(issueNumber));
+        if (currentOriginRepository is null || !Regex.IsMatch(currentOriginRepository, @"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$", RegexOptions.CultureInvariant))
+            return Reject("review", currentOriginRepository, issueNumber, "invalid canonical origin repository");
+        if (!capabilities.Capabilities.Any(item => item.Operation == "issues.labels.write" && item.TargetRepository == currentOriginRepository && item.State == "allowed"))
+            return Reject("review", currentOriginRepository, issueNumber, "issue label write capability is not allowed");
+        if (!labelCatalog.TryGetProperty("labels", out var configured) || configured.ValueKind != JsonValueKind.Array ||
+            !configured.EnumerateArray().Any(item => item.GetProperty("name").GetString() == label && item.GetProperty("family").GetString() == "status"))
+            return Reject("failure", currentOriginRepository, issueNumber, "status label is not configured");
+        var parts = currentOriginRepository.Split('/', 2);
+        var current = await issueReader.ReadIssueLabelNamesAsync(parts[0], parts[1], issueNumber, cancellationToken);
+        if (current.Contains(label, StringComparer.Ordinal)) return new("already-present", currentOriginRepository, issueNumber, [label], null);
+        using var content = new StringContent(JsonSerializer.Serialize(new { labels = new[] { label } }));
+        content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
+        using var response = await client.SendAsync(HttpMethod.Post, new Uri($"https://api.github.com/repos/{currentOriginRepository}/issues/{issueNumber.ToString(CultureInfo.InvariantCulture)}/labels"), content, cancellationToken);
+        if (!response.IsSuccessStatusCode) return Reject("failure", currentOriginRepository, issueNumber, "GitHub rejected issue label addition");
+        var after = await issueReader.ReadIssueLabelNamesAsync(parts[0], parts[1], issueNumber, cancellationToken);
+        return after.Contains(label, StringComparer.Ordinal)
+            ? new("applied", currentOriginRepository, issueNumber, [label], null)
+            : Reject("failure", currentOriginRepository, issueNumber, "issue label postcondition failed");
+    }
+
     public async Task<GitHubIssueLabelWriteResult> AddTriageLabelsAsync(
         string currentOriginRepository, string candidateRepository, int issueNumber, TriageDecision decision,
         AgentTool.GitHubCapabilities capabilities, JsonElement labelCatalog, CancellationToken cancellationToken = default)
@@ -1185,7 +1210,7 @@ public sealed class StartWorkGitProcess : IStartWorkGitProcess
 }
 
 /// <summary>Checks the chosen start-work target before recording its durable STARTING state.</summary>
-public sealed class StartWorkCoordinator(GitHubIssueReader issueReader, AgentTool.GitHubAuthorizationProbe authorizationProbe, IStartWorkGitProcess gitProcess, IGitHubWriteClient writeClient)
+public sealed class StartWorkCoordinator(GitHubIssueReader issueReader, AgentTool.GitHubAuthorizationProbe authorizationProbe, IStartWorkGitProcess gitProcess, IGitHubWriteClient writeClient, GitHubIssueLabelWriter labelWriter)
 {
     public async Task<string> BootstrapAsync(string repositoryRoot, Guid runId, CancellationToken cancellationToken = default)
     {
@@ -1423,8 +1448,13 @@ public sealed class StartWorkCoordinator(GitHubIssueReader issueReader, AgentToo
             var persistedBranch = Persisted("git", "branch");
             var persistedIssue = Persisted("github", "issue");
             var persistedPullRequest = Persisted("github", "pull-request-number") ?? Persisted("github", "pull-request");
+            var persistedPullRequestUrl = Persisted("github", "pull-request-url");
             if (persistedRepository != target || persistedBranch != request.BranchName || persistedIssue != request.SourceIssueNumber.ToString(CultureInfo.InvariantCulture) ||
-                !int.TryParse(persistedPullRequest, NumberStyles.None, CultureInfo.InvariantCulture, out var verifiedPrNumber) || verifiedPrNumber <= 0)
+                !int.TryParse(persistedPullRequest, NumberStyles.None, CultureInfo.InvariantCulture, out var verifiedPrNumber) || verifiedPrNumber <= 0 ||
+                string.IsNullOrWhiteSpace(persistedPullRequestUrl) ||
+                !Completed("branch-pushed") || !events.Any(item => item.GetProperty("eventType").GetString() == "start-work-progress" && item.GetProperty("operation").GetString() == "bootstrap-created" && item.GetProperty("status").GetString() == "completed") ||
+                events.Any(item => item.GetProperty("eventType").GetString() == "start-work-progress" && item.GetProperty("operation").GetString() == "bootstrap-created" && item.GetProperty("detail").GetString() == "marker") &&
+                !Completed("bootstrap-cleanup"))
                 throw new InvalidOperationException("Persisted startup identities are incomplete or inconsistent.");
             var localBranch = await gitProcess.Run("git", ["rev-parse", "--verify", "refs/heads/" + persistedBranch], root);
             if (localBranch.ExitCode != 0 || !Regex.IsMatch(localBranch.Output.Trim(), @"\A(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})\z"))
@@ -1440,16 +1470,18 @@ public sealed class StartWorkCoordinator(GitHubIssueReader issueReader, AgentToo
             if (pullRequest.Number != verifiedPrNumber || pullRequest.HeadBranch != persistedBranch || pullRequest.BaseBranch != request.BaseRef ||
                 !pullRequest.IsDraft || pullRequest.IsMerged || !string.Equals(pullRequest.State, "open", StringComparison.OrdinalIgnoreCase))
                 throw new InvalidOperationException("Persisted pull request is not the matching open draft pull request.");
+            if (!string.Equals(pullRequest.HtmlUrl.AbsoluteUri, persistedPullRequestUrl, StringComparison.Ordinal))
+                throw new InvalidOperationException("Persisted pull request URL does not match the verified pull request.");
+            var sourceIssue = await issueReader.ReadIssueAsync(owner, repository, request.SourceIssueNumber, cancellationToken);
+            if (sourceIssue.Number != request.SourceIssueNumber ||
+                !string.Equals(sourceIssue.HtmlUrl.AbsoluteUri, $"https://github.com/{target}/issues/{request.SourceIssueNumber.ToString(CultureInfo.InvariantCulture)}", StringComparison.Ordinal))
+                throw new InvalidOperationException("Source issue does not match the persisted startup target.");
             if (!events.Any(item => item.GetProperty("eventType").GetString() == "start-work-progress" && item.GetProperty("operation").GetString() == "metadata-persisted" && item.GetProperty("status").GetString() == "completed"))
             {
                 var capabilities = await authorizationProbe.ProbeAsync(root, cancellationToken);
-                if (!capabilities.Capabilities.Any(item => item.Operation == "issues.labels.write" && item.TargetRepository == target && item.State == "allowed"))
-                    throw new InvalidOperationException("Issue label write capability is not allowed.");
-                var labelContent = new StringContent(JsonSerializer.Serialize(new { labels = new[] { "IN_PROGRESS" } }));
-                labelContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
-                using var labelResponse = await writeClient.SendAsync(HttpMethod.Post,
-                    new Uri($"https://api.github.com/repos/{target}/issues/{request.SourceIssueNumber.ToString(CultureInfo.InvariantCulture)}/labels"), labelContent, cancellationToken);
-                if (!labelResponse.IsSuccessStatusCode) throw new HttpRequestException("GitHub rejected the startup label addition.");
+                using var catalog = JsonDocument.Parse(await File.ReadAllTextAsync(Path.Combine(AgentTool.FindToolkit(), "config", "labels.json"), cancellationToken));
+                var labelResult = await labelWriter.AddConfiguredStatusLabelAsync(target, request.SourceIssueNumber, "IN_PROGRESS", capabilities, catalog.RootElement, cancellationToken);
+                if (labelResult.Status is not ("applied" or "already-present")) throw new HttpRequestException(labelResult.Reason ?? "GitHub rejected the startup label addition.");
                 LocalRunEventStore.AppendStartWorkProgress(directory, request.ProductRunId, "metadata-persisted", "completed", "IN_PROGRESS");
             }
             return new(request.ProductRunId, target, request.SourceIssueNumber, baseSha, request.BranchName, "STARTING");
