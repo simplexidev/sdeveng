@@ -14,7 +14,8 @@ public sealed class GitHubWriteBoundaryTests
         await client.SendAsync(HttpMethod.Patch, new Uri("https://api.github.com/repos/owner/repo/pulls/12"));
         await client.SendAsync(HttpMethod.Post, new Uri("https://api.github.com/repos/owner/repo/issues/12/labels"), new StringContent("{\"labels\":[\"TRIAGED\"]}"));
         await client.SendAsync(HttpMethod.Delete, new Uri("https://api.github.com/repos/owner/repo/issues/12/labels/READY"));
-        Assert.Equal(4, sent);
+        await new GitHubActionsJobRerunWriter(client).RerunAsync("owner/repo", "91");
+        Assert.Equal(5, sent);
 
         foreach (var (method, path) in new[]
         {
@@ -28,7 +29,9 @@ public sealed class GitHubWriteBoundaryTests
         await Assert.ThrowsAsync<InvalidOperationException>(() => client.SendAsync(HttpMethod.Put, new Uri("https://api.github.com/repos/owner/repo/issues/12/labels")));
         await Assert.ThrowsAsync<InvalidOperationException>(() => client.SendAsync(HttpMethod.Delete, new Uri("https://api.github.com/repos/owner/repo/issues/12/labels/TRIAGED")));
         await Assert.ThrowsAsync<InvalidOperationException>(() => client.SendAsync(HttpMethod.Post, new Uri("https://api.github.com/repos/owner/repo/issues/0/labels")));
-        Assert.Equal(4, sent);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => client.SendAsync(HttpMethod.Post, new Uri("https://api.github.com/repos/owner/repo/actions/jobs/91/rerun/extra")));
+        await Assert.ThrowsAsync<ArgumentException>(() => new GitHubActionsJobRerunWriter(client).RerunAsync("owner/repo", "0"));
+        Assert.Equal(5, sent);
     }
 
     [Fact]
@@ -132,7 +135,7 @@ public sealed class GitHubWriteBoundaryTests
     {
         var source = File.ReadAllText(Path.Combine(AgentTool.FindToolkit(), "tools/AgentTool.cs"));
 
-        Assert.Equal(5, Regex.Matches(source, @"\bIGitHubWriteClient\b").Count);
+        Assert.Equal(7, Regex.Matches(source, @"\bIGitHubWriteClient\b").Count);
         Assert.Contains("public sealed class GitHubWriteClient(HttpClient http, IGitHubCredentialProvider credentials) : IGitHubWriteClient", source);
         Assert.Contains("Processes.Run(\"gh\", [\"auth\", \"status\"]", source);
         Assert.DoesNotContain("Processes.Run(\"gh\", [\"pr\", \"", source);
