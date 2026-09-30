@@ -6,8 +6,8 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  group: ci-${{ github.sha }}
+  cancel-in-progress: false
 jobs:
   test:
     continue-on-error: ${{ github.event_name == 'push' }}
