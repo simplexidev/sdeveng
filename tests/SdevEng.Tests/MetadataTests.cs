@@ -483,6 +483,15 @@ public class MetadataTests
         Assert.Contains("test \"$RELEASE_TAG\" = \"v$(jq -r .version config/toolkit.json)\"", gates);
         Assert.Contains("sha256sum sdeveng.zip > SHA256SUMS", gates);
     }
+
+    [Fact]
+    public void CiPublishesStageEvidenceBundleForEveryMatrixRunner()
+    {
+        var workflow = File.ReadAllText(Path.Combine(Root, ".github/workflows/ci.yml"));
+        Assert.Contains("name: stage-evidence-${{ matrix.os }}", workflow);
+        Assert.Contains("StepCiResult/result.json\n            TestResults", workflow);
+        Assert.Contains("retention-days: 7", workflow);
+    }
 }
 
 public class RepositoryIntegrityTests
