@@ -758,6 +758,8 @@ public static class AgentTool
             services.AddTransient<GitHubActionsReader>();
             services.AddTransient<GitHubPrStatusReader>();
             services.AddTransient<GitHubReviewCommentReader>();
+            services.AddSingleton<IGitHubAuthorizationProcess, GitHubAuthorizationProcess>();
+            services.AddTransient<GitHubAuthorizationProbe>();
             services.AddSingleton<ICommandModule, InstallerCommandModule>();
             services.AddSingleton<ICommandModule, ConfigurationCommandModule>();
             services.AddSingleton<ICommandModule, DoctorCommandModule>();
@@ -1168,16 +1170,98 @@ public static class AgentTool
         }
     }
 
+    public sealed record GitHubCapability(string Operation, string? TargetRepository, string State, string Evidence);
+    public sealed record GitHubCapabilities(string Kind, IReadOnlyList<GitHubCapability> Capabilities);
+
+    public interface IGitHubAuthorizationProcess
+    {
+        Task<ProcessResult> Run(string executable, IEnumerable<string> arguments, string cwd);
+    }
+
+    public sealed class GitHubAuthorizationProcess : IGitHubAuthorizationProcess
+    {
+        public Task<ProcessResult> Run(string executable, IEnumerable<string> arguments, string cwd) => Processes.Run(executable, arguments, cwd);
+    }
+
+    /// <summary>Performs bounded authenticated, read-only GitHub authorization probes for the origin repository.</summary>
+    public sealed class GitHubAuthorizationProbe(IGitHubAuthorizationProcess process)
+    {
+        public async Task<GitHubCapabilities> ProbeAsync(string root, CancellationToken cancellationToken = default)
+        {
+            ProcessResult remotes;
+            try { remotes = await process.Run("git", ["remote", "get-url", "--all", "origin"], root); }
+            catch { return Unknown(null, "origin could not be read"); }
+            var urls = remotes.Output.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Distinct(StringComparer.Ordinal).ToArray();
+            if (remotes.ExitCode != 0 || urls.Length != 1) return Unknown(null, urls.Length == 0 ? "origin is missing" : "origin is ambiguous");
+            string target;
+            try { var parsed = ParseGitHubTarget(urls[0]); target = $"{parsed.Owner}/{parsed.Repository}"; }
+            catch { return Unknown(null, "origin is not a canonical GitHub repository"); }
+            ProcessResult auth;
+            try { auth = await process.Run("gh", ["auth", "status"], root); }
+            catch { return Unknown(target, "GitHub CLI authentication status unavailable"); }
+            var authEvidence = auth.ExitCode == 0 ? auth.Output : "GitHub CLI authentication unavailable";
+            ProcessResult issue;
+            try { issue = await process.Run("gh", ["api", "--method", "GET", $"repos/{target}/issues?state=all&per_page=1"], root); }
+            catch { issue = new(-1, ""); }
+            var read = issue.ExitCode == 0 ? Cap("issues.read", target, "allowed", "authenticated repository issues GET succeeded")
+                : ExplicitReject(issue.Output) ? Cap("issues.read", target, "denied", "GitHub explicitly rejected the authenticated issues GET")
+                : Cap("issues.read", target, "unknown", "issues GET did not establish access");
+            ProcessResult repo;
+            try { repo = await process.Run("gh", ["api", "--method", "GET", $"repos/{target}"], root); }
+            catch { repo = new(-1, ""); }
+            var label = LabelCapability(target, repo, auth.ExitCode == 0 ? authEvidence : "");
+            return new("github-capabilities", [read, label]);
+        }
+
+        static GitHubCapability LabelCapability(string target, ProcessResult repository, string auth)
+        {
+            if (repository.ExitCode != 0) return ExplicitReject(repository.Output) ? Cap("issues.labels.write", target, "denied", "GitHub explicitly rejected repository permission evidence") : Cap("issues.labels.write", target, "unknown", "repository permission evidence unavailable");
+            try
+            {
+                using var doc = JsonDocument.Parse(repository.Output);
+                var permissions = doc.RootElement.GetProperty("permissions");
+                if (permissions.TryGetProperty("push", out var push) && push.ValueKind == JsonValueKind.False)
+                    return Cap("issues.labels.write", target, "denied", "repository permissions explicitly deny push access required for issue label edits");
+                var scopes = Regex.Match(auth, @"(?im)Token scopes:\s*(?<scopes>[^\r\n]+)");
+                var hasRepoScope = scopes.Success && scopes.Groups["scopes"].Value.Split(',', StringSplitOptions.TrimEntries).Contains("repo", StringComparer.Ordinal);
+                var hasPublicRepoScope = scopes.Success && scopes.Groups["scopes"].Value.Split(',', StringSplitOptions.TrimEntries).Contains("public_repo", StringComparer.Ordinal) &&
+                    doc.RootElement.TryGetProperty("private", out var isPrivate) && isPrivate.ValueKind == JsonValueKind.False;
+                if (scopes.Success && permissions.TryGetProperty("push", out push) && push.ValueKind == JsonValueKind.True && (hasRepoScope || hasPublicRepoScope))
+                    return Cap("issues.labels.write", target, "allowed", "repository push permission and a compatible GitHub token scope are both explicit");
+            }
+            catch (JsonException) { }
+            catch (KeyNotFoundException) { }
+            return Cap("issues.labels.write", target, "unknown", "available non-mutating evidence does not prove both repository and credential write permission");
+        }
+
+        static bool ExplicitReject(string output) => Regex.IsMatch(output, @"(?i)(HTTP\s+401|HTTP\s+403|\b(unauthorized|forbidden|requires authentication|resource not accessible)\b)");
+        static GitHubCapability Cap(string operation, string? target, string state, string evidence) => new(operation, target, state, evidence);
+        static GitHubCapabilities Unknown(string? target, string evidence) => new("github-capabilities", [Cap("issues.read", target, "unknown", evidence), Cap("issues.labels.write", target, "unknown", evidence)]);
+        public static (string Owner, string Repository) ParseGitHubTarget(string remote)
+        {
+            string path;
+            if (Uri.TryCreate(remote, UriKind.Absolute, out var uri) && uri.Scheme == "https" && string.Equals(uri.Host, "github.com", StringComparison.OrdinalIgnoreCase) && uri.UserInfo.Length == 0 && uri.Port == 443) path = uri.AbsolutePath;
+            else if (Uri.TryCreate(remote, UriKind.Absolute, out uri) && uri.Scheme == "ssh" && string.Equals(uri.Host, "github.com", StringComparison.OrdinalIgnoreCase) && uri.UserInfo == "git" && uri.Port == 22) path = uri.AbsolutePath;
+            else if (remote.StartsWith("git@github.com:", StringComparison.OrdinalIgnoreCase)) path = remote["git@github.com:".Length..];
+            else throw new InvalidOperationException("Origin is not a canonical GitHub repository.");
+            var parts = path.Trim('/').Split('/');
+            if (parts.Length != 2 || !Regex.IsMatch(parts[0], @"^[A-Za-z0-9_.-]+$") || !Regex.IsMatch(parts[1], @"^[A-Za-z0-9_.-]+(?:\.git)?$")) throw new InvalidOperationException("Origin is not a canonical GitHub repository.");
+            return (parts[0], parts[1].EndsWith(".git", StringComparison.OrdinalIgnoreCase) ? parts[1][..^4] : parts[1]);
+        }
+    }
+
     public sealed class GitHubCommandModule : ICommandModule
     {
         private readonly GitHubPrStatusReader? _prStatusReader;
         private readonly GitHubReviewCommentReader? _reviewCommentReader;
         private readonly GitHubActionsReader? _actionsReader;
-        public GitHubCommandModule(GitHubPrStatusReader? prStatusReader = null, GitHubReviewCommentReader? reviewCommentReader = null, GitHubActionsReader? actionsReader = null)
+        private readonly GitHubAuthorizationProbe? _authorizationProbe;
+        public GitHubCommandModule(GitHubPrStatusReader? prStatusReader = null, GitHubReviewCommentReader? reviewCommentReader = null, GitHubActionsReader? actionsReader = null, GitHubAuthorizationProbe? authorizationProbe = null)
         {
             _prStatusReader = prStatusReader;
             _reviewCommentReader = reviewCommentReader;
             _actionsReader = actionsReader;
+            _authorizationProbe = authorizationProbe;
         }
         private static (string Owner, string Repository) GitHubRepositoryTarget(string remote)
         {
@@ -1193,7 +1277,7 @@ public static class AgentTool
             if (parts.Length != 2 || string.IsNullOrWhiteSpace(parts[0]) || string.IsNullOrWhiteSpace(parts[1])) throw new InvalidOperationException("Origin is not a GitHub repository.");
             return (parts[0], parts[1].EndsWith(".git", StringComparison.OrdinalIgnoreCase) ? parts[1][..^4] : parts[1]);
         }
-        public bool CanHandle(Cli command) => command.Command is "github prepare-pr" or "github pr-status" or "github review-comments" or "github actions";
+        public bool CanHandle(Cli command) => command.Command is "github prepare-pr" or "github pr-status" or "github review-comments" or "github actions" or "github capabilities";
 
         public async Task<Result> Execute(Cli command, string toolkit, string root, Settings settings, CancellationToken cancellationToken)
         {
@@ -1202,6 +1286,9 @@ public static class AgentTool
             var artifacts = Path.Combine(root, ".agent-tool");
             switch (command.Command)
             {
+                case "github capabilities":
+                    var probe = _authorizationProbe ?? throw new InvalidOperationException("GitHub authorization probe is unavailable.");
+                    return Result.Ok(await probe.ProbeAsync(root, cancellationToken));
                 case "github prepare-pr":
                     await Git.EnsureSafe(root, false);
                     var diff = await Processes.Run("git", ["diff", "--check"], root);

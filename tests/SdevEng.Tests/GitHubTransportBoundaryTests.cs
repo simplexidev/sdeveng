@@ -39,14 +39,23 @@ public sealed class GitHubTransportBoundaryTests
             rawHttpCalls.Select(match => EnclosingType(source, match.Index)).OrderBy(name => name, StringComparer.Ordinal));
 
         // The doctor auth probe is explicitly outside typed product reads. No product
-        // orchestration may add gh api/pr/issue/etc. subprocess transport.
-        var ghCalls = Regex.Matches(source, @"Processes\.Run\(\s*""gh""\s*,\s*\[(?<args>[^\]]*)\]")
+        // Only Doctor may inspect auth status, and the typed authorization probe may use
+        // auth status plus authenticated GETs. No other GitHub CLI transport is allowed.
+        var ghCalls = Regex.Matches(source, @"(?:Processes|process)\.Run\(\s*""gh""\s*,\s*\[(?<args>[^\]]*)\]")
             .Cast<Match>()
             .ToArray();
-        Assert.Single(ghCalls);
-        Assert.Contains("auth", ghCalls[0].Groups["args"].Value, StringComparison.Ordinal);
-        Assert.Contains("status", ghCalls[0].Groups["args"].Value, StringComparison.Ordinal);
-        Assert.Equal("DoctorCommandModule", EnclosingType(source, ghCalls[0].Index));
+        Assert.Equal(4, ghCalls.Length);
+        Assert.Single(ghCalls, match => EnclosingType(source, match.Index) == "DoctorCommandModule");
+        Assert.All(ghCalls.Where(match => EnclosingType(source, match.Index) == "GitHubAuthorizationProbe"), match =>
+        {
+            var args = match.Groups["args"].Value;
+            Assert.True(args.Contains("auth", StringComparison.Ordinal) && args.Contains("status", StringComparison.Ordinal) ||
+                args.Contains("api", StringComparison.Ordinal) && args.Contains("GET", StringComparison.Ordinal));
+            Assert.DoesNotContain("POST", args, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("PATCH", args, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("DELETE", args, StringComparison.OrdinalIgnoreCase);
+        });
+        Assert.All(ghCalls, match => Assert.Contains(EnclosingType(source, match.Index), new[] { "DoctorCommandModule", "GitHubAuthorizationProbe" }));
     }
 
     static string EnclosingType(string source, int position)
