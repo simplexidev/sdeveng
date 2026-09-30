@@ -29,9 +29,16 @@ nonterminal run. Missing runs and runs already in a terminal state are rejected.
 nonempty strings so future workflow states can be introduced without changing
 this event version. `external-identifier-recorded` records the issuing
 `externalSystem`, its `identifierType`, and the opaque `identifier` value.
-`operation-completed` records `branch-created` or `branch-pushed` after that
-operation succeeds. The branch identifier is recorded before branch creation
-completion, and a failed push leaves the owned local branch available for resume.
+Legacy `operation-completed` records `branch-created` or `branch-pushed`.
+New start-work milestones use `start-work-progress` with `progressVersion: 1`,
+one of `branch-created`, `branch-pushed`, `bootstrap-created`, `pr-created`,
+`pr-linked`, or `metadata-persisted`, and status `completed`,
+`retryable-failure`, or `terminal-failure`. Detail is redacted and limited to
+512 characters. Completed milestones are skipped on resume. External failures
+after owned progress enter `STARTING_RETRYABLE`; ownership or invariant failures
+enter `STARTING_FAILED`. No automatic rollback removes a branch or remote ref;
+unproven or unmerged work is preserved for recovery. The branch identifier is
+recorded before branch creation completion.
 Record an external identifier before any later action depends on it.
 GitHub issue and pull request identifiers use `externalSystem: "github"` with
 `identifierType: "issue"` and `"pull-request"`, respectively.

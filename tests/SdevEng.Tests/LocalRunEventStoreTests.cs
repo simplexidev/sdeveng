@@ -6,6 +6,32 @@ namespace SdevEng.Tests;
 public class LocalRunEventStoreTests
 {
     [Fact]
+    public void ProgressEventsAreVersionedBoundedRedactedAndValidated()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "sdeveng-events-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var runId = Guid.NewGuid();
+            var schema = JsonSchema.FromFile(Path.Combine(AgentTool.FindToolkit(), "schemas/run-event.schema.json"));
+            foreach (var operation in new[] { "branch-created", "branch-pushed", "bootstrap-created", "pr-created", "pr-linked", "metadata-persisted" })
+                foreach (var status in new[] { "completed", "retryable-failure", "terminal-failure" })
+                {
+                    var item = LocalRunEventStore.AppendStartWorkProgress(directory, runId, operation, status, "token=secret " + new string('x', 600));
+                    Assert.True(schema.Evaluate(JsonNode.Parse(item.GetRawText())!).IsValid);
+                    Assert.Equal(1, item.GetProperty("progressVersion").GetInt32());
+                    Assert.DoesNotContain("secret", item.GetProperty("detail").GetString());
+                    Assert.True(item.GetProperty("detail").GetString()!.Length <= 512);
+                }
+            Assert.Throws<ArgumentException>(() => LocalRunEventStore.AppendStartWorkProgress(directory, runId, "other", "completed"));
+            Assert.Throws<ArgumentException>(() => LocalRunEventStore.AppendStartWorkProgress(directory, runId, "branch-created", "unknown"));
+            var path = Path.Combine(directory, runId.ToString("D"), "00000000000000000001.json");
+            File.WriteAllText(path, File.ReadAllText(path).Replace("\"progressVersion\":1", "\"progressVersion\":2"));
+            Assert.Throws<InvalidDataException>(() => LocalRunEventStore.Read(directory, runId));
+        }
+        finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
+    }
+
+    [Fact]
     public void ListOrdersRunsByOrdinalRunId()
     {
         var directory = Path.Combine(Path.GetTempPath(), "sdeveng-events-" + Guid.NewGuid().ToString("N"));
