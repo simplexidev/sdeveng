@@ -113,8 +113,17 @@ public sealed class StartWorkCoordinatorTests
                 Assert.Equal($"<!-- sdeveng-run:{request.ProductRunId:D} -->", payload["body"]!.GetValue<string>());
                 var count = events.Count;
                 await coordinator.ContinueAsync(request);
-                Assert.Equal(count, LocalRunEventStore.Read(Store(repo), request.ProductRunId).Count);
-                Assert.Single(client.WriteClient.Requests);
+                Assert.Equal(count + 1, LocalRunEventStore.Read(Store(repo), request.ProductRunId).Count);
+                Assert.Single(LocalRunEventStore.Read(Store(repo), request.ProductRunId), item => item.GetProperty("eventType").GetString() == "start-work-progress" && item.GetProperty("operation").GetString() == "pr-linked" && item.GetProperty("status").GetString() == "completed");
+                Assert.Equal(2, client.WriteClient.Requests.Count);
+                var edit = client.WriteClient.Requests[1];
+                Assert.Equal(HttpMethod.Patch, edit.Method);
+                Assert.Equal(new Uri("https://api.github.com/repos/owner/project/pulls/17"), edit.Endpoint);
+                var linkedBody = JsonNode.Parse(edit.Body)!;
+                Assert.Contains("<!-- sdeveng-source-issue:42 -->", linkedBody["body"]!.GetValue<string>(), StringComparison.Ordinal);
+                Assert.Contains("Refs #42", linkedBody["body"]!.GetValue<string>(), StringComparison.Ordinal);
+                await coordinator.ContinueAsync(request);
+                Assert.Equal(2, client.WriteClient.Requests.Count);
             }
         }
         finally { DeleteBareRepository(bare); }
@@ -188,7 +197,11 @@ public sealed class StartWorkCoordinatorTests
             Assert.Single(events, item => item.GetProperty("eventType").GetString() == "start-work-progress" && item.GetProperty("operation").GetString() == "branch-created");
             Assert.Single(events, item => item.GetProperty("eventType").GetString() == "start-work-progress" && item.GetProperty("operation").GetString() == "branch-pushed");
             await coordinator.ContinueAsync(request);
-            Assert.Equal(events.Count, LocalRunEventStore.Read(Store(repo), request.ProductRunId).Count);
+            Assert.Equal(events.Count + 1, LocalRunEventStore.Read(Store(repo), request.ProductRunId).Count);
+            var linkedEvents = LocalRunEventStore.Read(Store(repo), request.ProductRunId);
+            Assert.Single(linkedEvents, item => item.GetProperty("eventType").GetString() == "start-work-progress" && item.GetProperty("operation").GetString() == "pr-linked" && item.GetProperty("status").GetString() == "completed");
+            await coordinator.ContinueAsync(request);
+            Assert.Equal(linkedEvents.Count, LocalRunEventStore.Read(Store(repo), request.ProductRunId).Count);
         }
         finally { DeleteBareRepository(bare); }
     }
@@ -376,11 +389,13 @@ public sealed class StartWorkCoordinatorTests
         public Task<HttpResponseMessage> GetAsync(Uri endpoint, CancellationToken cancellationToken = default)
         {
             Endpoint = endpoint;
+            var body = endpoint.AbsolutePath.Contains("/pulls/", StringComparison.Ordinal) ? WriteClient.CreatedBody : null;
+            var response = body is not null
+                ? System.Text.Json.JsonSerializer.Serialize(new { number = 17, title = "Issue", state = "open", html_url = "https://github.com/owner/project/pull/17", body, @base = new { @ref = "main" }, head = new { @ref = "factory/issue-42" }, draft = true, merged = false })
+                : $$"""{"number":42,"title":"Issue","state":"open","html_url":"{{IssueUrl}}"}""";
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
             {
-                Content = new StringContent(endpoint.AbsolutePath.Contains("/pulls/", StringComparison.Ordinal)
-                    ? $$"""{"number":17,"title":"Issue","state":"open","html_url":"https://github.com/owner/project/pull/17","body":"{{WriteClient.CreatedBody}}","base":{"ref":"main"},"head":{"ref":"factory/issue-42"},"draft":true,"merged":false}"""
-                    : $$"""{"number":42,"title":"Issue","state":"open","html_url":"{{IssueUrl}}"}""")
+                Content = new StringContent(response)
             });
         }
     }
@@ -393,8 +408,8 @@ public sealed class StartWorkCoordinatorTests
         {
             var body = content is null ? "" : await content.ReadAsStringAsync(cancellationToken);
             Requests.Add((method, endpoint, body));
-            if (body.Length > 0) CreatedBody = JsonNode.Parse(body)!["body"]!.GetValue<string>();
-            return new HttpResponseMessage(HttpStatusCode.Created) { Content = new StringContent("{\"number\":17}") };
+            if (body.Length > 0 && JsonNode.Parse(body)!["body"] is { } updatedBody) CreatedBody = updatedBody.GetValue<string>();
+            return new HttpResponseMessage(method == HttpMethod.Patch ? HttpStatusCode.OK : HttpStatusCode.Created) { Content = new StringContent("{\"number\":17}") };
         }
     }
 }
