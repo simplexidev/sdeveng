@@ -65,3 +65,39 @@ public sealed class ReleaseValidationEvidenceTests
         Assert.Throws<ArgumentException>(() => ReleaseValidationEvidence.Serialize(manifest));
     }
 }
+
+public sealed class ReleaseValidationPublisherTests
+{
+    [Fact]
+    public async Task PublishesDeterministicCurrentCommitBoundManifestThroughRegisteredCommand()
+    {
+        using var repo = new TemporaryGitRepository();
+        repo.Run("remote", "add", "origin", "https://github.com/simplexidev/sdeveng.git");
+        var expectedCommit = repo.Run("rev-parse", "HEAD").Trim();
+        var command = Cli.Parse(["release", "evidence", "--profile", "release", "--output", "artifacts/evidence.json"]);
+        var first = await AgentTool.Execute(command, AgentTool.FindToolkit(), repo.Root, new(new(), new(), new(), new()));
+        var firstBytes = await File.ReadAllBytesAsync(Path.Combine(repo.Root, "artifacts/evidence.json"));
+        var second = await AgentTool.Execute(command, AgentTool.FindToolkit(), repo.Root, new(new(), new(), new(), new()));
+        var secondBytes = await File.ReadAllBytesAsync(Path.Combine(repo.Root, "artifacts/evidence.json"));
+        Assert.Equal("ok", first.Status);
+        Assert.Equal("ok", second.Status);
+        Assert.Equal(firstBytes, secondBytes);
+        var manifest = System.Text.Json.JsonSerializer.Deserialize<ReleaseValidationManifest>(firstBytes, AgentTool.Json)!;
+        Assert.Equal("simplexidev/sdeveng", manifest.Repository);
+        Assert.Equal(expectedCommit, manifest.CommitSha);
+        Assert.Equal("unsupported", manifest.Gates.Single(g => g.GateId == "reproducibility").Status);
+        Assert.All(manifest.Gates.Where(g => g.GateId != "reproducibility"), gate => Assert.Equal("not-observed", gate.Status));
+        var schema = JsonSchema.FromFile(Path.Combine(AgentTool.FindToolkit(), "schemas/release-validation-evidence.schema.json"));
+        Assert.True(schema.Evaluate(JsonNode.Parse(firstBytes), new() { OutputFormat = OutputFormat.List }).IsValid);
+    }
+
+    [Theory]
+    [InlineData("../outside.json")]
+    [InlineData("/tmp/outside.json")]
+    public async Task RejectsUnsafePublicationPathsWithoutWritingOutsideRepository(string output)
+    {
+        using var repo = new TemporaryGitRepository();
+        repo.Run("remote", "add", "origin", "https://github.com/simplexidev/sdeveng.git");
+        await Assert.ThrowsAsync<ArgumentException>(() => ReleaseValidationPublisher.PublishAsync(repo.Root, "release", output));
+    }
+}

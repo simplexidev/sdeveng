@@ -138,6 +138,37 @@ public static class ReleaseValidationEvidence
     }
 }
 
+/// <summary>Publishes one locally validated release-validation manifest for the current repository revision.</summary>
+public static class ReleaseValidationPublisher
+{
+    public static async Task<(ReleaseValidationManifest Manifest, string Output)> PublishAsync(string root, string profile, string output, CancellationToken cancellationToken = default)
+    {
+        var fullRoot = Path.GetFullPath(root);
+        if (Path.IsPathRooted(output) || output.Contains('\\') || output.Any(char.IsControl) || output.Split('/').Any(part => part is ".." or "." or "" || part.Equals(".git", StringComparison.OrdinalIgnoreCase)))
+            throw new ArgumentException("Output must be a repository-relative path without dot segments.", nameof(output));
+        var fullOutput = Path.GetFullPath(Path.Combine(fullRoot, output));
+        if (!fullOutput.StartsWith(fullRoot.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar, StringComparison.Ordinal))
+            throw new ArgumentException("Output must remain inside the repository.", nameof(output));
+        SafeFiles.NoLinks(fullOutput);
+        var remote = (await Git.Require(fullRoot, "remote", "get-url", "origin")).Trim();
+        var repository = AgentTool.GitHubAuthorizationProbe.ParseGitHubTarget(remote);
+        var commit = (await Git.Require(fullRoot, "rev-parse", "--verify", "HEAD^{commit}")).Trim();
+        var gates = new[]
+        {
+            new ReleaseValidationGate("build", "not-observed", "trusted build evidence was not supplied"),
+            new ReleaseValidationGate("format", "not-observed", "trusted format evidence was not supplied"),
+            new ReleaseValidationGate("reproducibility", "unsupported", "no repository-owned deterministic reproducibility check is available"),
+            new ReleaseValidationGate("security-audit", "not-observed", "trusted security audit evidence was not supplied"),
+            new ReleaseValidationGate("tests", "not-observed", "trusted test evidence was not supplied")
+        };
+        var manifest = ReleaseValidationEvidence.Create(repository.Owner + "/" + repository.Repository, commit, profile, gates);
+        var bytes = ReleaseValidationEvidence.Serialize(manifest);
+        cancellationToken.ThrowIfCancellationRequested();
+        SafeFiles.Atomic(fullOutput, Encoding.UTF8.GetString(bytes));
+        return (manifest, fullOutput);
+    }
+}
+
 /// <summary>Reads the fields used by github pr-status from the GitHub pull request API.</summary>
 public sealed class GitHubPrStatusReader(IGitHubReadClient client)
 {
@@ -2054,6 +2085,7 @@ public static class AgentTool
             [--duration-seconds NUMBER]
         dotnet verify [--base REF] [--project PATH] | format --project PATH [--apply]
         dotnet dependencies --project PATH | package-audit --project PATH | api-check --project PATH | release-verify --project PATH
+        release evidence --profile NAME --output REPOSITORY_RELATIVE_PATH
         logs summarize --file PATH | sarif summarize --file PATH [--baseline PATH]
         artifact inspect --file PATH | verify --file PATH --sha256 HEX
         test-results summarize --file PATH | coverage summarize --file PATH
@@ -2221,6 +2253,7 @@ public static class AgentTool
             services.AddSingleton<ICommandModule, ValidateCommandModule>();
             services.AddSingleton<ICommandModule, EvalCommandModule>();
             services.AddSingleton<ICommandModule, ReleaseCommandModule>();
+            services.AddSingleton<ICommandModule, ReleaseValidationCommandModule>();
             services.AddSingleton<ICommandModule, RunCommandModule>();
             services.AddSingleton<ICommandModule, ResultsCommandModule>();
             return services;
@@ -2944,6 +2977,17 @@ public static class AgentTool
         }
     }
 
+    public sealed class ReleaseValidationCommandModule : ICommandModule
+    {
+        public bool CanHandle(Cli command) => command.Command == "release evidence";
+        public async Task<Result> Execute(Cli command, string toolkit, string root, Settings settings, CancellationToken cancellationToken)
+        {
+            command.ValidateCommand(command.Command);
+            var published = await ReleaseValidationPublisher.PublishAsync(root, command.Require("profile"), command.Get("output") ?? "release-validation-evidence.json", cancellationToken);
+            return Result.Ok(new { manifest = published.Manifest, output = Path.GetRelativePath(root, published.Output) });
+        }
+    }
+
     public sealed class JevCommandModule : ICommandModule
     {
         private static readonly string[] Commands = ["jev noul", "jev choice", "jev score", "jev screen", "jev cache-clear"];
@@ -3042,7 +3086,7 @@ public static class AgentTool
         [
             new InstallerCommandModule(), new DoctorCommandModule(), new GitCommandModule(), new RepoCommandModule(),
             new GitHubCommandModule(), new DotnetCommandModule(), new ReportCommandModule(), new JevCommandModule(),
-            new UpstreamCommandModule(), new ValidateCommandModule(), new EvalCommandModule(), new ReleaseCommandModule(), new RunCommandModule(),
+            new UpstreamCommandModule(), new ValidateCommandModule(), new EvalCommandModule(), new ReleaseCommandModule(), new ReleaseValidationCommandModule(), new RunCommandModule(),
             new ResultsCommandModule()
         ];
         return new AgentToolRuntime(NullLogger<AgentToolRuntime>.Instance, modules)
@@ -3380,6 +3424,7 @@ public sealed class Cli
             "upstream update" or "upstream dotnet-skills" => ["dry-run"],
             "eval" => ["skill", "results"],
             "release" => ["output"],
+            "release evidence" => ["profile", "output"],
             "results clean" => ["dry-run"],
             _ => []
         };
@@ -3392,7 +3437,7 @@ public sealed class Cli
     public List<string> Words { get; } = [];
     public Dictionary<string, string?> Options { get; } = new(StringComparer.Ordinal);
     static readonly HashSet<string> Flags = ["json", "help", "version", "dry-run", "bin", "apply", "safe-input", "binlog", "failed-logs"];
-    static readonly HashSet<string> Values = ["root", "toolkit", "set", "home", "codex-home", "base", "expected", "baseline", "query", "issue", "branch", "remote", "path", "paths-file", "message", "pr", "run-id", "project", "file", "sha256", "input", "output", "skill", "results", "configuration", "test", "class", "category", "filter", "process-id", "signal", "duration-seconds"];
+    static readonly HashSet<string> Values = ["root", "toolkit", "set", "home", "codex-home", "base", "expected", "baseline", "query", "issue", "branch", "remote", "path", "paths-file", "message", "pr", "run-id", "project", "file", "sha256", "input", "output", "skill", "results", "configuration", "test", "class", "category", "filter", "process-id", "signal", "duration-seconds", "profile"];
     public string? Get(string name) => Options.GetValueOrDefault(name);
     public bool Flag(string name) => Options.ContainsKey(name);
     public string Require(string name) => Get(name) is { Length: > 0 } v ? v : throw new ArgumentException($"--{name} is required.");
