@@ -48,6 +48,12 @@ public class MetadataTests
         Assert.False(schema.Evaluate(result).IsValid);
     }
     [Fact]
+    public void CiWorkflowCancelsOnlyRunsForTheSameCommit()
+    {
+        var workflow = File.ReadAllText(Path.Combine(Root, ".github/workflows/ci.yml"));
+        Assert.Matches("(?m)^concurrency:\\s*\\n\\s+group: ci-\\$\\{\\{ github\\.sha \\}\\}\\s*\\n\\s+cancel-in-progress: true\\s*$", workflow);
+    }
+    [Fact]
     public void AllJsonTomlAndYamlParse()
     {
         var yaml = new DeserializerBuilder().Build();
