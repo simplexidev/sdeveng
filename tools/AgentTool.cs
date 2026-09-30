@@ -831,7 +831,7 @@ public sealed class GitHubWriteClient(HttpClient http, IGitHubCredentialProvider
 
 public sealed record GitHubIssueLabelWriteResult(string Status, string TargetRepository, int IssueNumber, IReadOnlyList<string> Labels, string? Reason);
 
-/// <summary>Adds configured triage labels only after a complete, authorized decision for the canonical origin issue.</summary>
+/// <summary>Adds selected configured area labels to the canonical origin issue without replacing existing labels.</summary>
 public sealed class GitHubIssueLabelWriter(IGitHubWriteClient client)
 {
     public async Task<GitHubIssueLabelWriteResult> AddTriageLabelsAsync(
@@ -846,18 +846,17 @@ public sealed class GitHubIssueLabelWriter(IGitHubWriteClient client)
         var capability = capabilities.Capabilities.SingleOrDefault(item => item.Operation == "issues.labels.write" && item.TargetRepository == currentOriginRepository);
         if (capability?.State != "allowed")
             return Reject("review", currentOriginRepository, issueNumber, "issue label write capability is not allowed");
-        if (decision.NeedsHumanReview || decision.UnresolvedFamilies.Count != 0)
-            return Reject("review", currentOriginRepository, issueNumber, "triage decision needs human review or has unresolved families");
         if (!labelCatalog.TryGetProperty("labels", out var configuredLabels) || configuredLabels.ValueKind != JsonValueKind.Array)
             throw new JsonException("Label catalog must contain a labels array.");
         var configured = configuredLabels.EnumerateArray().Select(item =>
             (Name: item.GetProperty("name").GetString(), Family: item.GetProperty("family").GetString())).ToArray();
-        var triaged = configured.SingleOrDefault(item => item.Name == "TRIAGED" && item.Family == "status");
-        var selectedTypes = decision.Selected.Where(item => item.Family == "type").SelectMany(item => item.Labels).ToArray();
-        if (triaged.Name is null || selectedTypes.Length != 1 || decision.Selected.Any(family => family.Family == "status") ||
-            selectedTypes[0].Label == "IN_PROGRESS" || !configured.Any(item => item.Name == selectedTypes[0].Label && item.Family == "type"))
-            return Reject("failure", currentOriginRepository, issueNumber, "triage labels are missing, unconfigured, or unsafe");
-        var labels = new[] { "TRIAGED", selectedTypes[0].Label };
+        var selectedAreas = decision.Selected.Where(item => item.Family == "area").SelectMany(item => item.Labels)
+            .Select(item => item.Label).Distinct(StringComparer.Ordinal).ToArray();
+        if (selectedAreas.Any(label => !configured.Any(item => item.Name == label && item.Family == "area")))
+            return Reject("failure", currentOriginRepository, issueNumber, "selected area label is not configured");
+        if (selectedAreas.Length == 0)
+            return Reject("review", currentOriginRepository, issueNumber, "no area label was selected; human handling is required");
+        var labels = selectedAreas;
         using var content = new StringContent(JsonSerializer.Serialize(new { labels }));
         content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
         var response = await client.SendAsync(HttpMethod.Post,
