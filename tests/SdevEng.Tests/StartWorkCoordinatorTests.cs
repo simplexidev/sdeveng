@@ -67,7 +67,7 @@ public sealed class StartWorkCoordinatorTests
                 Assert.Equal(count, LocalRunEventStore.Read(Store(repo), request.ProductRunId).Count);
             }
         }
-        finally { Directory.Delete(bare, true); }
+        finally { DeleteBareRepository(bare); }
     }
 
     [Fact]
@@ -94,7 +94,7 @@ public sealed class StartWorkCoordinatorTests
             Assert.Single(events, item => item.GetProperty("eventType").GetString() == "start-work-progress" && item.GetProperty("operation").GetString() == "branch-pushed" && item.GetProperty("status").GetString() == "completed");
             Assert.DoesNotContain(events, item => item.GetProperty("eventType").GetString() == "external-identifier-recorded" && item.GetProperty("identifierType").GetString() == "pull-request");
         }
-        finally { Directory.Delete(bare, true); }
+        finally { DeleteBareRepository(bare); }
     }
 
     [Fact]
@@ -119,7 +119,7 @@ public sealed class StartWorkCoordinatorTests
             await coordinator.ContinueAsync(request);
             Assert.Equal(events.Count, LocalRunEventStore.Read(Store(repo), request.ProductRunId).Count);
         }
-        finally { Directory.Delete(bare, true); }
+        finally { DeleteBareRepository(bare); }
     }
 
     [Fact]
@@ -147,7 +147,7 @@ public sealed class StartWorkCoordinatorTests
             Assert.Equal(divergentSha, remote.Output.Trim());
             await Assert.ThrowsAsync<InvalidOperationException>(() => coordinator.ContinueAsync(request));
         }
-        finally { Directory.Delete(bare, true); }
+        finally { DeleteBareRepository(bare); }
     }
 
     [Fact]
@@ -223,6 +223,16 @@ public sealed class StartWorkCoordinatorTests
         var repo = new TemporaryGitRepository();
         repo.Run("remote", "add", "origin", "https://github.com/owner/project.git");
         return repo;
+    }
+
+    private static void DeleteBareRepository(string bare)
+    {
+        if (OperatingSystem.IsWindows())
+        {
+            foreach (var path in Directory.EnumerateFileSystemEntries(bare, "*", SearchOption.AllDirectories))
+                File.SetAttributes(path, FileAttributes.Normal);
+        }
+        Directory.Delete(bare, true);
     }
 
     private static StartWorkRequest NewRequest(TemporaryGitRepository repo)
