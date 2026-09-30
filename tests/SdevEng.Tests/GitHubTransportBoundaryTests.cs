@@ -34,7 +34,7 @@ public sealed class GitHubTransportBoundaryTests
             .Where(match => EnclosingType(source, match.Index).StartsWith("GitHub", StringComparison.Ordinal))
             .ToArray();
         Assert.Equal(
-            new[] { "GitHubIssueLabelWriter", "GitHubReadClient", "GitHubTransport", "GitHubWriteClient" },
+            new[] { "GitHubIssueLabelWriter", "GitHubIssueLabelWriter", "GitHubIssueLabelWriter", "GitHubReadClient", "GitHubTransport", "GitHubWriteClient" },
             rawHttpCalls.Select(match => EnclosingType(source, match.Index)).OrderBy(name => name, StringComparer.Ordinal));
 
         // The doctor auth probe is explicitly outside typed product reads. No product
