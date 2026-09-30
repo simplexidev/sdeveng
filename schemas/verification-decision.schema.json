@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://simplexidev.github.io/sdeveng/schemas/verification-decision.schema.json",
+  "title": "sdeveng verification decision",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["check", "canProgress", "disagrees", "reasons"],
+  "properties": {
+    "check": { "type": "string", "minLength": 1 },
+    "canProgress": { "type": "boolean" },
+    "disagrees": { "type": "boolean" },
+    "reasons": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": { "enum": ["local-missing", "hosted-missing", "local-failed", "hosted-failed", "local-hosted-disagreement", "evidence-missing"] }
+    }
+  },
+  "allOf": [
+    { "if": { "properties": { "canProgress": { "const": true } }, "required": ["canProgress"] }, "then": { "properties": { "reasons": { "maxItems": 0 } } }, "else": { "properties": { "reasons": { "minItems": 1 } } } },
+    { "if": { "properties": { "disagrees": { "const": true } }, "required": ["disagrees"] }, "then": { "properties": { "reasons": { "contains": { "const": "local-hosted-disagreement" } } } } }
+  ]
+}

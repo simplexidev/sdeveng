@@ -6,6 +6,37 @@ namespace SdevEng.Tests;
 public class VerificationResultsTests
 {
     [Theory]
+    [InlineData("passed", "passed", true, false)]
+    [InlineData("passed", "failed", false, true)]
+    [InlineData("failed", "passed", false, true)]
+    [InlineData("failed", "failed", false, false)]
+    public void EvaluationDetectsDisagreementAndGatesFailures(string localStatus, string hostedStatus, bool canProgress, bool disagrees)
+    {
+        var results = new[] { Evidence("local", localStatus), Evidence("hosted", hostedStatus) };
+        var decision = VerificationResults.Evaluate("build", results, new(true, true));
+        Assert.Equal(canProgress, decision.CanProgress);
+        Assert.Equal(disagrees, decision.Disagrees);
+        Assert.Equal(disagrees, decision.Reasons.Contains("local-hosted-disagreement"));
+        var schema = JsonSchema.FromFile(Path.Combine(AgentTool.FindToolkit(), "schemas/verification-decision.schema.json"));
+        Assert.True(schema.Evaluate(JsonSerializer.SerializeToNode(decision, AgentTool.Json)).IsValid);
+    }
+
+    [Fact]
+    public void EvaluationRequiresConfiguredSourcesAndRejectsAmbiguousEvidence()
+    {
+        var local = Evidence("local", "passed");
+        Assert.True(VerificationResults.Evaluate("build", [local], new(true, false)).CanProgress);
+        var missing = VerificationResults.Evaluate("build", [local], new(true, true));
+        Assert.False(missing.CanProgress);
+        Assert.Contains("hosted-missing", missing.Reasons);
+        Assert.False(VerificationResults.Evaluate("build", [], new(false, false)).CanProgress);
+        Assert.Throws<ArgumentException>(() => VerificationResults.Evaluate("build", [local, local], new(true, false)));
+        Assert.Throws<ArgumentException>(() => VerificationResults.Evaluate("test", [local], new(true, false)));
+    }
+
+    static VerificationResult Evidence(string source, string status) => new(1, source, "build", status, status == "passed" ? 0 : 1, "https://example.com/evidence");
+
+    [Theory]
     [InlineData(0, "passed")]
     [InlineData(1, "failed")]
     public void LocalProcessOutcomeMapsToVerificationContract(int exitCode, string status)
