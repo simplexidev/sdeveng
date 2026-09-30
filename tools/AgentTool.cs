@@ -3321,7 +3321,10 @@ public record ProcessReport(int ProcessExitCode, object Summary, string Artifact
 }
 public record ProcessResult(int ExitCode, string Output);
 
-public sealed record VerificationResult(int SchemaVersion, string Source, string Check, string Status, int ExitCode, string Artifact);
+public sealed record VerificationResult(int SchemaVersion, string Source, string Check, string Status, int ExitCode, string Artifact)
+{
+    public string? EnvironmentIdentity { get; init; }
+}
 
 public static class VerificationResults
 {
@@ -3332,7 +3335,24 @@ public static class VerificationResults
         var check = string.Join(" ", new[] { executable }.Concat(arguments));
         if (check.Length > 512) throw new ArgumentException("Verification check exceeds 512 characters.", nameof(arguments));
         if (exitCode < 0) throw new ArgumentOutOfRangeException(nameof(exitCode));
-        return new(1, "local", check, exitCode == 0 ? "passed" : "failed", exitCode, Path.GetFullPath(artifact));
+        return new(1, "local", check, exitCode == 0 ? "passed" : "failed", exitCode, Path.GetFullPath(artifact))
+        { EnvironmentIdentity = Environment.MachineName };
+    }
+
+    public static VerificationResult FromGitHubCheck(GitHubCheck check, string owner, string repository, string commitSha)
+    {
+        ArgumentNullException.ThrowIfNull(check);
+        ArgumentException.ThrowIfNullOrWhiteSpace(owner);
+        ArgumentException.ThrowIfNullOrWhiteSpace(repository);
+        if (!System.Text.RegularExpressions.Regex.IsMatch(commitSha ?? "", "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"))
+            throw new ArgumentException("A full lowercase commit SHA is required.", nameof(commitSha));
+        if (check.Name.Length is < 1 or > 512 || check.DetailsUrl is null || check.DetailsUrl.Scheme != Uri.UriSchemeHttps)
+            throw new ArgumentException("A named check with an HTTPS details URL is required.", nameof(check));
+        if (check.Status != "completed" || check.Conclusion is not ("success" or "failure" or "timed_out" or "cancelled" or "action_required"))
+            throw new ArgumentException("Only completed checks with a definitive conclusion can be mapped.", nameof(check));
+        var passed = check.Conclusion == "success";
+        return new(1, "hosted", check.Name, passed ? "passed" : "failed", passed ? 0 : 1, check.DetailsUrl.AbsoluteUri)
+        { EnvironmentIdentity = $"github:{owner}/{repository}@{commitSha}" };
     }
 }
 
