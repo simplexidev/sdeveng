@@ -11,20 +11,37 @@ public sealed class StartWorkCoordinatorTests
     public async Task BootstrapUsesEmptyCommitAndFallsBackToOwnedGitMarkerOnFailure()
     {
         using var repo = NewRepository();
+        var runId = Guid.NewGuid();
+        var initialTree = repo.Run("rev-parse", "HEAD^{tree}").Trim();
         var process = new BootstrapProcess(false);
         var coordinator = Registered(new IssueClient(), git: process);
 
-        var commit = await coordinator.BootstrapAsync(repo.Root);
+        var commit = await coordinator.BootstrapAsync(repo.Root, runId);
         Assert.Equal(repo.Run("rev-parse", "HEAD").Trim(), commit);
-        Assert.Equal("sdeveng bootstrap", repo.Run("log", "-1", "--format=%s").Trim());
+        Assert.Equal("chore: initialize sdeveng work", repo.Run("log", "-1", "--format=%s").Trim());
+        Assert.Equal(initialTree, repo.Run("rev-parse", "HEAD^{tree}").Trim());
+        Assert.Equal("empty-commit", LocalRunEventStore.Read(Store(repo), runId).Single().GetProperty("detail").GetString());
 
+        var markerRun = Guid.NewGuid();
+        File.WriteAllText(Path.Combine(repo.Root, "unrelated.txt"), "keep me");
+        repo.Run("add", "unrelated.txt");
         var fallback = new BootstrapProcess(true);
         var fallbackCoordinator = Registered(new IssueClient(), git: fallback);
-        var marker = await fallbackCoordinator.BootstrapAsync(repo.Root);
-        Assert.Equal(Path.Combine(repo.Root, ".git", "sdeveng-bootstrap-marker"), marker);
-        Assert.Equal("sdeveng bootstrap marker v1\n", File.ReadAllText(marker));
-        Assert.Equal(marker, await fallbackCoordinator.BootstrapAsync(repo.Root));
-        Assert.Equal("sdeveng bootstrap marker v1\n", File.ReadAllText(marker));
+        var marker = Path.Combine(repo.Root, ".sdeveng", "bootstrap", markerRun.ToString("D") + ".json");
+        var commitCount = repo.Run("rev-list", "--count", "HEAD").Trim();
+        await fallbackCoordinator.BootstrapAsync(repo.Root, markerRun);
+        var markerJson = JsonNode.Parse(File.ReadAllText(marker))!.AsObject();
+        Assert.Equal(3, markerJson.Count);
+        Assert.Equal(1, markerJson["schemaVersion"]!.GetValue<int>());
+        Assert.Equal(markerRun.ToString("D"), markerJson["runId"]!.GetValue<string>());
+        Assert.Equal("draft-pr-bootstrap", markerJson["purpose"]!.GetValue<string>());
+        Assert.Equal((int.Parse(commitCount) + 1).ToString(), repo.Run("rev-list", "--count", "HEAD").Trim());
+        Assert.Equal(Path.Combine(".sdeveng", "bootstrap", markerRun.ToString("D") + ".json"), repo.Run("diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD").Trim());
+        Assert.StartsWith("A  unrelated.txt\n", repo.Run("status", "--porcelain"));
+        Assert.Equal("marker", LocalRunEventStore.Read(Store(repo), markerRun).Single().GetProperty("detail").GetString());
+        var otherRun = Guid.NewGuid();
+        await fallbackCoordinator.BootstrapAsync(repo.Root, otherRun);
+        Assert.True(File.Exists(Path.Combine(repo.Root, ".sdeveng", "bootstrap", otherRun.ToString("D") + ".json")));
     }
 
     [Fact]
@@ -277,8 +294,13 @@ public sealed class StartWorkCoordinatorTests
 
     private sealed class BootstrapProcess(bool fail) : IStartWorkGitProcess
     {
-        public Task<ProcessResult> Run(string executable, IEnumerable<string> arguments, string cwd) =>
-            fail ? Task.FromResult(new ProcessResult(1, "injected commit failure")) : Processes.Run(executable, arguments, cwd);
+        public Task<ProcessResult> Run(string executable, IEnumerable<string> arguments, string cwd)
+        {
+            var args = arguments.ToArray();
+            return fail && args.Contains("--allow-empty")
+                ? Task.FromResult(new ProcessResult(1, "injected empty commit failure"))
+                : Processes.Run(executable, args, cwd);
+        }
     }
 
     private sealed class CapabilityProcess(string capability) : AgentTool.IGitHubAuthorizationProcess
