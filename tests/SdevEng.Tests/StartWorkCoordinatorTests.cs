@@ -8,6 +8,26 @@ namespace SdevEng.Tests;
 public sealed class StartWorkCoordinatorTests
 {
     [Fact]
+    public async Task BootstrapUsesEmptyCommitAndFallsBackToOwnedGitMarkerOnFailure()
+    {
+        using var repo = NewRepository();
+        var process = new BootstrapProcess(false);
+        var coordinator = Registered(new IssueClient(), git: process);
+
+        var commit = await coordinator.BootstrapAsync(repo.Root);
+        Assert.Equal(repo.Run("rev-parse", "HEAD").Trim(), commit);
+        Assert.Equal("sdeveng bootstrap", repo.Run("log", "-1", "--format=%s").Trim());
+
+        var fallback = new BootstrapProcess(true);
+        var fallbackCoordinator = Registered(new IssueClient(), git: fallback);
+        var marker = await fallbackCoordinator.BootstrapAsync(repo.Root);
+        Assert.Equal(Path.Combine(repo.Root, ".git", "sdeveng-bootstrap-marker"), marker);
+        Assert.Equal("sdeveng bootstrap marker v1\n", File.ReadAllText(marker));
+        Assert.Equal(marker, await fallbackCoordinator.BootstrapAsync(repo.Root));
+        Assert.Equal("sdeveng bootstrap marker v1\n", File.ReadAllText(marker));
+    }
+
+    [Fact]
     public async Task ExactBaseRecordsOriginIssueAndStartingThroughRegisteredCoordinator()
     {
         using var repo = NewRepository();
@@ -244,14 +264,21 @@ public sealed class StartWorkCoordinatorTests
 
     private static string Store(TemporaryGitRepository repo) => Path.Combine(repo.Root, ".sdeveng", "runs");
 
-    private static StartWorkCoordinator Registered(IssueClient client, string capability = "unknown")
+    private static StartWorkCoordinator Registered(IssueClient client, string capability = "unknown", IStartWorkGitProcess? git = null)
     {
         var services = new ServiceCollection();
         services.AddLogging();
         AgentTool.AgentToolModule.Register(services);
         services.AddSingleton<IGitHubReadClient>(client);
         services.AddSingleton<AgentTool.IGitHubAuthorizationProcess>(new CapabilityProcess(capability));
+        services.AddSingleton<IStartWorkGitProcess>(git ?? new StartWorkGitProcess());
         return services.BuildServiceProvider().GetRequiredService<StartWorkCoordinator>();
+    }
+
+    private sealed class BootstrapProcess(bool fail) : IStartWorkGitProcess
+    {
+        public Task<ProcessResult> Run(string executable, IEnumerable<string> arguments, string cwd) =>
+            fail ? Task.FromResult(new ProcessResult(1, "injected commit failure")) : Processes.Run(executable, arguments, cwd);
     }
 
     private sealed class CapabilityProcess(string capability) : AgentTool.IGitHubAuthorizationProcess

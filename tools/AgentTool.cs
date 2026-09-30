@@ -1130,9 +1130,35 @@ public sealed record StartWorkRequest(Guid ProductRunId, string RepositoryRoot, 
 public sealed record StartWorkResult(Guid ProductRunId, string Repository, int SourceIssueNumber,
     string BaseSha, string BranchName, string State);
 
-/// <summary>Checks the chosen start-work target before recording its durable STARTING state.</summary>
-public sealed class StartWorkCoordinator(GitHubIssueReader issueReader, AgentTool.GitHubAuthorizationProbe authorizationProbe)
+public interface IStartWorkGitProcess
 {
+    Task<ProcessResult> Run(string executable, IEnumerable<string> arguments, string cwd);
+}
+
+public sealed class StartWorkGitProcess : IStartWorkGitProcess
+{
+    public Task<ProcessResult> Run(string executable, IEnumerable<string> arguments, string cwd) => Processes.Run(executable, arguments, cwd);
+}
+
+/// <summary>Checks the chosen start-work target before recording its durable STARTING state.</summary>
+public sealed class StartWorkCoordinator(GitHubIssueReader issueReader, AgentTool.GitHubAuthorizationProbe authorizationProbe, IStartWorkGitProcess gitProcess)
+{
+    public async Task<string> BootstrapAsync(string repositoryRoot, CancellationToken cancellationToken = default)
+    {
+        var root = Path.GetFullPath(repositoryRoot);
+        var state = await Git.State(root);
+        if (state.Operations.Count != 0) throw new InvalidOperationException("Worktree has an unfinished Git operation.");
+        var result = await gitProcess.Run("git", ["-c", "user.name=sdeveng", "-c", "user.email=sdeveng@localhost", "commit", "--allow-empty", "-m", "sdeveng bootstrap"], root);
+        if (result.ExitCode == 0) return (await Git.Require(root, "rev-parse", "HEAD")).Trim();
+        var gitDir = (await Git.Require(root, "rev-parse", "--absolute-git-dir")).Trim();
+        var marker = Path.Combine(gitDir, "sdeveng-bootstrap-marker");
+        const string contents = "sdeveng bootstrap marker v1\n";
+        if (File.Exists(marker) && File.ReadAllText(marker) != contents)
+            throw new InvalidOperationException("Bootstrap marker is not owned by sdeveng.");
+        if (!File.Exists(marker)) await File.WriteAllTextAsync(marker, contents, new UTF8Encoding(false), cancellationToken);
+        return marker;
+    }
+
     public async Task<StartWorkResult> ContinueAsync(StartWorkRequest request, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
