@@ -1143,20 +1143,42 @@ public sealed class StartWorkGitProcess : IStartWorkGitProcess
 /// <summary>Checks the chosen start-work target before recording its durable STARTING state.</summary>
 public sealed class StartWorkCoordinator(GitHubIssueReader issueReader, AgentTool.GitHubAuthorizationProbe authorizationProbe, IStartWorkGitProcess gitProcess)
 {
-    public async Task<string> BootstrapAsync(string repositoryRoot, CancellationToken cancellationToken = default)
+    public async Task<string> BootstrapAsync(string repositoryRoot, Guid runId, CancellationToken cancellationToken = default)
     {
+        if (runId == Guid.Empty) throw new ArgumentException("Run ID must be a UUID.", nameof(runId));
         var root = Path.GetFullPath(repositoryRoot);
         var state = await Git.State(root);
         if (state.Operations.Count != 0) throw new InvalidOperationException("Worktree has an unfinished Git operation.");
-        var result = await gitProcess.Run("git", ["-c", "user.name=sdeveng", "-c", "user.email=sdeveng@localhost", "commit", "--allow-empty", "-m", "sdeveng bootstrap"], root);
-        if (result.ExitCode == 0) return (await Git.Require(root, "rev-parse", "HEAD")).Trim();
-        var gitDir = (await Git.Require(root, "rev-parse", "--absolute-git-dir")).Trim();
-        var marker = Path.Combine(gitDir, "sdeveng-bootstrap-marker");
-        const string contents = "sdeveng bootstrap marker v1\n";
-        if (File.Exists(marker) && File.ReadAllText(marker) != contents)
-            throw new InvalidOperationException("Bootstrap marker is not owned by sdeveng.");
-        if (!File.Exists(marker)) await File.WriteAllTextAsync(marker, contents, new UTF8Encoding(false), cancellationToken);
-        return marker;
+        var before = (await Git.Require(root, "rev-parse", "HEAD")).Trim();
+        var runDirectory = Path.Combine(root, ".sdeveng", "runs");
+        var result = await gitProcess.Run("git", ["-c", "user.name=sdeveng", "-c", "user.email=sdeveng@localhost", "commit", "--allow-empty", "-m", "chore: initialize sdeveng work"], root);
+        string mode;
+        string resultValue;
+        if (result.ExitCode == 0)
+        {
+            mode = "empty-commit";
+            resultValue = (await Git.Require(root, "rev-parse", "HEAD")).Trim();
+        }
+        else
+        {
+            var after = (await Git.Require(root, "rev-parse", "HEAD")).Trim();
+            if (after != before) throw new InvalidOperationException("Empty-commit command failed after changing HEAD; refusing marker fallback.");
+            var relativeMarker = ".sdeveng/bootstrap/" + runId.ToString("D") + ".json";
+            var marker = Path.Combine(root, relativeMarker.Replace('/', Path.DirectorySeparatorChar));
+            Directory.CreateDirectory(Path.GetDirectoryName(marker)!);
+            var contents = JsonSerializer.Serialize(new { schemaVersion = 1, runId = runId.ToString("D"), purpose = "draft-pr-bootstrap" }, AgentTool.Json) + "\n";
+            if (File.Exists(marker) && File.ReadAllText(marker) != contents)
+                throw new InvalidOperationException("Bootstrap marker is not owned by this run.");
+            await File.WriteAllTextAsync(marker, contents, new UTF8Encoding(false), cancellationToken);
+            var add = await gitProcess.Run("git", ["add", "-f", "--", relativeMarker], root);
+            if (add.ExitCode != 0) throw new IOException("Unable to stage the owned bootstrap marker: " + Secrets.Redact(add.Output.Trim()));
+            var commit = await gitProcess.Run("git", ["-c", "user.name=sdeveng", "-c", "user.email=sdeveng@localhost", "commit", "--only", "-m", "chore: initialize sdeveng work", "--", relativeMarker], root);
+            if (commit.ExitCode != 0) throw new IOException("Unable to commit the owned bootstrap marker: " + Secrets.Redact(commit.Output.Trim()));
+            mode = "marker";
+            resultValue = (await Git.Require(root, "rev-parse", "HEAD")).Trim();
+        }
+        LocalRunEventStore.AppendStartWorkProgress(runDirectory, runId, "bootstrap-created", "completed", mode);
+        return resultValue;
     }
 
     public async Task<StartWorkResult> ContinueAsync(StartWorkRequest request, CancellationToken cancellationToken = default)
