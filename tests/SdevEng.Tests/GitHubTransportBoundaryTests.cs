@@ -44,7 +44,7 @@ public sealed class GitHubTransportBoundaryTests
         var ghCalls = Regex.Matches(source, @"(?:Processes|process)\.Run\(\s*""gh""\s*,\s*\[(?<args>[^\]]*)\]")
             .Cast<Match>()
             .ToArray();
-        Assert.Equal(4, ghCalls.Length);
+        Assert.Equal(5, ghCalls.Length);
         Assert.Single(ghCalls, match => EnclosingType(source, match.Index) == "DoctorCommandModule");
         Assert.All(ghCalls.Where(match => EnclosingType(source, match.Index) == "GitHubAuthorizationProbe"), match =>
         {

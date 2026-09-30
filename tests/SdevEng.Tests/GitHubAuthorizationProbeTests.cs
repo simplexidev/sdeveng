@@ -19,14 +19,15 @@ public sealed class GitHubAuthorizationProbeTests
         const string secret = "gho_super_secret_token";
         var process = new FakeProcess(
             new(0, "https://github.com/acme/widget.git\n"), new(0, "Logged in to github.com account test\nToken scopes: read:org"),
-            new(0, "[]"), new(0, "{\"permissions\":{\"push\":true}}"), new(0, "abcdef123456"), new(1, "network timeout"));
+            new(0, "[]"), new(0, "{\"permissions\":{\"push\":true}}"), new(0, "abcdef123456"), new(1, "network timeout"), new(0, "[]"));
         var result = await new AgentTool.GitHubAuthorizationProbe(process).ProbeAsync("/repo");
         Assert.Equal("allowed", result.Capabilities[0].State);
         Assert.Equal("unknown", result.Capabilities[1].State);
         Assert.DoesNotContain(secret, System.Text.Json.JsonSerializer.Serialize(result));
-        Assert.Equal(new[] { "issues.read", "issues.labels.write", "branch-push", "pr-create" }, result.Capabilities.Select(capability => capability.Operation));
+        Assert.Equal(new[] { "issues.read", "issues.labels.write", "branch-push", "pr-create", "workflow-rerun" }, result.Capabilities.Select(capability => capability.Operation));
         Assert.Equal("unknown", result.Capabilities[2].State);
         Assert.Equal("denied", result.Capabilities[3].State);
+        Assert.Equal("unknown", result.Capabilities[4].State);
         Assert.DoesNotContain(process.Calls, call => call.Arguments.Any(argument => argument.Contains("POST", StringComparison.OrdinalIgnoreCase)));
     }
 
@@ -35,20 +36,22 @@ public sealed class GitHubAuthorizationProbeTests
     {
         var process = new FakeProcess(new ProcessResult(0, "https://github.com/acme/widget.git"),
             new ProcessResult(0, "Token scopes: repo"), new ProcessResult(0, "[]"),
-            new ProcessResult(0, "{\"private\":true,\"permissions\":{\"push\":true}}"), new ProcessResult(0, "abcdef123456"), new ProcessResult(0, ""));
+            new ProcessResult(0, "{\"private\":true,\"permissions\":{\"push\":true}}"), new ProcessResult(0, "abcdef123456"), new ProcessResult(0, ""), new ProcessResult(0, "[]"));
         var result = await new AgentTool.GitHubAuthorizationProbe(process).ProbeAsync("/repo");
         Assert.Equal("allowed", result.Capabilities[1].State);
         Assert.Equal("allowed", result.Capabilities[3].State);
+        Assert.Equal("unknown", result.Capabilities[4].State);
         Assert.Contains(process.Calls, call => call.Executable == "git" && call.Arguments.SequenceEqual(new[] { "push", "--dry-run", "--porcelain", "origin", "HEAD:refs/heads/roadmap/sdeveng-capability-probe-abcdef123456" }));
     }
 
     [Fact]
     public async Task ReportsExplicitIssueReadDenialAndUnknownForUnparseableRemote()
     {
-        var denied = new FakeProcess(new ProcessResult(0, "git@github.com:acme/widget.git"), new ProcessResult(0, "logged in\nToken scopes: repo"), new ProcessResult(1, "HTTP 403 Forbidden"), new ProcessResult(1, "HTTP 403"), new ProcessResult(0, "abcdef123456"), new ProcessResult(1, "remote: error: protected branch hook declined"));
+        var denied = new FakeProcess(new ProcessResult(0, "git@github.com:acme/widget.git"), new ProcessResult(0, "logged in\nToken scopes: repo"), new ProcessResult(1, "HTTP 403 Forbidden"), new ProcessResult(1, "HTTP 403"), new ProcessResult(0, "abcdef123456"), new ProcessResult(1, "remote: error: protected branch hook declined"), new ProcessResult(1, "HTTP 403 Forbidden"));
         var result = await new AgentTool.GitHubAuthorizationProbe(denied).ProbeAsync("/repo");
         Assert.Equal("denied", result.Capabilities[0].State);
         Assert.Equal("denied", result.Capabilities[2].State);
+        Assert.Equal("denied", result.Capabilities[4].State);
         var badOrigin = new FakeProcess(new ProcessResult(0, "https://example.com/acme/widget.git"));
         Assert.All((await new AgentTool.GitHubAuthorizationProbe(badOrigin).ProbeAsync("/repo")).Capabilities, capability => Assert.Equal("unknown", capability.State));
         Assert.Single(badOrigin.Calls);
@@ -70,13 +73,13 @@ public sealed class GitHubAuthorizationProbeTests
         AgentTool.AgentToolModule.Register(services);
         services.AddSingleton<AgentTool.IGitHubAuthorizationProcess>(new FakeProcess(
             new ProcessResult(0, "https://github.com/acme/widget.git"), new ProcessResult(0, "logged in"),
-            new ProcessResult(0, "[]"), new ProcessResult(0, "{}"), new ProcessResult(0, "abcdef123456"), new ProcessResult(0, "")));
+            new ProcessResult(0, "[]"), new ProcessResult(0, "{}"), new ProcessResult(0, "abcdef123456"), new ProcessResult(0, ""), new ProcessResult(0, "[]")));
         using var provider = services.BuildServiceProvider();
         var result = await provider.GetRequiredService<AgentTool.AgentToolRuntime>().Execute(
             Cli.Parse(["github", "capabilities"]), AgentTool.FindToolkit(), "/repo", new(new(), new(), new(), new()));
         Assert.Equal("ok", result.Status);
         Assert.Equal("allowed", Assert.IsType<AgentTool.GitHubCapabilities>(result.Data).Capabilities[0].State);
-        Assert.Equal(new[] { "issues.read", "issues.labels.write", "branch-push", "pr-create" }, Assert.IsType<AgentTool.GitHubCapabilities>(result.Data).Capabilities.Select(capability => capability.Operation));
+        Assert.Equal(new[] { "issues.read", "issues.labels.write", "branch-push", "pr-create", "workflow-rerun" }, Assert.IsType<AgentTool.GitHubCapabilities>(result.Data).Capabilities.Select(capability => capability.Operation));
     }
 
     [Fact]
@@ -112,6 +115,7 @@ public sealed class GitHubAuthorizationProbeTests
             if (args.SequenceEqual(new[] { "auth", "status" })) return new(0, "Token scopes: repo");
             if (args.SequenceEqual(new[] { "api", "--method", "GET", "repos/acme/widget/issues?state=all&per_page=1" })) return new(0, "[]");
             if (args.SequenceEqual(new[] { "api", "--method", "GET", "repos/acme/widget" })) return new(0, "{\"permissions\":{\"push\":true}}");
+            if (args.SequenceEqual(new[] { "api", "--method", "GET", "repos/acme/widget/actions/runs?per_page=1" })) return new(0, "[]");
             throw new InvalidOperationException("Unexpected authorization probe process invocation.");
         }
     }
