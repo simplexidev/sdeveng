@@ -230,6 +230,68 @@ public sealed record GitHubIssue(
 public sealed record IssueFileReference(string Path, int? StartLine, int? EndLine, bool Exists);
 public sealed record IssueSymbolReference(string Value);
 public sealed record IssueReferenceFacts(IssueFileReference[] Files, IssueSymbolReference[] Symbols);
+public sealed record LinkedIssueReference(string Owner, string Repository, int Number, string Kind);
+public sealed record TriageFacts(string? CandidateRepository, IReadOnlyList<LinkedIssueReference> References, bool ReferencesTruncated);
+
+/// <summary>Extracts explicit issue references and the invocation repository from normalized issue text.</summary>
+public static class TriageFactsExtractor
+{
+    static readonly Regex HttpsReference = new(@"https://github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)/(issues|pull)/([1-9][0-9]*)(?![A-Za-z0-9_/?#.-])", RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+    static readonly Regex QualifiedReference = new(@"(?<![A-Za-z0-9_./-])([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)#([1-9][0-9]*)(?![0-9])", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+    static readonly Regex LocalReference = new(@"(?<![A-Za-z0-9_./-])#([1-9][0-9]*)(?![0-9])", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    public static TriageFacts Extract(string normalizedIssueText, string repositoryRoot, int maxItems = 50)
+    {
+        ArgumentNullException.ThrowIfNull(normalizedIssueText);
+        ArgumentException.ThrowIfNullOrWhiteSpace(repositoryRoot);
+        if (maxItems < 1) throw new ArgumentOutOfRangeException(nameof(maxItems));
+        return ExtractAsync(normalizedIssueText, repositoryRoot, maxItems).GetAwaiter().GetResult();
+    }
+
+    public static async Task<TriageFacts> ExtractAsync(string normalizedIssueText, string repositoryRoot, int maxItems = 50, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(normalizedIssueText);
+        ArgumentException.ThrowIfNullOrWhiteSpace(repositoryRoot);
+        if (maxItems < 1) throw new ArgumentOutOfRangeException(nameof(maxItems));
+        string? candidate;
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var result = await Processes.Run("git", ["remote", "get-url", "--all", "origin"], Path.GetFullPath(repositoryRoot), timeout: TimeSpan.FromSeconds(5));
+            var urls = result.Output.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Distinct(StringComparer.Ordinal).ToArray();
+            if (result.ExitCode != 0 || urls.Length != 1) candidate = null;
+            else
+            {
+                var target = AgentTool.GitHubAuthorizationProbe.ParseGitHubTarget(urls[0]);
+                candidate = target.Owner + "/" + target.Repository;
+            }
+        }
+        catch { candidate = null; }
+        return ExtractReferences(normalizedIssueText, candidate, maxItems);
+    }
+
+    static TriageFacts ExtractReferences(string text, string? candidate, int maxItems)
+    {
+        var found = new List<(int Index, LinkedIssueReference Reference)>();
+        foreach (Match match in HttpsReference.Matches(text))
+            if (int.TryParse(match.Groups[4].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var number))
+                found.Add((match.Index, new(match.Groups[1].Value, match.Groups[2].Value, number, match.Groups[3].Value.Equals("pull", StringComparison.OrdinalIgnoreCase) ? "pull-request" : "issue")));
+        foreach (Match match in QualifiedReference.Matches(text))
+            if (int.TryParse(match.Groups[3].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var number))
+                found.Add((match.Index, new(match.Groups[1].Value, match.Groups[2].Value, number, "issue-or-pr")));
+        if (candidate is not null)
+        {
+            var parts = candidate.Split('/');
+            foreach (Match match in LocalReference.Matches(text))
+                if (int.TryParse(match.Groups[1].Value, NumberStyles.None, CultureInfo.InvariantCulture, out var number))
+                    found.Add((match.Index, new(parts[0], parts[1], number, "issue-or-pr")));
+        }
+        var references = new List<LinkedIssueReference>();
+        var seen = new HashSet<LinkedIssueReference>();
+        foreach (var item in found.OrderBy(item => item.Index)) if (seen.Add(item.Reference)) references.Add(item.Reference);
+        return new(candidate, references.Take(maxItems).ToArray(), references.Count > maxItems);
+    }
+}
 
 public sealed record GitHubPullRequest(
     int Number, string Title, string State, Uri HtmlUrl, string? Body, string? Author,
