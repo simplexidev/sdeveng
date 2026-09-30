@@ -132,7 +132,7 @@ public sealed class StartWorkCoordinatorTests
             Assert.All(events, item => Assert.True(schema.Evaluate(JsonNode.Parse(item.GetRawText())!).IsValid));
             if (pushed)
             {
-                Assert.Equal(2, client.WriteClient.Requests.Count);
+                Assert.Single(client.WriteClient.Requests);
                 var create = client.WriteClient.Requests[0];
                 Assert.Equal(HttpMethod.Post, create.Method);
                 Assert.Equal(new Uri("https://api.github.com/repos/owner/project/pulls"), create.Endpoint);
@@ -142,14 +142,14 @@ public sealed class StartWorkCoordinatorTests
                 Assert.Equal(request.BaseRef, payload["base"]!.GetValue<string>());
                 Assert.True(payload["draft"]!.GetValue<bool>());
                 Assert.Equal($"<!-- sdeveng-run:{request.ProductRunId:D} -->", payload["body"]!.GetValue<string>());
-                Assert.Equal(new Uri("https://api.github.com/repos/owner/project/issues/42/labels"), client.WriteClient.Requests[1].Endpoint);
-                Assert.Equal(new[] { "IN_PROGRESS" }, JsonNode.Parse(client.WriteClient.Requests[1].Body)!["labels"]!.AsArray().Select(item => item!.GetValue<string>()));
                 var count = events.Count;
                 await coordinator.ContinueAsync(request);
-                Assert.Equal(count + 1, LocalRunEventStore.Read(Store(repo), request.ProductRunId).Count);
+                Assert.Equal(count + 3, LocalRunEventStore.Read(Store(repo), request.ProductRunId).Count);
                 Assert.Single(LocalRunEventStore.Read(Store(repo), request.ProductRunId), item => item.GetProperty("eventType").GetString() == "start-work-progress" && item.GetProperty("operation").GetString() == "pr-linked" && item.GetProperty("status").GetString() == "completed");
+                var completed = LocalRunEventStore.Read(Store(repo), request.ProductRunId);
+                Assert.Equal("IN_PROGRESS", completed.Last(item => item.GetProperty("eventType").GetString() == "state-transition").GetProperty("toState").GetString());
                 Assert.Equal(3, client.WriteClient.Requests.Count);
-                var edit = client.WriteClient.Requests[2];
+                var edit = client.WriteClient.Requests[1];
                 Assert.Equal(HttpMethod.Patch, edit.Method);
                 Assert.Equal(new Uri("https://api.github.com/repos/owner/project/pulls/17"), edit.Endpoint);
                 var linkedBody = JsonNode.Parse(edit.Body)!;
@@ -231,7 +231,7 @@ public sealed class StartWorkCoordinatorTests
             Assert.Single(events, item => item.GetProperty("eventType").GetString() == "start-work-progress" && item.GetProperty("operation").GetString() == "branch-created");
             Assert.Single(events, item => item.GetProperty("eventType").GetString() == "start-work-progress" && item.GetProperty("operation").GetString() == "branch-pushed");
             await coordinator.ContinueAsync(request);
-            Assert.Equal(events.Count + 1, LocalRunEventStore.Read(Store(repo), request.ProductRunId).Count);
+            Assert.Equal(events.Count + 3, LocalRunEventStore.Read(Store(repo), request.ProductRunId).Count);
             var linkedEvents = LocalRunEventStore.Read(Store(repo), request.ProductRunId);
             Assert.Single(linkedEvents, item => item.GetProperty("eventType").GetString() == "start-work-progress" && item.GetProperty("operation").GetString() == "pr-linked" && item.GetProperty("status").GetString() == "completed");
             await coordinator.ContinueAsync(request);

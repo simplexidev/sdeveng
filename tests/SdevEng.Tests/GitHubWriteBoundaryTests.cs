@@ -13,7 +13,8 @@ public sealed class GitHubWriteBoundaryTests
         await client.SendAsync(HttpMethod.Post, new Uri("https://api.github.com/repos/owner/repo/pulls"));
         await client.SendAsync(HttpMethod.Patch, new Uri("https://api.github.com/repos/owner/repo/pulls/12"));
         await client.SendAsync(HttpMethod.Post, new Uri("https://api.github.com/repos/owner/repo/issues/12/labels"), new StringContent("{\"labels\":[\"TRIAGED\"]}"));
-        Assert.Equal(3, sent);
+        await client.SendAsync(HttpMethod.Delete, new Uri("https://api.github.com/repos/owner/repo/issues/12/labels/READY"));
+        Assert.Equal(4, sent);
 
         foreach (var (method, path) in new[]
         {
@@ -25,8 +26,9 @@ public sealed class GitHubWriteBoundaryTests
         })
             await Assert.ThrowsAsync<InvalidOperationException>(() => client.SendAsync(method, new Uri("https://api.github.com" + path)));
         await Assert.ThrowsAsync<InvalidOperationException>(() => client.SendAsync(HttpMethod.Put, new Uri("https://api.github.com/repos/owner/repo/issues/12/labels")));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => client.SendAsync(HttpMethod.Delete, new Uri("https://api.github.com/repos/owner/repo/issues/12/labels/TRIAGED")));
         await Assert.ThrowsAsync<InvalidOperationException>(() => client.SendAsync(HttpMethod.Post, new Uri("https://api.github.com/repos/owner/repo/issues/0/labels")));
-        Assert.Equal(3, sent);
+        Assert.Equal(4, sent);
     }
 
     [Fact]

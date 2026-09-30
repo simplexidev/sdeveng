@@ -820,7 +820,10 @@ public sealed class GitHubWriteClient(HttpClient http, IGitHubCredentialProvider
              method == HttpMethod.Patch && parts.Length == 5 && int.TryParse(parts[4], NumberStyles.None, CultureInfo.InvariantCulture, out var number) && number > 0) ||
             parts.Length == 6 && parts[0] == "repos" && parts[1].Length > 0 && parts[2].Length > 0 &&
             parts[3] == "issues" && int.TryParse(parts[4], NumberStyles.None, CultureInfo.InvariantCulture, out var issueNumber) && issueNumber > 0 &&
-            parts[5] == "labels" && method == HttpMethod.Post;
+            parts[5] == "labels" && method == HttpMethod.Post ||
+            parts.Length == 7 && parts[0] == "repos" && parts[1].Length > 0 && parts[2].Length > 0 &&
+            parts[3] == "issues" && int.TryParse(parts[4], NumberStyles.None, CultureInfo.InvariantCulture, out var deleteIssueNumber) && deleteIssueNumber > 0 &&
+            parts[5] == "labels" && parts[6] == Uri.EscapeDataString("READY") && method == HttpMethod.Delete;
         if (!allowed) throw new InvalidOperationException("GitHub mutation is not allowlisted.");
         string? token;
         try { token = await credentials.GetTokenAsync(cancellationToken); }
@@ -868,6 +871,29 @@ public sealed class GitHubIssueLabelWriter(IGitHubWriteClient client, GitHubIssu
         return after.Contains(label, StringComparer.Ordinal)
             ? new("applied", currentOriginRepository, issueNumber, [label], null)
             : Reject("failure", currentOriginRepository, issueNumber, "issue label postcondition failed");
+    }
+
+    public async Task<GitHubIssueLabelWriteResult> RemoveConfiguredReadyLabelAsync(
+        string currentOriginRepository, int issueNumber, AgentTool.GitHubCapabilities capabilities,
+        JsonElement labelCatalog, CancellationToken cancellationToken = default)
+    {
+        if (issueNumber <= 0) throw new ArgumentOutOfRangeException(nameof(issueNumber));
+        if (!IsRepository(currentOriginRepository)) return Reject("review", currentOriginRepository, issueNumber, "invalid canonical origin repository");
+        if (!capabilities.Capabilities.Any(item => item.Operation == "issues.labels.write" && item.TargetRepository == currentOriginRepository && item.State == "allowed"))
+            return Reject("review", currentOriginRepository, issueNumber, "issue label write capability is not allowed");
+        if (!labelCatalog.TryGetProperty("labels", out var configured) || configured.ValueKind != JsonValueKind.Array ||
+            !configured.EnumerateArray().Any(item => item.GetProperty("name").GetString() == "READY" && item.GetProperty("family").GetString() == "status"))
+            return new("no-op", currentOriginRepository, issueNumber, Array.Empty<string>(), null);
+        var parts = currentOriginRepository.Split('/', 2);
+        var current = await issueReader.ReadIssueLabelNamesAsync(parts[0], parts[1], issueNumber, cancellationToken);
+        if (!current.Contains("READY", StringComparer.Ordinal)) return new("no-op", currentOriginRepository, issueNumber, Array.Empty<string>(), null);
+        var endpoint = new Uri($"https://api.github.com/repos/{currentOriginRepository}/issues/{issueNumber.ToString(CultureInfo.InvariantCulture)}/labels/{Uri.EscapeDataString("READY")}");
+        using var response = await client.SendAsync(HttpMethod.Delete, endpoint, cancellationToken: cancellationToken);
+        if (!response.IsSuccessStatusCode) return Reject("failure", currentOriginRepository, issueNumber, "GitHub rejected READY label removal");
+        var after = await issueReader.ReadIssueLabelNamesAsync(parts[0], parts[1], issueNumber, cancellationToken);
+        return !after.Contains("READY", StringComparer.Ordinal)
+            ? new("applied", currentOriginRepository, issueNumber, ["READY"], null)
+            : Reject("failure", currentOriginRepository, issueNumber, "READY label removal postcondition failed");
     }
 
     public async Task<GitHubIssueLabelWriteResult> AddTriageLabelsAsync(
@@ -1292,6 +1318,11 @@ public sealed class StartWorkCoordinator(GitHubIssueReader issueReader, AgentToo
         var events = LocalRunEventStore.Read(directory, request.ProductRunId);
         var stateEvent = events.LastOrDefault(item => item.GetProperty("eventType").GetString() == "state-transition");
         var currentState = stateEvent.ValueKind == JsonValueKind.Undefined ? null : stateEvent.GetProperty("toState").GetString();
+        if (currentState == "IN_PROGRESS")
+        {
+            var repository = events.LastOrDefault(item => item.GetProperty("eventType").GetString() == "external-identifier-recorded" && item.GetProperty("identifierType").GetString() == "repository").GetProperty("identifier").GetString();
+            return new(request.ProductRunId, repository ?? string.Empty, request.SourceIssueNumber, request.ExpectedBaseSha, request.BranchName, "IN_PROGRESS");
+        }
         if (currentState is not ("STARTING" or "STARTING_RETRYABLE"))
             throw new InvalidOperationException("Branch push requires a validated STARTING run.");
         var activeOperation = events.Any(item => item.GetProperty("eventType").GetString() is "start-work-progress" or "operation-completed" &&
@@ -1476,6 +1507,7 @@ public sealed class StartWorkCoordinator(GitHubIssueReader issueReader, AgentToo
             if (sourceIssue.Number != request.SourceIssueNumber ||
                 !string.Equals(sourceIssue.HtmlUrl.AbsoluteUri, $"https://github.com/{target}/issues/{request.SourceIssueNumber.ToString(CultureInfo.InvariantCulture)}", StringComparison.Ordinal))
                 throw new InvalidOperationException("Source issue does not match the persisted startup target.");
+            if (!Completed("pr-linked")) return new(request.ProductRunId, target, request.SourceIssueNumber, baseSha, request.BranchName, "STARTING");
             if (!events.Any(item => item.GetProperty("eventType").GetString() == "start-work-progress" && item.GetProperty("operation").GetString() == "metadata-persisted" && item.GetProperty("status").GetString() == "completed"))
             {
                 var capabilities = await authorizationProbe.ProbeAsync(root, cancellationToken);
@@ -1484,7 +1516,13 @@ public sealed class StartWorkCoordinator(GitHubIssueReader issueReader, AgentToo
                 if (labelResult.Status is not ("applied" or "already-present")) throw new HttpRequestException(labelResult.Reason ?? "GitHub rejected the startup label addition.");
                 LocalRunEventStore.AppendStartWorkProgress(directory, request.ProductRunId, "metadata-persisted", "completed", "IN_PROGRESS");
             }
-            return new(request.ProductRunId, target, request.SourceIssueNumber, baseSha, request.BranchName, "STARTING");
+            using (var catalog = JsonDocument.Parse(await File.ReadAllTextAsync(Path.Combine(AgentTool.FindToolkit(), "config", "labels.json"), cancellationToken)))
+            {
+                var cleanup = await labelWriter.RemoveConfiguredReadyLabelAsync(target, request.SourceIssueNumber, await authorizationProbe.ProbeAsync(root, cancellationToken), catalog.RootElement, cancellationToken);
+                if (cleanup.Status is not ("applied" or "no-op")) throw new HttpRequestException(cleanup.Reason ?? "GitHub rejected READY label removal.");
+            }
+            LocalRunEventStore.AppendTransition(directory, request.ProductRunId, "STARTING", "IN_PROGRESS");
+            return new(request.ProductRunId, target, request.SourceIssueNumber, baseSha, request.BranchName, "IN_PROGRESS");
         }
         catch (Exception error) when (error is not OperationCanceledException)
         {
