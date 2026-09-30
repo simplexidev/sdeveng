@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://simplexidev.github.io/sdeveng/schemas/step-ci-result.schema.json",
+  "title": "sdeveng Step CI result v1",
+  "description": "Result of one CI matrix job, identified by the exact commit tested.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "commitSha", "status", "runner"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "commitSha": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
+    "status": { "enum": ["success", "failure", "cancelled"] },
+    "runner": { "type": "string", "minLength": 1 }
+  }
+}

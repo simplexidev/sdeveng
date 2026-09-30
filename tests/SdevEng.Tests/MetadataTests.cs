@@ -37,6 +37,17 @@ public class MetadataTests
         Assert.False(schema.Evaluate(identifier).IsValid);
     }
     [Fact]
+    public void StepCiResultContractKeysOutcomeToFullCommitSha()
+    {
+        var schema = JsonSchema.FromFile(Path.Combine(Root, "schemas/step-ci-result.schema.json"));
+        var result = JsonNode.Parse("""
+            {"schemaVersion":1,"commitSha":"0123456789abcdef0123456789abcdef01234567","status":"success","runner":"ubuntu-latest"}
+            """)!;
+        Assert.True(schema.Evaluate(result).IsValid);
+        result["commitSha"] = "0123456789abcdef";
+        Assert.False(schema.Evaluate(result).IsValid);
+    }
+    [Fact]
     public void AllJsonTomlAndYamlParse()
     {
         var yaml = new DeserializerBuilder().Build();
