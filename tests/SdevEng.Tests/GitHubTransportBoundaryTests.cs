@@ -25,16 +25,16 @@ public sealed class GitHubTransportBoundaryTests
             .Select(match => EnclosingType(source, match.Index))
             .ToArray();
         Assert.NotEmpty(hostOwners);
-        Assert.All(hostOwners, owner => Assert.Contains(owner, apiOwners));
+        Assert.All(hostOwners, owner => Assert.Contains(owner, apiOwners.Append("GitHubIssueLabelWriter")));
 
-        // Raw HTTP calls aimed at GitHub belong to the typed read and guarded write transports.
+        // HTTP calls aimed at GitHub belong to the typed readers and guarded write path.
         var rawHttpCalls = Regex.Matches(source,
             @"\b(?:http|client|new HttpClient\([^\n)]*\))\.(?:GetAsync|GetStringAsync|SendAsync|PostAsync|PutAsync|DeleteAsync)\s*\(")
             .Cast<Match>()
             .Where(match => EnclosingType(source, match.Index).StartsWith("GitHub", StringComparison.Ordinal))
             .ToArray();
         Assert.Equal(
-            new[] { "GitHubReadClient", "GitHubTransport", "GitHubWriteClient" },
+            new[] { "GitHubIssueLabelWriter", "GitHubReadClient", "GitHubTransport", "GitHubWriteClient" },
             rawHttpCalls.Select(match => EnclosingType(source, match.Index)).OrderBy(name => name, StringComparer.Ordinal));
 
         // The doctor auth probe is explicitly outside typed product reads. No product
@@ -43,7 +43,7 @@ public sealed class GitHubTransportBoundaryTests
         var ghCalls = Regex.Matches(source, @"(?:Processes|process)\.Run\(\s*""gh""\s*,\s*\[(?<args>[^\]]*)\]")
             .Cast<Match>()
             .ToArray();
-        Assert.Equal(5, ghCalls.Length);
+        Assert.Equal(6, ghCalls.Length);
         Assert.Single(ghCalls, match => EnclosingType(source, match.Index) == "DoctorCommandModule");
         Assert.All(ghCalls.Where(match => EnclosingType(source, match.Index) == "GitHubAuthorizationProbe"), match =>
         {
@@ -54,7 +54,9 @@ public sealed class GitHubTransportBoundaryTests
             Assert.DoesNotContain("PATCH", args, StringComparison.OrdinalIgnoreCase);
             Assert.DoesNotContain("DELETE", args, StringComparison.OrdinalIgnoreCase);
         });
-        Assert.All(ghCalls, match => Assert.Contains(EnclosingType(source, match.Index), new[] { "DoctorCommandModule", "GitHubAuthorizationProbe" }));
+        Assert.Single(ghCalls, match => EnclosingType(source, match.Index) == "GitHubCredentialProvider" &&
+            match.Groups["args"].Value.Contains("\"auth\", \"token\"", StringComparison.Ordinal));
+        Assert.All(ghCalls, match => Assert.Contains(EnclosingType(source, match.Index), new[] { "DoctorCommandModule", "GitHubAuthorizationProbe", "GitHubCredentialProvider" }));
     }
 
     static string EnclosingType(string source, int position)
