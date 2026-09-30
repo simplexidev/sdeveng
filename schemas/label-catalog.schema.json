@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://simplexidev.github.io/sdeveng/schemas/label-catalog.schema.json",
+  "title": "sdeveng label catalog",
+  "description": "Configuration catalog of repository labels used to classify roadmap and work items.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "labels"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "version": { "const": 1 },
+    "labels": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/label" },
+      "uniqueItems": true
+    }
+  },
+  "$defs": {
+    "label": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "family", "description"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "family": { "type": "string", "minLength": 1 },
+        "description": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "$schema": "../schemas/label-catalog.schema.json",
+  "version": 1,
+  "labels": [
+    {
+      "name": "IN_PROGRESS",
+      "family": "status",
+      "description": "Work has started after its branch, draft pull request, and startup metadata are established."
+    }
+  ]
+}
