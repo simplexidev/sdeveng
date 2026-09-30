@@ -408,6 +408,26 @@ public interface IGitHubWriteClient
     Task<HttpResponseMessage> SendAsync(HttpMethod method, Uri endpoint, HttpContent? content = null, CancellationToken cancellationToken = default);
 }
 
+/// <summary>Restricts GitHub writes to explicitly owned pull request creation and editing.</summary>
+public sealed class GitHubWriteClient(HttpClient http) : IGitHubWriteClient
+{
+    public Task<HttpResponseMessage> SendAsync(HttpMethod method, Uri endpoint, HttpContent? content = null, CancellationToken cancellationToken = default)
+    {
+        if (method is null || endpoint is null || endpoint.Scheme != Uri.UriSchemeHttps ||
+            endpoint.Host != "api.github.com" || endpoint.Port != 443 ||
+            !string.IsNullOrEmpty(endpoint.Query) || !string.IsNullOrEmpty(endpoint.Fragment))
+            throw new ArgumentException("GitHub writes require an exact HTTPS API endpoint.", nameof(endpoint));
+
+        var parts = endpoint.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        var allowed = parts.Length >= 4 && parts[0] == "repos" &&
+            parts[1].Length > 0 && parts[2].Length > 0 && parts[3] == "pulls" &&
+            (method == HttpMethod.Post && parts.Length == 4 ||
+             method == HttpMethod.Patch && parts.Length == 5 && int.TryParse(parts[4], NumberStyles.None, CultureInfo.InvariantCulture, out var number) && number > 0);
+        if (!allowed) throw new InvalidOperationException("GitHub mutation is not allowlisted.");
+        return http.SendAsync(new HttpRequestMessage(method, endpoint) { Content = content }, cancellationToken);
+    }
+}
+
 public static class LocalRunEventStore
 {
     public static object List(string directory)
