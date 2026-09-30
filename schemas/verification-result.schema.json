@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://simplexidev.github.io/sdeveng/schemas/verification-result.schema.json",
   "title": "sdeveng verification result v1",
-  "description": "One deterministic local or hosted validation outcome. Hosted producers are not implemented yet.",
+  "description": "One deterministic local or hosted validation outcome.",
   "type": "object",
   "additionalProperties": false,
   "required": ["schemaVersion", "source", "check", "status", "exitCode", "artifact"],
@@ -12,7 +12,8 @@
     "check": { "type": "string", "minLength": 1, "maxLength": 512 },
     "status": { "enum": ["passed", "failed"] },
     "exitCode": { "type": "integer", "minimum": 0 },
-    "artifact": { "type": "string", "minLength": 1 }
+    "artifact": { "type": "string", "minLength": 1 },
+    "environmentIdentity": { "type": "string", "minLength": 1 }
   },
   "allOf": [
     { "if": { "properties": { "exitCode": { "const": 0 } }, "required": ["exitCode"] }, "then": { "properties": { "status": { "const": "passed" } } }, "else": { "properties": { "status": { "const": "failed" } } } }
