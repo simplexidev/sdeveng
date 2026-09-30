@@ -638,7 +638,7 @@ public static class AgentTool
         git branch-create --branch NAME | push-owned --remote NAME --branch NAME
         git worktree-create --branch NAME --path DIR | worktree-remove-owned --path DIR
         git stale-base --base REF --expected SHA | abandon-owned --branch NAME --path DIR
-        github pr-status | review-comments --pr NUMBER | prepare-pr | labels [--apply]
+        github pr-status | review-comments --pr NUMBER | prepare-pr | labels [--dry-run | --apply]
         github actions [--run-id NUMBER] [--failed-logs]
         dotnet inspect [--project PATH] | build-plan [--base REF] [--project PATH] [--configuration NAME] [--binlog]
         dotnet test-plan [--base REF] [--project PATH] [--configuration NAME]
@@ -1408,14 +1408,15 @@ public static class AgentTool
                         var configuredNames = configured.Select(label => label.name).ToHashSet(StringComparer.OrdinalIgnoreCase);
                         var unmanaged = remoteNames.Where(name => !configuredNames.Contains(name)).Order(StringComparer.OrdinalIgnoreCase).ToArray();
                         var created = new List<string>();
-                        if (command.Flag("apply"))
+                        var applyLabels = command.Flag("apply");
+                        if (applyLabels)
                             foreach (var label in missing)
                             {
                                 var response = await api.Run("gh", ["api", "--method", "POST", $"repos/{target}/labels", "--field", $"name={label.name}", "--field", $"description={label.description}", "--field", $"color={label.color}"], root);
                                 if (response.ExitCode != 0) throw new InvalidOperationException($"Could not create missing allowed label '{label.name}'.");
                                 created.Add(label.name);
                             }
-                        return Result.Ok(new { kind = "github-labels", repository = target, configured = configured.Select(x => x.name), remote = remoteNames.Order(StringComparer.OrdinalIgnoreCase), missing = command.Flag("apply") ? Array.Empty<string>() : missing.Select(x => x.name), unmanaged, created });
+                        return Result.Ok(new { kind = "github-labels", repository = target, dryRun = !applyLabels, configured = configured.Select(x => x.name), remote = remoteNames.Order(StringComparer.OrdinalIgnoreCase), missing = applyLabels ? Array.Empty<string>() : missing.Select(x => x.name), unmanaged, created });
                     }
                 case "github prepare-pr":
                     await Git.EnsureSafe(root, false);
@@ -1934,7 +1935,7 @@ public sealed class Cli
             "git stale-base" => ["base", "expected"],
             "git abandon-owned" => ["branch", "path"],
             "github review-comments" => ["pr"],
-            "github labels" => ["apply"],
+            "github labels" => ["apply", "dry-run"],
             "github actions" => ["run-id", "failed-logs"],
             "dotnet verify" => ["base", "project"],
             "dotnet inspect" => ["project"],
@@ -1956,6 +1957,8 @@ public sealed class Cli
         allowed.UnionWith(specific);
         foreach (var option in Options.Keys)
             if (!allowed.Contains(option)) throw new ArgumentException($"--{option} is not supported by this command.");
+        if (command == "github labels" && Flag("apply") && Flag("dry-run"))
+            throw new ArgumentException("github labels accepts either --dry-run or --apply, not both.");
     }
     public List<string> Words { get; } = [];
     public Dictionary<string, string?> Options { get; } = new(StringComparer.Ordinal);

@@ -14,11 +14,20 @@ public sealed class GitHubLabelTests
         var listed = await module.Execute(Cli.Parse(["github", "labels"]), AgentTool.FindToolkit(), repo.Root, new(new(), new(), new(), new()), CancellationToken.None);
         var list = System.Text.Json.JsonSerializer.SerializeToElement(listed.Data, AgentTool.Json);
         Assert.Equal("github-labels", list.GetProperty("kind").GetString());
+        Assert.True(list.GetProperty("dryRun").GetBoolean());
         Assert.Equal(13, list.GetProperty("configured").GetArrayLength());
         Assert.DoesNotContain(process.Calls, call => call.Contains("POST", StringComparer.Ordinal));
         Assert.Equal(13, list.GetProperty("missing").GetArrayLength());
         Assert.Equal(new[] { "custom:keep" }, list.GetProperty("unmanaged").EnumerateArray().Select(label => label.GetString()));
         Assert.DoesNotContain(process.Calls, call => call.Contains("DELETE", StringComparer.Ordinal));
+
+        process.Calls.Clear();
+        var dryRun = await module.Execute(Cli.Parse(["github", "labels", "--dry-run"]), AgentTool.FindToolkit(), repo.Root, new(new(), new(), new(), new()), CancellationToken.None);
+        var dryRunResult = System.Text.Json.JsonSerializer.SerializeToElement(dryRun.Data, AgentTool.Json);
+        Assert.True(dryRunResult.GetProperty("dryRun").GetBoolean());
+        Assert.Equal(13, dryRunResult.GetProperty("missing").GetArrayLength());
+        Assert.Empty(dryRunResult.GetProperty("created").EnumerateArray());
+        Assert.DoesNotContain(process.Calls, call => call.Contains("POST", StringComparer.Ordinal));
 
         process.Calls.Clear();
         var applied = await module.Execute(Cli.Parse(["github", "labels", "--apply"]), AgentTool.FindToolkit(), repo.Root, new(new(), new(), new(), new()), CancellationToken.None);
@@ -33,6 +42,13 @@ public sealed class GitHubLabelTests
             Assert.Contains(call, argument => argument.StartsWith("color=", StringComparison.Ordinal));
             Assert.Contains(call, argument => argument.StartsWith("description=", StringComparison.Ordinal));
         });
+    }
+
+    [Fact]
+    public void RejectsConflictingApplyAndDryRunOptions()
+    {
+        var command = Cli.Parse(["github", "labels", "--dry-run", "--apply"]);
+        Assert.Throws<ArgumentException>(() => command.ValidateCommand(command.Command));
     }
 
     private sealed class FakeLabelProcess : IGitHubLabelProcess
