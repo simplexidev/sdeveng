@@ -27,15 +27,14 @@ public sealed class GitHubTransportBoundaryTests
         Assert.NotEmpty(hostOwners);
         Assert.All(hostOwners, owner => Assert.Contains(owner, apiOwners));
 
-        // Raw HTTP calls aimed at GitHub bypass IGitHubReadClient/GitHubTransport. The
-        // provider's HttpClient.GetAsync is the sole allowlisted raw GitHub read transport.
+        // Raw HTTP calls aimed at GitHub belong to the typed read and guarded write transports.
         var rawHttpCalls = Regex.Matches(source,
             @"\b(?:http|client|new HttpClient\([^\n)]*\))\.(?:GetAsync|GetStringAsync|SendAsync|PostAsync|PutAsync|DeleteAsync)\s*\(")
             .Cast<Match>()
             .Where(match => EnclosingType(source, match.Index).StartsWith("GitHub", StringComparison.Ordinal))
             .ToArray();
         Assert.Equal(
-            new[] { "GitHubReadClient", "GitHubTransport" },
+            new[] { "GitHubReadClient", "GitHubTransport", "GitHubWriteClient" },
             rawHttpCalls.Select(match => EnclosingType(source, match.Index)).OrderBy(name => name, StringComparer.Ordinal));
 
         // The doctor auth probe is explicitly outside typed product reads. No product
