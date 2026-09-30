@@ -80,6 +80,40 @@ public sealed class GitHubActionsReaderTests
         Assert.Single(client.Endpoints);
     }
 
+    [Theory]
+    [InlineData("dotnet format failed", "format")]
+    [InlineData("2 tests failed", "test")]
+    [InlineData("error CS1234", "build")]
+    [InlineData("NU1301 package restore failed", "dependency")]
+    [InlineData("operation timed out", "timeout")]
+    [InlineData("hosted runner lost", "infrastructure")]
+    [InlineData("something failed", "unknown")]
+    public void ClassifiesNarrowObservablePatterns(string log, string expected) =>
+        Assert.Equal(expected, GitHubFailureClassifier.Classify(log).Class);
+
+    [Fact]
+    public void FirstOrderedClassWinsAndCancellationIsNonCausal()
+    {
+        Assert.Equal("format", GitHubFailureClassifier.Classify("tests failed after format check").Class);
+        Assert.Equal(("timeout", "job-conclusion:timed_out"), GitHubFailureClassifier.Classify("opaque", "timed_out"));
+        Assert.Equal(("unknown", null), GitHubFailureClassifier.Classify("tests failed", "cancelled"));
+    }
+
+    [Fact]
+    public async Task RedactsCompleteBoundedFailureExcerptAndClassEvidence()
+    {
+        const string sha = "0123456789abcdef0123456789abcdef01234567";
+        var run = $$"""{"id":81,"name":"CI","status":"completed","conclusion":"failure","event":"push","head_sha":"{{sha}}","html_url":"https://github.com/o/r/actions/runs/81"}""";
+        var jobs = """{"jobs":[{"id":91,"name":"build","conclusion":"failure"}]}""";
+        var secret = "api_key=literal-secret-123";
+        var client = new StubReadClient(run, jobs, "build failed " + secret);
+        var evidence = await new GitHubActionsReader(client).ReadFailureEvidenceAsync("o", "r", 81, sha, 200);
+        Assert.Equal("build", evidence!.FailureClass);
+        Assert.DoesNotContain("literal-secret-123", evidence.Log);
+        Assert.DoesNotContain("literal-secret-123", evidence.ClassEvidence);
+        Assert.Contains("[REDACTED]", evidence.Log);
+    }
+
     sealed class StubReadClient(params string[] bodies) : IGitHubReadClient
     {
         int index;

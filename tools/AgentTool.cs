@@ -661,7 +661,32 @@ public sealed record GitHubActionStep(string? Name, int? Number, string? Conclus
 public sealed record GitHubActionJob(long Id, string? Name, string? Status, string? Conclusion, DateTimeOffset? StartedAt, DateTimeOffset? CompletedAt, Uri? Url, IReadOnlyList<GitHubActionStep> FailedSteps);
 public sealed record GitHubActionRunDetail(GitHubActionRun Run, IReadOnlyList<GitHubActionJob> Jobs);
 public sealed record GitHubActionFailedLog(long JobId, string? JobName, string Log);
-public sealed record GitHubActionFailureEvidence(long RunId, string RunName, long JobId, string? JobName, IReadOnlyList<GitHubActionStep> FailedSteps, string Log, bool Truncated);
+public sealed record GitHubActionFailureEvidence(long RunId, string RunName, long JobId, string? JobName, IReadOnlyList<GitHubActionStep> FailedSteps, string Log, bool Truncated, string FailureClass = "unknown", string? ClassEvidence = null);
+
+public static class GitHubFailureClassifier
+{
+    // First match wins: format, test, build, dependency, timeout, infrastructure.
+    static readonly (string Class, Regex Pattern)[] Rules =
+    [
+        ("format", new Regex(@"\b(formatting|formatter|format check|dotnet format)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)),
+        ("test", new Regex(@"\b(test failed|tests? failed|assertion failed|failed tests?)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)),
+        ("build", new Regex(@"\b(build failed|compilation failed|compiler error|error CS\d+)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)),
+        ("dependency", new Regex(@"\b(package restore failed|unable to load the service index|NU\d{4}|dependency resolution failed)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)),
+        ("timeout", new Regex(@"\b(timed out|timeout|time limit exceeded)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)),
+        ("infrastructure", new Regex(@"\b(runner lost|hosted runner|no space left on device|service unavailable|connection reset)\b", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant))
+    ];
+
+    public static (string Class, string? Evidence) Classify(string boundedExcerpt, string? conclusion = null)
+    {
+        var safe = Secrets.Redact(boundedExcerpt);
+        if (conclusion == "cancelled") return ("unknown", null);
+        if (conclusion == "timed_out") return ("timeout", "job-conclusion:timed_out");
+        foreach (var line in safe.Split('\n'))
+            foreach (var rule in Rules)
+                if (rule.Pattern.IsMatch(line)) return (rule.Class, line.Length <= 300 ? line : line[..300]);
+        return ("unknown", null);
+    }
+}
 
 /// <summary>Reads bounded Actions run and failure evidence through the shared GitHub read transport.</summary>
 public sealed class GitHubActionsReader(IGitHubReadClient client)
@@ -709,7 +734,7 @@ public sealed class GitHubActionsReader(IGitHubReadClient client)
             var marker = "\n[truncated]";
             if (truncated && marker.Length > remaining) marker = marker[..remaining];
             var length = truncated ? Math.Max(0, remaining - marker.Length) : count;
-            output.Add(new(job.Id, job.Name, new string(buffer, 0, length) + (truncated ? marker : "")));
+            output.Add(new(job.Id, job.Name, Secrets.Redact(new string(buffer, 0, length) + (truncated ? marker : ""))));
             remaining -= length + (truncated ? marker.Length : 0);
         }
         return output;
@@ -736,7 +761,9 @@ public sealed class GitHubActionsReader(IGitHubReadClient client)
         const string marker = "\n[truncated]";
         var textLength = truncated ? Math.Max(0, maxOutputChars - marker.Length) : count;
         var log = new string(buffer, 0, textLength) + (truncated ? marker[..Math.Min(marker.Length, maxOutputChars)] : "");
-        return new(runId, run.Workflow, job.Id, job.Name, job.FailedSteps, log, truncated);
+        log = Secrets.Redact(log);
+        var classification = GitHubFailureClassifier.Classify(log, job.Conclusion);
+        return new(runId, run.Workflow, job.Id, job.Name, job.FailedSteps, log, truncated, classification.Class, classification.Evidence);
     }
     async Task<JsonElement> ReadJsonAsync(string path, CancellationToken cancellationToken)
     {
