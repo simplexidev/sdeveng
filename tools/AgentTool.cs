@@ -831,7 +831,7 @@ public sealed class GitHubWriteClient(HttpClient http, IGitHubCredentialProvider
 
 public sealed record GitHubIssueLabelWriteResult(string Status, string TargetRepository, int IssueNumber, IReadOnlyList<string> Labels, string? Reason);
 
-/// <summary>Adds selected configured area labels to the canonical origin issue without replacing existing labels.</summary>
+/// <summary>Adds selected configured area, risk, and complexity labels to the canonical origin issue without replacing existing labels.</summary>
 public sealed class GitHubIssueLabelWriter(IGitHubWriteClient client)
 {
     public async Task<GitHubIssueLabelWriteResult> AddTriageLabelsAsync(
@@ -850,13 +850,21 @@ public sealed class GitHubIssueLabelWriter(IGitHubWriteClient client)
             throw new JsonException("Label catalog must contain a labels array.");
         var configured = configuredLabels.EnumerateArray().Select(item =>
             (Name: item.GetProperty("name").GetString(), Family: item.GetProperty("family").GetString())).ToArray();
-        var selectedAreas = decision.Selected.Where(item => item.Family == "area").SelectMany(item => item.Labels)
-            .Select(item => item.Label).Distinct(StringComparer.Ordinal).ToArray();
-        if (selectedAreas.Any(label => !configured.Any(item => item.Name == label && item.Family == "area")))
-            return Reject("failure", currentOriginRepository, issueNumber, "selected area label is not configured");
-        if (selectedAreas.Length == 0)
-            return Reject("review", currentOriginRepository, issueNumber, "no area label was selected; human handling is required");
-        var labels = selectedAreas;
+        var selectedLabels = new List<string>();
+        foreach (var family in new[] { "area", "risk", "complexity" })
+        {
+            var familySelections = decision.Selected.Where(item => item.Family == family).ToArray();
+            if (decision.UnresolvedFamilies.Contains(family, StringComparer.Ordinal)) continue;
+            if (familySelections.Length > 1 || familySelections.Any(item => item.Labels.Count > (family == "area" ? 20 : 1)))
+                return Reject("failure", currentOriginRepository, issueNumber, $"selected {family} labels exceed family cardinality");
+            var familyLabels = familySelections.SelectMany(item => item.Labels).Select(item => item.Label).Distinct(StringComparer.Ordinal).ToArray();
+            if (familyLabels.Any(label => !configured.Any(item => item.Name == label && item.Family == family)))
+                return Reject("failure", currentOriginRepository, issueNumber, $"selected {family} label is not configured");
+            selectedLabels.AddRange(familyLabels);
+        }
+        if (selectedLabels.Count == 0)
+            return Reject("review", currentOriginRepository, issueNumber, "no applicable label was selected; human handling is required");
+        var labels = selectedLabels.Distinct(StringComparer.Ordinal).ToArray();
         using var content = new StringContent(JsonSerializer.Serialize(new { labels }));
         content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
         var response = await client.SendAsync(HttpMethod.Post,
