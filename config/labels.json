@@ -16,6 +16,36 @@
       "name": "area:tooling",
       "family": "area",
       "description": "Work primarily affecting developer tooling and automation."
+    },
+    {
+      "name": "risk:low",
+      "family": "risk",
+      "description": "Work has limited impact and is straightforward to recover."
+    },
+    {
+      "name": "risk:medium",
+      "family": "risk",
+      "description": "Work has meaningful impact or requires careful validation."
+    },
+    {
+      "name": "risk:high",
+      "family": "risk",
+      "description": "Work has broad impact or significant failure consequences."
+    },
+    {
+      "name": "complexity:low",
+      "family": "complexity",
+      "description": "Work is small and has few dependencies."
+    },
+    {
+      "name": "complexity:medium",
+      "family": "complexity",
+      "description": "Work spans several related changes or dependencies."
+    },
+    {
+      "name": "complexity:high",
+      "family": "complexity",
+      "description": "Work spans many components or has substantial coordination needs."
     }
   ]
 }
