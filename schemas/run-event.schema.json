@@ -21,7 +21,7 @@
     "externalSystem": { "type": "string", "minLength": 1 },
     "identifierType": { "type": "string", "minLength": 1 },
     "identifier": { "type": "string", "minLength": 1 },
-    "operation": { "enum": ["branch-created", "branch-pushed", "bootstrap-created", "pr-created", "pr-linked", "metadata-persisted"] },
+    "operation": { "enum": ["branch-created", "branch-pushed", "bootstrap-created", "bootstrap-cleanup", "pr-created", "pr-linked", "metadata-persisted"] },
     "progressVersion": { "const": 1 },
     "status": { "enum": ["completed", "retryable-failure", "terminal-failure"] },
     "detail": { "type": "string", "maxLength": 512 }

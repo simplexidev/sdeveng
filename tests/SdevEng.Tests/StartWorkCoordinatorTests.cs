@@ -45,6 +45,37 @@ public sealed class StartWorkCoordinatorTests
     }
 
     [Fact]
+    public async Task MarkerBootstrapIsCleanedCommittedPushedAndResumesIdempotently()
+    {
+        using var repo = NewRepository();
+        var bare = Path.Combine(Path.GetTempPath(), "sdeveng-marker-cleanup-" + Guid.NewGuid().ToString("N"));
+        await Processes.Run("git", ["init", "--bare", bare], repo.Root);
+        try
+        {
+            repo.Run("remote", "set-url", "--push", "origin", bare);
+            var request = NewRequest(repo);
+            var coordinator = Registered(new IssueClient(), "allowed", new BootstrapProcess(true));
+            await coordinator.StartAsync(request);
+            await coordinator.ContinueAsync(request);
+            var marker = Path.Combine(repo.Root, ".sdeveng", "bootstrap", request.ProductRunId.ToString("D") + ".json");
+            Assert.False(File.Exists(marker));
+            Assert.Equal("D", repo.Run("diff-tree", "--no-commit-id", "--name-status", "-r", "HEAD").Trim().Split('\t')[0]);
+            Assert.Equal("chore: remove bootstrap marker", repo.Run("log", "-1", "--format=%s").Trim());
+            Assert.Equal("marker", LocalRunEventStore.Read(Store(repo), request.ProductRunId).Single(item => item.GetProperty("eventType").GetString() == "start-work-progress" && item.GetProperty("operation").GetString() == "bootstrap-created").GetProperty("detail").GetString());
+            var events = LocalRunEventStore.Read(Store(repo), request.ProductRunId);
+            Assert.Single(events, item => item.GetProperty("eventType").GetString() == "start-work-progress" && item.GetProperty("operation").GetString() == "bootstrap-cleanup" && item.GetProperty("status").GetString() == "completed");
+            var pushed = await Processes.Run("git", ["--git-dir", bare, "rev-parse", "refs/heads/" + request.BranchName], repo.Root);
+            Assert.Equal(repo.Run("rev-parse", "HEAD").Trim(), pushed.Output.Trim());
+            var count = events.Count;
+            await coordinator.ContinueAsync(request);
+            count = LocalRunEventStore.Read(Store(repo), request.ProductRunId).Count;
+            await coordinator.ContinueAsync(request);
+            Assert.Equal(count, LocalRunEventStore.Read(Store(repo), request.ProductRunId).Count);
+        }
+        finally { DeleteBareRepository(bare); }
+    }
+
+    [Fact]
     public async Task ExactBaseRecordsOriginIssueAndStartingThroughRegisteredCoordinator()
     {
         using var repo = NewRepository();

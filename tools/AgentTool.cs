@@ -934,7 +934,7 @@ public static class LocalRunEventStore
     }
 
     private static bool StartWorkOperation(string? operation) => operation is "branch-created" or "branch-pushed" or
-        "bootstrap-created" or "pr-created" or "pr-linked" or "metadata-persisted";
+        "bootstrap-created" or "bootstrap-cleanup" or "pr-created" or "pr-linked" or "metadata-persisted";
 
     public static JsonElement AppendExternalIdentifier(string directory, Guid runId, string externalSystem, string identifierType, string identifier) =>
         Append(directory, runId, "external-identifier-recorded", null, null, externalSystem, identifierType, identifier);
@@ -1225,6 +1225,40 @@ public sealed class StartWorkCoordinator(GitHubIssueReader issueReader, AgentToo
         return resultValue;
     }
 
+    private async Task CleanupBootstrapMarkerAsync(string root, string directory, Guid runId, CancellationToken cancellationToken)
+    {
+        var events = LocalRunEventStore.Read(directory, runId);
+        var bootstrap = events.LastOrDefault(item => item.GetProperty("eventType").GetString() == "start-work-progress" &&
+            item.GetProperty("operation").GetString() == "bootstrap-created" && item.GetProperty("status").GetString() == "completed");
+        if (bootstrap.ValueKind == JsonValueKind.Undefined) throw new InvalidOperationException("Bootstrap mode is not persisted.");
+        var mode = bootstrap.GetProperty("detail").GetString();
+        if (mode == "empty-commit") return;
+        if (mode != "marker") throw new InvalidOperationException("Persisted bootstrap mode is invalid.");
+        if (events.Any(item => item.GetProperty("eventType").GetString() == "start-work-progress" && item.GetProperty("operation").GetString() == "bootstrap-cleanup" && item.GetProperty("status").GetString() == "completed"))
+        {
+            var markerPath = Path.Combine(root, ".sdeveng", "bootstrap", runId.ToString("D") + ".json");
+            if (File.Exists(markerPath)) throw new InvalidOperationException("Completed bootstrap marker cleanup is inconsistent.");
+            return;
+        }
+        var relative = ".sdeveng/bootstrap/" + runId.ToString("D") + ".json";
+        var marker = Path.Combine(root, relative.Replace('/', Path.DirectorySeparatorChar));
+        var expected = JsonSerializer.Serialize(new { schemaVersion = 1, runId = runId.ToString("D"), purpose = "draft-pr-bootstrap" }, AgentTool.Json) + "\n";
+        if (!File.Exists(marker) || !string.Equals(await File.ReadAllTextAsync(marker, cancellationToken), expected, StringComparison.Ordinal))
+            throw new InvalidOperationException("Bootstrap marker path or content is not owned by this run.");
+        var staged = await Git.Require(root, "diff", "--cached", "--name-only", "-z");
+        if (staged.Length != 0) throw new InvalidOperationException("Unrelated staged changes prevent bootstrap marker cleanup.");
+        File.Delete(marker);
+        var add = await gitProcess.Run("git", ["add", "-u", "--", relative], root);
+        if (add.ExitCode != 0) throw new IOException("Unable to stage bootstrap marker removal: " + Secrets.Redact(add.Output.Trim()));
+        var commit = await gitProcess.Run("git", ["-c", "user.name=sdeveng", "-c", "user.email=sdeveng@localhost", "commit", "--only", "-m", "chore: remove bootstrap marker", "--", relative], root);
+        if (commit.ExitCode != 0) throw new IOException("Unable to commit bootstrap marker removal: " + Secrets.Redact(commit.Output.Trim()));
+        var branch = (await Git.Require(root, "branch", "--show-current")).Trim();
+        var push = await Processes.Run("git", ["push", "--", "origin", "refs/heads/" + branch + ":refs/heads/" + branch], root);
+        if (push.ExitCode != 0) throw new IOException("Bootstrap cleanup push failed: " + Secrets.Redact(push.Output.Trim()));
+        if (File.Exists(marker)) throw new IOException("Bootstrap marker remained after cleanup commit.");
+        LocalRunEventStore.AppendStartWorkProgress(directory, runId, "bootstrap-cleanup", "completed", relative);
+    }
+
     public async Task<StartWorkResult> ContinueAsync(StartWorkRequest request, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);
@@ -1270,8 +1304,11 @@ public sealed class StartWorkCoordinator(GitHubIssueReader issueReader, AgentToo
             {
                 var bootstrapRecorded = events.Any(item => item.GetProperty("eventType").GetString() == "start-work-progress" &&
                     item.GetProperty("operation").GetString() == "bootstrap-created" && item.GetProperty("status").GetString() == "completed");
+                var cleanupRecorded = events.Any(item => item.GetProperty("eventType").GetString() == "start-work-progress" &&
+                    item.GetProperty("operation").GetString() == "bootstrap-cleanup" && item.GetProperty("status").GetString() == "completed");
+                var expectedBootstrapCommits = cleanupRecorded ? "2" : "1";
                 var validBootstrapBranch = bootstrapRecorded &&
-                    (await Git.Require(root, "rev-list", "--count", baseSha + ".." + branchRef)).Trim() == "1" &&
+                    (await Git.Require(root, "rev-list", "--count", baseSha + ".." + branchRef)).Trim() == expectedBootstrapCommits &&
                     (await Processes.Run("git", ["merge-base", "--is-ancestor", baseSha, branchRef], root)).ExitCode == 0;
                 if ((branch.Output.Trim() != baseSha && !validBootstrapBranch) ||
                     (await Git.Require(root, "config", "--get", "branch." + request.BranchName + "." + GitOwnershipMarkers.BranchConfigKey)).Trim() != GitOwnershipMarkers.BranchConfigValue)
@@ -1375,6 +1412,7 @@ public sealed class StartWorkCoordinator(GitHubIssueReader issueReader, AgentToo
                 LocalRunEventStore.AppendConfirmedPullRequestIdentity(directory, request.ProductRunId, target, number);
                 LocalRunEventStore.AppendStartWorkProgress(directory, request.ProductRunId, "pr-created", "completed", persistedPr);
             }
+            await CleanupBootstrapMarkerAsync(root, directory, request.ProductRunId, cancellationToken);
             return new(request.ProductRunId, target, request.SourceIssueNumber, baseSha, request.BranchName, "STARTING");
         }
         catch (Exception error) when (error is not OperationCanceledException)
