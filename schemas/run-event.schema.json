@@ -40,6 +40,8 @@
     "repository": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$" }
     ,"rerunMode": { "enum": ["job", "failed-jobs"] },
     "rerunReason": { "type": "string", "minLength": 1, "maxLength": 256 }
+    ,"failureSignature": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+    ,"ordinal": { "type": "integer", "minimum": 1 }
   },
   "oneOf": [
     {
@@ -74,7 +76,7 @@
     },
     {
       "properties": { "eventType": { "const": "ci-rerun" }, "commitSha": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" } },
-      "required": ["rerunVersion", "repository", "commitSha", "providerRunId", "providerJobId", "rerunMode", "rerunReason"],
+      "required": ["rerunVersion", "repository", "commitSha", "providerRunId", "providerJobId", "rerunMode", "rerunReason", "failureSignature", "ordinal"],
       "not": { "anyOf": [{ "required": ["fromState"] }, { "required": ["toState"] }, { "required": ["externalSystem"] }, { "required": ["identifierType"] }, { "required": ["identifier"] }, { "required": ["detail"] }, { "required": ["operation"] }] }
     }
   ],

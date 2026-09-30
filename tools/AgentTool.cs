@@ -1227,9 +1227,25 @@ public static class LocalRunEventStore
         if (mode is not ("job" or "failed-jobs") || string.IsNullOrWhiteSpace(reason) || reason.Length > 256)
             throw new ArgumentException("Rerun mode and bounded nonempty reason are required.");
         reason = Secrets.Redact(reason);
+        var events = Read(directory, runId);
+        var failure = events.LastOrDefault(item => item.GetProperty("eventType").GetString() == "ci-failure-evidence" &&
+            item.GetProperty("commitSha").GetString() == commitSha.ToLowerInvariant() && item.GetProperty("providerRunId").GetString() == providerRunId &&
+            (providerJobId == "0" || item.GetProperty("providerJobId").GetString() == providerJobId));
+        if (failure.ValueKind == JsonValueKind.Undefined) throw new InvalidDataException("Matching CI failure evidence is required for rerun accounting.");
+        var failureClass = failure.GetProperty("failureClass").GetString()!;
+        var signature = ComputeCiFailureSignature(repository, commitSha, providerRunId, providerJobId, failureClass);
+        var prior = events.Where(item => item.GetProperty("eventType").GetString() == "ci-rerun" && item.GetProperty("failureSignature").GetString() == signature).ToArray();
+        if (prior.Length >= 1) throw new InvalidOperationException("This failure identity already has a rerun request.");
         var payload = new { schemaVersion = 1, runId = runId.ToString("D"), sequence = 0, occurredAt = DateTimeOffset.UtcNow,
-            eventType = "ci-rerun", rerunVersion = 1, repository, commitSha = commitSha.ToLowerInvariant(), providerRunId, providerJobId, rerunMode = mode, rerunReason = reason };
+            eventType = "ci-rerun", rerunVersion = 1, repository, commitSha = commitSha.ToLowerInvariant(), providerRunId, providerJobId,
+            rerunMode = mode, rerunReason = reason, failureSignature = signature, ordinal = prior.Length + 1 };
         return AppendSnapshot(directory, runId, payload);
+    }
+
+    public static string ComputeCiFailureSignature(string repository, string commitSha, string providerRunId, string providerJobId, string failureClass)
+    {
+        var input = string.Join("\n", repository.ToLowerInvariant(), commitSha.ToLowerInvariant(), providerRunId, providerJobId == "" ? "0" : providerJobId, failureClass);
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(input))).ToLowerInvariant();
     }
 
     private static JsonElement AppendSnapshot(string directory, Guid runId, object snapshot)
@@ -1356,8 +1372,9 @@ public static class LocalRunEventStore
                 }
                 else if (type == "ci-rerun")
                 {
-                    if (!properties.SetEquals(["schemaVersion", "runId", "sequence", "occurredAt", "eventType", "rerunVersion", "repository", "commitSha", "providerRunId", "providerJobId", "rerunMode", "rerunReason"]) ||
+                    if (!properties.SetEquals(["schemaVersion", "runId", "sequence", "occurredAt", "eventType", "rerunVersion", "repository", "commitSha", "providerRunId", "providerJobId", "rerunMode", "rerunReason", "failureSignature", "ordinal"]) ||
                         item.GetProperty("rerunVersion").GetInt32() != 1 ||
+                        !Regex.IsMatch(item.GetProperty("failureSignature").GetString() ?? "", "^[0-9a-f]{64}$", RegexOptions.CultureInvariant) || item.GetProperty("ordinal").GetInt32() < 1 ||
                         item.GetProperty("rerunMode").GetString() is not ("job" or "failed-jobs") ||
                         string.IsNullOrWhiteSpace(item.GetProperty("rerunReason").GetString()) || item.GetProperty("rerunReason").GetString()!.Length > 256 || Secrets.LooksSensitive(item.GetProperty("rerunReason").GetString()!) ||
                         !Regex.IsMatch(item.GetProperty("repository").GetString() ?? "", @"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$", RegexOptions.CultureInvariant) ||
@@ -1401,6 +1418,8 @@ public static class LocalRunEventStore
             ? (object)new { sequence = item.GetProperty("sequence").GetInt32(), occurredAt = item.GetProperty("occurredAt").GetString(), type = "ci-check-snapshot", from = (string?)null, to = item.GetProperty("commitSha").GetString() }
             : item.GetProperty("eventType").GetString() == "ci-failure-evidence"
             ? (object)new { sequence = item.GetProperty("sequence").GetInt32(), occurredAt = item.GetProperty("occurredAt").GetString(), type = "ci-failure-evidence", from = (string?)null, to = item.GetProperty("failureClass").GetString() }
+            : item.GetProperty("eventType").GetString() == "ci-rerun"
+            ? (object)new { sequence = item.GetProperty("sequence").GetInt32(), occurredAt = item.GetProperty("occurredAt").GetString(), type = "ci-rerun", from = (string?)null, to = item.GetProperty("failureSignature").GetString() }
             : new { sequence = item.GetProperty("sequence").GetInt32(), occurredAt = item.GetProperty("occurredAt").GetString(), type = "external-identifier-recorded", from = (string?)null, to = $"{item.GetProperty("externalSystem").GetString()}:{item.GetProperty("identifierType").GetString()}={item.GetProperty("identifier").GetString()}" }).ToArray();
         object? ciSnapshot = snapshot.ValueKind == JsonValueKind.Undefined ? null : new
         {
@@ -1419,7 +1438,13 @@ public static class LocalRunEventStore
             excerpt = failureEvidence.GetProperty("excerpt").GetString(),
             expansionCommand = $"sdeveng github actions --run-id {failureEvidence.GetProperty("providerRunId").GetString()} --failed-logs"
         };
-        return new { kind = "run-explanation", runId = runId.ToString("D"), eventCount = events.Count, timeline, ciSnapshot, ciFailureEvidence };
+        var reruns = events.Where(item => item.GetProperty("eventType").GetString() == "ci-rerun").ToArray();
+        var currentSignature = failureEvidence.ValueKind == JsonValueKind.Undefined ? null : ComputeCiFailureSignature(
+            events.FirstOrDefault(item => item.GetProperty("eventType").GetString() == "external-identifier-recorded" && item.GetProperty("externalSystem").GetString() == "git" && item.GetProperty("identifierType").GetString() == "repository").ValueKind == JsonValueKind.Undefined ? "" : events.First(item => item.GetProperty("eventType").GetString() == "external-identifier-recorded" && item.GetProperty("externalSystem").GetString() == "git" && item.GetProperty("identifierType").GetString() == "repository").GetProperty("identifier").GetString()!,
+            failureEvidence.GetProperty("commitSha").GetString()!, failureEvidence.GetProperty("providerRunId").GetString()!, failureEvidence.GetProperty("providerJobId").GetString()!, failureEvidence.GetProperty("failureClass").GetString()!);
+        var currentRerunCount = currentSignature is null ? 0 : reruns.Count(item => item.GetProperty("failureSignature").GetString() == currentSignature);
+        return new { kind = "run-explanation", runId = runId.ToString("D"), eventCount = events.Count, timeline, ciSnapshot, ciFailureEvidence,
+            rerunMetrics = new { total = reruns.Length, currentFailureIdentity = currentRerunCount } };
     }
 
     public static JsonElement Resume(string directory, Guid runId) => TransitionCurrent(directory, runId, "paused", "running");
@@ -1526,7 +1551,8 @@ public sealed class CiRerunCoordinator(IGitHubAuthorizationProbe authorizationPr
         if (!Regex.IsMatch(currentCommitSha ?? "", @"^(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$", RegexOptions.CultureInvariant) || !string.Equals(commit, currentCommitSha, StringComparison.OrdinalIgnoreCase))
             return Ineligible("failure evidence commit is stale");
         if (failureClass is not ("timeout" or "infrastructure")) return Ineligible("failure class is not retryable by default");
-        if (events.Any(item => item.GetProperty("eventType").GetString() == "ci-rerun" && item.GetProperty("repository").GetString() == repository && item.GetProperty("commitSha").GetString() == commit && item.GetProperty("providerRunId").GetString() == run && item.GetProperty("providerJobId").GetString() == job))
+        var signature = LocalRunEventStore.ComputeCiFailureSignature(repository, commit, run, job, failureClass);
+        if (events.Any(item => item.GetProperty("eventType").GetString() == "ci-rerun" && item.GetProperty("failureSignature").GetString() == signature))
             return Ineligible("this failure identity already has a rerun event");
         var capability = await authorizationProbe.ProbeAsync(root, cancellationToken);
         if (!capability.Capabilities.Any(item => item.Operation == "workflow-rerun" && item.TargetRepository == repository && item.State == "allowed"))

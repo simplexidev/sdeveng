@@ -1,4 +1,5 @@
 using System.Net;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using Json.Schema;
 using Microsoft.Extensions.DependencyInjection;
@@ -25,8 +26,13 @@ public sealed class CiRerunCoordinatorTests
         Assert.Equal(1, writer.Attempts);
         var events = LocalRunEventStore.Read(store.Path, runId);
         var rerun = Assert.Single(events, item => item.GetProperty("eventType").GetString() == "ci-rerun");
+        Assert.Equal(1, rerun.GetProperty("ordinal").GetInt32());
+        Assert.Matches("^[0-9a-f]{64}$", rerun.GetProperty("failureSignature").GetString());
         var schema = JsonSchema.FromFile(Path.Combine(AgentTool.FindToolkit(), "schemas/run-event.schema.json"));
         Assert.True(schema.Evaluate(JsonNode.Parse(rerun.GetRawText())!).IsValid);
+        var explanation = JsonSerializer.SerializeToNode(LocalRunEventStore.Explain(store.Path, runId), AgentTool.Json)!;
+        Assert.Equal(1, explanation["rerunMetrics"]!["total"]!.GetValue<int>());
+        Assert.Equal(1, explanation["rerunMetrics"]!["currentFailureIdentity"]!.GetValue<int>());
     }
 
     [Theory]
@@ -63,6 +69,32 @@ public sealed class CiRerunCoordinatorTests
         var result = await new CiRerunCoordinator(new Probe("allowed", "owner/repo"), writer).RerunAsync(store.Path, runId, Sha, store.Path, "retry");
         Assert.Equal("not-eligible", result.Status);
         Assert.Null(writer.Endpoint);
+    }
+
+    [Fact]
+    public void FailureSignatureIsStableAndContainsNoFailureText()
+    {
+        var first = LocalRunEventStore.ComputeCiFailureSignature("Owner/Repo", Sha, "81", "91", "timeout");
+        var second = LocalRunEventStore.ComputeCiFailureSignature("owner/repo", Sha.ToUpperInvariant(), "81", "91", "timeout");
+        Assert.Equal(first, second);
+        Assert.DoesNotContain("secret", first, StringComparison.OrdinalIgnoreCase);
+        Assert.NotEqual(first, LocalRunEventStore.ComputeCiFailureSignature("owner/repo", Sha, "82", "91", "timeout"));
+    }
+
+    [Fact]
+    public async Task ASecondIdenticalRequestIsBlockedWithoutSending()
+    {
+        using var store = new TempDirectory();
+        var runId = Guid.NewGuid();
+        LocalRunEventStore.AppendRepositoryIdentifier(store.Path, runId, "owner/repo");
+        LocalRunEventStore.AppendCiFailureEvidence(store.Path, runId, Sha, "81", "91", "timeout", false, "failure");
+        var writer = new RecordingWriter();
+        var coordinator = new CiRerunCoordinator(new Probe("allowed", "owner/repo"), writer);
+        Assert.Equal("rerun-requested", (await coordinator.RerunAsync(store.Path, runId, Sha, store.Path, "retry")).Status);
+        Assert.Equal("not-eligible", (await coordinator.RerunAsync(store.Path, runId, Sha, store.Path, "retry")).Status);
+        Assert.Equal(1, writer.Attempts);
+        var rerun = Assert.Single(LocalRunEventStore.Read(store.Path, runId), item => item.GetProperty("eventType").GetString() == "ci-rerun");
+        Assert.Equal(1, rerun.GetProperty("ordinal").GetInt32());
     }
 
     [Fact]
