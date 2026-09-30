@@ -67,6 +67,7 @@ public class MetadataTests
         Assert.True(schema.Evaluate(catalog, new() { OutputFormat = OutputFormat.List }).IsValid);
         var labels = catalog["labels"]!.AsArray();
         Assert.Equal(13, labels.Count);
+        Assert.All(labels, label => Assert.Matches("^[0-9A-Fa-f]{6}$", label!["color"]!.GetValue<string>()));
         var inProgress = labels.Single(label => label!["family"]!.GetValue<string>() == "status");
         Assert.Equal("IN_PROGRESS", inProgress!["name"]!.GetValue<string>());
         Assert.Equal("status", inProgress["family"]!.GetValue<string>());

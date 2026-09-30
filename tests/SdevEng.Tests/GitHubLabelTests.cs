@@ -23,6 +23,11 @@ public sealed class GitHubLabelTests
         Assert.Equal(13, result.GetProperty("created").GetArrayLength());
         Assert.DoesNotContain(result.GetProperty("missing").EnumerateArray(), _ => true);
         Assert.Equal(13, process.Calls.Count(call => call.Contains("POST", StringComparer.Ordinal)));
+        Assert.All(process.Calls.Where(call => call.Contains("POST", StringComparer.Ordinal)), call =>
+        {
+            Assert.Contains(call, argument => argument.StartsWith("color=", StringComparison.Ordinal));
+            Assert.Contains(call, argument => argument.StartsWith("description=", StringComparison.Ordinal));
+        });
     }
 
     private sealed class FakeLabelProcess : IGitHubLabelProcess

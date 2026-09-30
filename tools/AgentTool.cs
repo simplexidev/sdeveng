@@ -1390,7 +1390,8 @@ public static class AgentTool
                         var configured = catalog.RootElement.GetProperty("labels").EnumerateArray().Select(item => new
                         {
                             name = item.GetProperty("name").GetString() ?? throw new JsonException("Configured label name is missing."),
-                            description = item.GetProperty("description").GetString() ?? ""
+                            description = item.GetProperty("description").GetString() ?? "",
+                            color = item.GetProperty("color").GetString() ?? throw new JsonException("Configured label color is missing.")
                         }).ToArray();
                         var api = _labelProcess ?? throw new InvalidOperationException("GitHub label process is unavailable.");
                         var target = $"{labelsOwner}/{labelsRepository}";
@@ -1408,7 +1409,7 @@ public static class AgentTool
                         if (command.Flag("apply"))
                             foreach (var label in missing)
                             {
-                                var response = await api.Run("gh", ["api", "--method", "POST", $"repos/{target}/labels", "--field", $"name={label.name}", "--field", $"description={label.description}"], root);
+                                var response = await api.Run("gh", ["api", "--method", "POST", $"repos/{target}/labels", "--field", $"name={label.name}", "--field", $"description={label.description}", "--field", $"color={label.color}"], root);
                                 if (response.ExitCode != 0) throw new InvalidOperationException($"Could not create missing allowed label '{label.name}'.");
                                 created.Add(label.name);
                             }
