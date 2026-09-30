@@ -25,6 +25,22 @@ public sealed class GitHubWriteBoundaryTests
         Assert.Equal(2, sent);
     }
 
+    [Fact]
+    public async Task BlocksAutoMergeEnablementAndApprovalBeforeSending()
+    {
+        var sent = 0;
+        using var http = new HttpClient(new RecordingHandler(() => sent++));
+        var client = new GitHubWriteClient(http);
+        using var autoMerge = new StringContent("{\"query\":\"mutation { enablePullRequestAutoMerge(input: {}) { clientMutationId } }\"}");
+        using var approval = new StringContent("{\"event\":\"APPROVE\"}");
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => client.SendAsync(HttpMethod.Post,
+            new Uri("https://api.github.com/graphql"), autoMerge));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => client.SendAsync(HttpMethod.Post,
+            new Uri("https://api.github.com/repos/owner/repo/pulls/12/reviews"), approval));
+        Assert.Equal(0, sent);
+    }
+
     sealed class RecordingHandler(Action record) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
