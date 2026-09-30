@@ -1083,6 +1083,60 @@ public static class LocalRunEventStore
     }
 }
 
+public sealed record StartWorkRequest(Guid ProductRunId, string RepositoryRoot, int SourceIssueNumber,
+    string BaseRef, string ExpectedBaseSha, string BranchName);
+
+public sealed record StartWorkResult(Guid ProductRunId, string Repository, int SourceIssueNumber,
+    string BaseSha, string BranchName, string State);
+
+/// <summary>Checks the chosen start-work target before recording its durable STARTING state.</summary>
+public sealed class StartWorkCoordinator(GitHubIssueReader issueReader)
+{
+    public async Task<StartWorkResult> StartAsync(StartWorkRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        if (request.ProductRunId == Guid.Empty) throw new ArgumentException("Product run ID must be a UUID.", nameof(request));
+        if (request.SourceIssueNumber <= 0) throw new ArgumentException("Source issue number must be positive.", nameof(request));
+        if (string.IsNullOrWhiteSpace(request.RepositoryRoot)) throw new ArgumentException("Repository root is required.", nameof(request));
+        if (string.IsNullOrWhiteSpace(request.BranchName) || request.BranchName.StartsWith('-')) throw new ArgumentException("Branch name is invalid.", nameof(request));
+        if (string.IsNullOrWhiteSpace(request.BaseRef) || request.BaseRef.StartsWith('-')) throw new ArgumentException("Base ref is invalid.", nameof(request));
+        if (!Regex.IsMatch(request.ExpectedBaseSha ?? "", @"\A(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})\z"))
+            throw new ArgumentException("Expected base SHA must be a full commit ID.", nameof(request));
+
+        var root = Path.GetFullPath(request.RepositoryRoot);
+        var state = await Git.State(root);
+        if (!string.Equals(state.Root, root, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
+            throw new InvalidOperationException("Repository root must be the Git worktree root.");
+        if (state.Operations.Count != 0) throw new InvalidOperationException("Worktree has an unfinished Git operation.");
+        // Product run events live in the worktree; exclude only that store from the clean check.
+        var userChanges = await Git.Require(root, "status", "--porcelain=v1", "-z", "--untracked-files=all", "--", ".", ":(exclude).sdeveng/runs");
+        if (userChanges.Length != 0) throw new InvalidOperationException("Worktree has changes outside the product run store.");
+        await Git.Require(root, "check-ref-format", "--branch", request.BranchName);
+        await Git.Require(root, "check-ref-format", "--branch", request.BaseRef);
+        var origin = await Git.Require(root, "remote", "get-url", "--all", "origin");
+        var urls = origin.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Distinct(StringComparer.Ordinal).ToArray();
+        if (urls.Length != 1) throw new InvalidOperationException("Canonical origin must have one GitHub URL.");
+        var (owner, repository) = AgentTool.GitHubAuthorizationProbe.ParseGitHubTarget(urls[0]);
+        var actualSha = (await Git.Require(root, "rev-parse", "--verify", "--end-of-options", request.BaseRef + "^{commit}")).Trim();
+        if (!string.Equals(actualSha, request.ExpectedBaseSha, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("Expected base SHA is stale.");
+        var issue = await issueReader.ReadIssueAsync(owner, repository, request.SourceIssueNumber, cancellationToken);
+        var expectedIssueUrl = $"https://github.com/{owner}/{repository}/issues/{request.SourceIssueNumber.ToString(CultureInfo.InvariantCulture)}";
+        if (issue.Number != request.SourceIssueNumber || !string.Equals(issue.HtmlUrl.AbsoluteUri, expectedIssueUrl, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("Source issue does not belong to canonical origin.");
+
+        var runDirectory = Path.Combine(root, ".sdeveng", "runs");
+        var events = LocalRunEventStore.Read(runDirectory, request.ProductRunId);
+        var transition = events.LastOrDefault(item => item.GetProperty("eventType").GetString() == "state-transition");
+        if (transition.ValueKind == JsonValueKind.Undefined || transition.GetProperty("toState").GetString() != "created")
+            throw new InvalidOperationException("Start work requires an existing created run.");
+        LocalRunEventStore.AppendRepositoryIdentifier(runDirectory, request.ProductRunId, $"{owner}/{repository}");
+        LocalRunEventStore.AppendIssueIdentifier(runDirectory, request.ProductRunId, request.SourceIssueNumber.ToString(CultureInfo.InvariantCulture));
+        LocalRunEventStore.AppendTransition(runDirectory, request.ProductRunId, "created", "STARTING");
+        return new(request.ProductRunId, $"{owner}/{repository}", request.SourceIssueNumber, actualSha, request.BranchName, "STARTING");
+    }
+}
+
 public static class AgentTool
 {
     public const string Product = "sdeveng";
@@ -1256,6 +1310,7 @@ public static class AgentTool
             services.AddTransient<GitHubCommitReader>();
             services.AddTransient<GitHubRepositoryMetadataReader>();
             services.AddTransient<GitHubIssueReader>();
+            services.AddTransient<StartWorkCoordinator>();
             services.AddTransient<GitHubChecksWorkflowReader>();
             services.AddTransient<GitHubActionsReader>();
             services.AddTransient<GitHubPrStatusReader>();
