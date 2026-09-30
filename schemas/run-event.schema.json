@@ -15,13 +15,16 @@
     },
     "sequence": { "type": "integer", "minimum": 1 },
     "occurredAt": { "type": "string", "format": "date-time" },
-    "eventType": { "enum": ["state-transition", "external-identifier-recorded", "operation-completed"] },
+    "eventType": { "enum": ["state-transition", "external-identifier-recorded", "operation-completed", "start-work-progress"] },
     "fromState": { "type": ["string", "null"], "minLength": 1 },
     "toState": { "type": "string", "minLength": 1 },
     "externalSystem": { "type": "string", "minLength": 1 },
     "identifierType": { "type": "string", "minLength": 1 },
     "identifier": { "type": "string", "minLength": 1 },
-    "operation": { "enum": ["branch-created", "branch-pushed"] }
+    "operation": { "enum": ["branch-created", "branch-pushed", "bootstrap-created", "pr-created", "pr-linked", "metadata-persisted"] },
+    "progressVersion": { "const": 1 },
+    "status": { "enum": ["completed", "retryable-failure", "terminal-failure"] },
+    "detail": { "type": "string", "maxLength": 512 }
   },
   "oneOf": [
     {
@@ -35,8 +38,13 @@
       "not": { "anyOf": [{ "required": ["fromState"] }, { "required": ["toState"] }] }
     },
     {
-      "properties": { "eventType": { "const": "operation-completed" } },
+      "properties": { "eventType": { "const": "operation-completed" }, "operation": { "enum": ["branch-created", "branch-pushed"] } },
       "required": ["operation"],
+      "not": { "anyOf": [{ "required": ["fromState"] }, { "required": ["toState"] }, { "required": ["externalSystem"] }, { "required": ["identifierType"] }, { "required": ["identifier"] }] }
+    },
+    {
+      "properties": { "eventType": { "const": "start-work-progress" } },
+      "required": ["progressVersion", "operation", "status", "detail"],
       "not": { "anyOf": [{ "required": ["fromState"] }, { "required": ["toState"] }, { "required": ["externalSystem"] }, { "required": ["identifierType"] }, { "required": ["identifier"] }] }
     }
   ]
