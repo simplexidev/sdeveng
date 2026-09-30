@@ -241,10 +241,41 @@ public sealed record IssueTriageFacts(
 public sealed record TriageLabelCandidate(string Family, string Label, double Confidence, IReadOnlyList<string> Evidence);
 public sealed record TriageClassification(IReadOnlyList<TriageLabelCandidate> Candidates, IReadOnlyList<string> UnresolvedFamilies);
 
+public interface ITriageSemanticClassifier
+{
+    IReadOnlyList<TriageLabelCandidate> Classify(IssueTriageFacts facts, IReadOnlyList<TriageLabelCandidate> deterministicCandidates, JsonElement labelCatalog);
+}
+
+/// <summary>Safe semantic-classifier default that makes no model or network calls.</summary>
+public sealed class AbstainingTriageSemanticClassifier : ITriageSemanticClassifier
+{
+    public IReadOnlyList<TriageLabelCandidate> Classify(IssueTriageFacts facts, IReadOnlyList<TriageLabelCandidate> deterministicCandidates, JsonElement labelCatalog)
+    {
+        ArgumentNullException.ThrowIfNull(facts);
+        ArgumentNullException.ThrowIfNull(deterministicCandidates);
+        return Array.Empty<TriageLabelCandidate>();
+    }
+}
+
 /// <summary>Classifies only explicit issue evidence against the configured label catalog.</summary>
 public static class TriageClassifier
 {
     static readonly Regex TypeToken = new(@"(?<![A-Za-z0-9_-])type:([A-Za-z0-9_-]+)(?![A-Za-z0-9_-])", RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+
+    public static IReadOnlyList<TriageLabelCandidate> BoundSemanticCandidates(IEnumerable<TriageLabelCandidate> candidates, JsonElement labelCatalog)
+    {
+        ArgumentNullException.ThrowIfNull(candidates);
+        if (!labelCatalog.TryGetProperty("labels", out var labels) || labels.ValueKind != JsonValueKind.Array)
+            throw new JsonException("Label catalog must contain a labels array.");
+        var configured = labels.EnumerateArray().Select(item => (Family: item.GetProperty("family").GetString(), Name: item.GetProperty("name").GetString()))
+            .ToHashSet();
+        return candidates.Where(candidate => configured.Contains((candidate.Family, candidate.Label)) &&
+                candidate.Family.Length is > 0 and <= 64 && candidate.Label.Length is > 0 and <= 100 &&
+                double.IsFinite(candidate.Confidence) && candidate.Confidence is >= 0 and <= 1)
+            .Take(20)
+            .Select(candidate => candidate with { Evidence = candidate.Evidence.Take(10).Select(value => value.Length <= 300 ? value : value[..300]).ToArray() })
+            .ToArray();
+    }
 
     public static TriageClassification Classify(IssueTriageFacts facts, JsonElement labelCatalog)
     {
@@ -295,6 +326,20 @@ public static class TriageClassifier
             if (evidence.Length > 0) candidates.Add(new("area", label.Name, 1.0, evidence));
         }
         if (candidates.Any(x => x.Family == "area")) unresolved.RemoveAll(x => x == "area");
+
+        var candidateRepository = facts.CandidateRepository;
+        if (!string.IsNullOrWhiteSpace(candidateRepository))
+        {
+            var crossRepository = facts.LinkedReferences.Any(reference =>
+                !string.Equals(candidateRepository, reference.Owner + "/" + reference.Repository, StringComparison.OrdinalIgnoreCase));
+            var scopeLabel = crossRepository ? "scope:cross-repo" : "scope:single-repo";
+            if (configured.Any(label => label.Family == "scope" && string.Equals(label.Name, scopeLabel, StringComparison.OrdinalIgnoreCase)))
+            {
+                var evidence = crossRepository ? "linked-repository:external" : "linked-repository:local-or-none";
+                candidates.Add(new("scope", scopeLabel, 1.0, [evidence]));
+                unresolved.RemoveAll(x => x == "scope");
+            }
+        }
         return new(candidates, unresolved);
     }
 }
@@ -1010,6 +1055,7 @@ public static class AgentTool
             services.AddTransient<GitHubActionsReader>();
             services.AddTransient<GitHubPrStatusReader>();
             services.AddTransient<GitHubReviewCommentReader>();
+            services.AddSingleton<ITriageSemanticClassifier, AbstainingTriageSemanticClassifier>();
             services.AddSingleton<IGitHubAuthorizationProcess, GitHubAuthorizationProcess>();
             services.AddTransient<GitHubAuthorizationProbe>();
             services.AddSingleton<ICommandModule, InstallerCommandModule>();

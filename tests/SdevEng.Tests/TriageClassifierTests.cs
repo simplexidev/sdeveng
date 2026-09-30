@@ -9,12 +9,61 @@ public sealed class TriageClassifierTests
       {"name":"type:chore","family":"type"},
       {"name":"type:bug","family":"type"},
       {"name":"area:tooling","family":"area"},
-      {"name":"area:docs","family":"area"}
+      {"name":"area:docs","family":"area"},
+      {"name":"scope:single-repo","family":"scope"},
+      {"name":"scope:cross-repo","family":"scope"}
     ]
     """) => JsonDocument.Parse("{\"labels\":" + labels + "}");
 
     static IssueTriageFacts Facts(string title, string body = "", params string[] areas) =>
         new("acme/widget", title, body, [], [], [], areas, ["type", "area", "risk", "complexity", "scope"], false);
+
+    [Fact]
+    public void ResolvesScopeFromExplicitLinkedRepositoryReferences()
+    {
+        using var catalog = Catalog();
+        var local = Facts("Update") with { LinkedReferences = [new("acme", "widget", 2, "issue")] };
+        var localResult = TriageClassifier.Classify(local, catalog.RootElement);
+        Assert.Equal("scope:single-repo", Assert.Single(localResult.Candidates, candidate => candidate.Family == "scope").Label);
+        Assert.DoesNotContain("scope", localResult.UnresolvedFamilies);
+
+        var cross = Facts("Update") with { LinkedReferences = [new("acme", "other", 3, "pull")] };
+        var crossCandidate = Assert.Single(TriageClassifier.Classify(cross, catalog.RootElement).Candidates, candidate => candidate.Family == "scope");
+        Assert.Equal("scope:cross-repo", crossCandidate.Label);
+        Assert.Equal(1.0, crossCandidate.Confidence);
+    }
+
+    [Fact]
+    public void LeavesUnknownOrUnconfiguredScopeUnresolved()
+    {
+        using var catalog = Catalog();
+        var unknown = Facts("Update") with { CandidateRepository = null };
+        Assert.Contains("scope", TriageClassifier.Classify(unknown, catalog.RootElement).UnresolvedFamilies);
+        using var missing = Catalog("[{\"name\":\"type:bug\",\"family\":\"type\"}]");
+        Assert.Contains("scope", TriageClassifier.Classify(Facts("Update"), missing.RootElement).UnresolvedFamilies);
+    }
+
+    [Fact]
+    public void SemanticDefaultAbstainsAndSemanticCandidatesAreBoundToCatalog()
+    {
+        using var catalog = Catalog();
+        var semantic = new AbstainingTriageSemanticClassifier();
+        Assert.Empty(semantic.Classify(Facts("Update"), [], catalog.RootElement));
+        var valid = new TriageLabelCandidate("type", "type:bug", 0.8, Enumerable.Repeat(new string('x', 400), 12).ToArray());
+        var filtered = TriageClassifier.BoundSemanticCandidates([valid, new("type", "type:made-up", 1, ["guess"]), new("type", "type:bug", double.NaN, [])], catalog.RootElement);
+        var candidate = Assert.Single(filtered);
+        Assert.Equal(10, candidate.Evidence.Count);
+        Assert.All(candidate.Evidence, evidence => Assert.Equal(300, evidence.Length));
+    }
+
+    [Fact]
+    public void ProductionDiResolvesAbstainingSemanticClassifier()
+    {
+        var services = new Microsoft.Extensions.DependencyInjection.ServiceCollection();
+        AgentTool.AgentToolModule.Register(services);
+        using var provider = Microsoft.Extensions.DependencyInjection.ServiceCollectionContainerBuilderExtensions.BuildServiceProvider(services);
+        Assert.IsType<AbstainingTriageSemanticClassifier>(provider.GetService(typeof(ITriageSemanticClassifier)));
+    }
 
     [Theory]
     [InlineData("chore: tidy", "", "type:chore")]
@@ -23,7 +72,7 @@ public sealed class TriageClassifierTests
     {
         using var catalog = Catalog();
         var result = TriageClassifier.Classify(Facts(title, body), catalog.RootElement);
-        var candidate = Assert.Single(result.Candidates);
+        var candidate = Assert.Single(result.Candidates, candidate => candidate.Family == "type");
         Assert.Equal(expected, candidate.Label);
         Assert.Equal(1.0, candidate.Confidence);
         Assert.NotEmpty(candidate.Evidence);
@@ -35,11 +84,11 @@ public sealed class TriageClassifierTests
     {
         using var catalog = Catalog();
         var conflict = TriageClassifier.Classify(Facts("chore: fix", "type:bug"), catalog.RootElement);
-        Assert.Empty(conflict.Candidates);
+        Assert.DoesNotContain(conflict.Candidates, candidate => candidate.Family == "type");
         Assert.Contains("type", conflict.UnresolvedFamilies);
 
         var unconfigured = TriageClassifier.Classify(Facts("feature: new", "type:feature"), catalog.RootElement);
-        Assert.Empty(unconfigured.Candidates);
+        Assert.DoesNotContain(unconfigured.Candidates, candidate => candidate.Family == "type");
         Assert.Contains("type", unconfigured.UnresolvedFamilies);
     }
 
@@ -68,8 +117,9 @@ public sealed class TriageClassifierTests
         var first = TriageClassifier.Classify(facts, catalog.RootElement);
         var second = TriageClassifier.Classify(facts, catalog.RootElement);
         Assert.Equal(JsonSerializer.Serialize(first), JsonSerializer.Serialize(second));
-        Assert.Equal("area:tooling", Assert.Single(first.Candidates).Label);
-        Assert.Equal("area-hint:tooling", Assert.Single(first.Candidates[0].Evidence));
+        var area = Assert.Single(first.Candidates, candidate => candidate.Family == "area");
+        Assert.Equal("area:tooling", area.Label);
+        Assert.Equal("area-hint:tooling", Assert.Single(area.Evidence));
         Assert.Contains("type", first.UnresolvedFamilies);
     }
 }
