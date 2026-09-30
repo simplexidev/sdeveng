@@ -1236,9 +1236,23 @@ public static class LocalRunEventStore
         var signature = ComputeCiFailureSignature(repository, commitSha, providerRunId, providerJobId, failureClass);
         var prior = events.Where(item => item.GetProperty("eventType").GetString() == "ci-rerun" && item.GetProperty("failureSignature").GetString() == signature).ToArray();
         if (prior.Length >= 1) throw new InvalidOperationException("This failure identity already has a rerun request.");
-        var payload = new { schemaVersion = 1, runId = runId.ToString("D"), sequence = 0, occurredAt = DateTimeOffset.UtcNow,
-            eventType = "ci-rerun", rerunVersion = 1, repository, commitSha = commitSha.ToLowerInvariant(), providerRunId, providerJobId,
-            rerunMode = mode, rerunReason = reason, failureSignature = signature, ordinal = prior.Length + 1 };
+        var payload = new
+        {
+            schemaVersion = 1,
+            runId = runId.ToString("D"),
+            sequence = 0,
+            occurredAt = DateTimeOffset.UtcNow,
+            eventType = "ci-rerun",
+            rerunVersion = 1,
+            repository,
+            commitSha = commitSha.ToLowerInvariant(),
+            providerRunId,
+            providerJobId,
+            rerunMode = mode,
+            rerunReason = reason,
+            failureSignature = signature,
+            ordinal = prior.Length + 1
+        };
         return AppendSnapshot(directory, runId, payload);
     }
 
@@ -1443,8 +1457,16 @@ public static class LocalRunEventStore
             events.FirstOrDefault(item => item.GetProperty("eventType").GetString() == "external-identifier-recorded" && item.GetProperty("externalSystem").GetString() == "git" && item.GetProperty("identifierType").GetString() == "repository").ValueKind == JsonValueKind.Undefined ? "" : events.First(item => item.GetProperty("eventType").GetString() == "external-identifier-recorded" && item.GetProperty("externalSystem").GetString() == "git" && item.GetProperty("identifierType").GetString() == "repository").GetProperty("identifier").GetString()!,
             failureEvidence.GetProperty("commitSha").GetString()!, failureEvidence.GetProperty("providerRunId").GetString()!, failureEvidence.GetProperty("providerJobId").GetString()!, failureEvidence.GetProperty("failureClass").GetString()!);
         var currentRerunCount = currentSignature is null ? 0 : reruns.Count(item => item.GetProperty("failureSignature").GetString() == currentSignature);
-        return new { kind = "run-explanation", runId = runId.ToString("D"), eventCount = events.Count, timeline, ciSnapshot, ciFailureEvidence,
-            rerunMetrics = new { total = reruns.Length, currentFailureIdentity = currentRerunCount } };
+        return new
+        {
+            kind = "run-explanation",
+            runId = runId.ToString("D"),
+            eventCount = events.Count,
+            timeline,
+            ciSnapshot,
+            ciFailureEvidence,
+            rerunMetrics = new { total = reruns.Length, currentFailureIdentity = currentRerunCount }
+        };
     }
 
     public static JsonElement Resume(string directory, Guid runId) => TransitionCurrent(directory, runId, "paused", "running");
