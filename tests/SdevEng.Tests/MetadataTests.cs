@@ -60,15 +60,18 @@ public class MetadataTests
         }
     }
     [Fact]
-    public void LabelCatalogDefinesTheStatusLabelFamily()
+    public void LabelCatalogDefinesStatusTypeAndAreaLabelFamilies()
     {
         var catalog = JsonNode.Parse(File.ReadAllText(Path.Combine(Root, "config/labels.json")))!;
         var schema = JsonSchema.FromFile(Path.Combine(Root, "schemas/label-catalog.schema.json"));
         Assert.True(schema.Evaluate(catalog, new() { OutputFormat = OutputFormat.List }).IsValid);
         var labels = catalog["labels"]!.AsArray();
-        var inProgress = Assert.Single(labels);
+        Assert.Equal(3, labels.Count);
+        var inProgress = labels.Single(label => label!["family"]!.GetValue<string>() == "status");
         Assert.Equal("IN_PROGRESS", inProgress!["name"]!.GetValue<string>());
         Assert.Equal("status", inProgress["family"]!.GetValue<string>());
+        Assert.Contains(labels, label => label!["family"]!.GetValue<string>() == "type" && label["name"]!.GetValue<string>() == "type:chore");
+        Assert.Contains(labels, label => label!["family"]!.GetValue<string>() == "area" && label["name"]!.GetValue<string>() == "area:tooling");
         Assert.False(schema.Evaluate(JsonNode.Parse("""{"version":2,"labels":[]}""")!, new() { OutputFormat = OutputFormat.List }).IsValid);
         Assert.False(schema.Evaluate(JsonNode.Parse("""{"version":1,"labels":[{"name":"","family":"status","description":"invalid"}]}""")!, new() { OutputFormat = OutputFormat.List }).IsValid);
     }

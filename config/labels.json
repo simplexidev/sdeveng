@@ -6,6 +6,16 @@
       "name": "IN_PROGRESS",
       "family": "status",
       "description": "Work has started after its branch, draft pull request, and startup metadata are established."
+    },
+    {
+      "name": "type:chore",
+      "family": "type",
+      "description": "Maintenance or operational work that does not add a user-facing capability."
+    },
+    {
+      "name": "area:tooling",
+      "family": "area",
+      "description": "Work primarily affecting developer tooling and automation."
     }
   ]
 }
