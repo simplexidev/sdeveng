@@ -92,6 +92,66 @@ public sealed class TriageClassifierTests
         Assert.Contains("type", unconfigured.UnresolvedFamilies);
     }
 
+    [Theory]
+    [InlineData("risk:low", "risk", "risk:low")]
+    [InlineData("risk:medium", "risk", "risk:medium")]
+    [InlineData("risk:high", "risk", "risk:high")]
+    [InlineData("complexity:low", "complexity", "complexity:low")]
+    [InlineData("complexity:medium", "complexity", "complexity:medium")]
+    [InlineData("complexity:high", "complexity", "complexity:high")]
+    public void ResolvesExplicitConfiguredRiskAndComplexityTokens(string token, string family, string expected)
+    {
+        using var catalog = Catalog("""
+        [
+          {"name":"risk:low","family":"risk"}, {"name":"risk:medium","family":"risk"}, {"name":"risk:high","family":"risk"},
+          {"name":"complexity:low","family":"complexity"}, {"name":"complexity:medium","family":"complexity"}, {"name":"complexity:high","family":"complexity"}
+        ]
+        """);
+        var result = TriageClassifier.Classify(Facts("Change " + token.ToUpperInvariant()), catalog.RootElement);
+        var candidate = Assert.Single(result.Candidates, item => item.Family == family);
+        Assert.Equal(expected, candidate.Label);
+        Assert.Equal(1.0, candidate.Confidence);
+        Assert.Equal(token.ToUpperInvariant(), Assert.Single(candidate.Evidence));
+        Assert.DoesNotContain(family, result.UnresolvedFamilies);
+    }
+
+    [Theory]
+    [InlineData("risk:extreme")]
+    [InlineData("complexity:trivial")]
+    [InlineData("high risk")]
+    [InlineData("complexity is high")]
+    [InlineData("x-risk:high")]
+    [InlineData("risk:high-extra")]
+    public void LeavesUnconfiguredOrNonTokenDeclarationsUnresolved(string text)
+    {
+        using var catalog = Catalog("""
+        [
+          {"name":"risk:low","family":"risk"}, {"name":"risk:high","family":"risk"},
+          {"name":"complexity:low","family":"complexity"}, {"name":"complexity:high","family":"complexity"}
+        ]
+        """);
+        var result = TriageClassifier.Classify(Facts(text), catalog.RootElement);
+        Assert.DoesNotContain(result.Candidates, item => item.Family is "risk" or "complexity");
+        Assert.Contains("risk", result.UnresolvedFamilies);
+        Assert.Contains("complexity", result.UnresolvedFamilies);
+    }
+
+    [Theory]
+    [InlineData("risk:low risk:high", "risk")]
+    [InlineData("complexity:low complexity:high", "complexity")]
+    public void ConflictingConfiguredDeclarationsRemainUnresolved(string text, string family)
+    {
+        using var catalog = Catalog("""
+        [
+          {"name":"risk:low","family":"risk"}, {"name":"risk:high","family":"risk"},
+          {"name":"complexity:low","family":"complexity"}, {"name":"complexity:high","family":"complexity"}
+        ]
+        """);
+        var result = TriageClassifier.Classify(Facts(text), catalog.RootElement);
+        Assert.DoesNotContain(result.Candidates, item => item.Family == family);
+        Assert.Contains(family, result.UnresolvedFamilies);
+    }
+
     [Fact]
     public void MapsExactAreaHintsToEveryConfiguredMatchWithoutAliases()
     {
