@@ -240,6 +240,9 @@ public sealed record IssueTriageFacts(
 
 public sealed record TriageLabelCandidate(string Family, string Label, double Confidence, IReadOnlyList<string> Evidence);
 public sealed record TriageClassification(IReadOnlyList<TriageLabelCandidate> Candidates, IReadOnlyList<string> UnresolvedFamilies);
+public sealed record TriageSelectedLabel(string Label, double Confidence, IReadOnlyList<string> Evidence);
+public sealed record TriageSelectedFamily(string Family, IReadOnlyList<TriageSelectedLabel> Labels);
+public sealed record TriageDecision(IReadOnlyList<TriageSelectedFamily> Selected, IReadOnlyList<string> UnresolvedFamilies, bool NeedsHumanReview);
 
 public interface ITriageSemanticClassifier
 {
@@ -260,6 +263,7 @@ public sealed class AbstainingTriageSemanticClassifier : ITriageSemanticClassifi
 /// <summary>Classifies only explicit issue evidence against the configured label catalog.</summary>
 public static class TriageClassifier
 {
+    public const double MinimumAutomaticConfidence = 0.80;
     static readonly Regex TypeToken = new(@"(?<![A-Za-z0-9_-])type:([A-Za-z0-9_-]+)(?![A-Za-z0-9_-])", RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
     static readonly Regex ExplicitTriageToken = new(@"(?<![A-Za-z0-9_-])(?<family>risk|complexity):(?<value>[A-Za-z0-9_-]+)(?![A-Za-z0-9_-])", RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
@@ -276,6 +280,65 @@ public static class TriageClassifier
             .Take(20)
             .Select(candidate => candidate with { Evidence = candidate.Evidence.Take(10).Select(value => value.Length <= 300 ? value : value[..300]).ToArray() })
             .ToArray();
+    }
+
+    public static TriageDecision ClassifyDecision(IssueTriageFacts facts, JsonElement labelCatalog, ITriageSemanticClassifier semanticClassifier)
+    {
+        ArgumentNullException.ThrowIfNull(semanticClassifier);
+        var deterministic = Classify(facts, labelCatalog);
+        var semantic = semanticClassifier.Classify(facts, deterministic.Candidates, labelCatalog);
+        return Combine(deterministic.Candidates, semantic, deterministic.UnresolvedFamilies, labelCatalog);
+    }
+
+    public static TriageDecision Combine(IEnumerable<TriageLabelCandidate> deterministicCandidates,
+        IEnumerable<TriageLabelCandidate> semanticCandidates, IEnumerable<string> unresolvedFamilies, JsonElement labelCatalog)
+    {
+        ArgumentNullException.ThrowIfNull(deterministicCandidates);
+        ArgumentNullException.ThrowIfNull(semanticCandidates);
+        ArgumentNullException.ThrowIfNull(unresolvedFamilies);
+        if (!labelCatalog.TryGetProperty("labels", out var labels) || labels.ValueKind != JsonValueKind.Array)
+            throw new JsonException("Label catalog must contain a labels array.");
+        var configured = labels.EnumerateArray().Select(item => (Name: item.GetProperty("name").GetString(), Family: item.GetProperty("family").GetString()))
+            .Where(item => item.Name is not null && item.Family is not null)
+            .ToHashSet();
+        var configuredFamilies = configured.Select(item => item.Family!).ToHashSet(StringComparer.Ordinal);
+        var exclusiveFamilies = new HashSet<string>(["type", "risk", "complexity", "scope"], StringComparer.Ordinal);
+        var candidates = new List<TriageLabelCandidate>();
+        var unresolved = new HashSet<string>(unresolvedFamilies.Where(configuredFamilies.Contains), StringComparer.Ordinal);
+        var invalidCandidate = false;
+        foreach (var (candidate, semantic) in deterministicCandidates.Select(x => (x, false)).Concat(semanticCandidates.Select(x => (x, true))))
+        {
+            if (candidate is null || !configured.Contains((candidate.Label, candidate.Family)) ||
+                !double.IsFinite(candidate.Confidence) || candidate.Confidence is < 0 or > 1 || candidate.Evidence is null)
+            {
+                invalidCandidate = true;
+                if (candidate?.Family is { } invalidFamily && configuredFamilies.Contains(invalidFamily)) unresolved.Add(invalidFamily);
+                continue;
+            }
+            if (semantic && candidate.Confidence < MinimumAutomaticConfidence)
+            {
+                unresolved.Add(candidate.Family);
+                continue;
+            }
+            candidates.Add(semantic ? candidate : candidate with { Confidence = 1.0 });
+        }
+
+        var selected = new List<TriageSelectedFamily>();
+        foreach (var family in configuredFamilies.Order(StringComparer.Ordinal))
+        {
+            var familyCandidates = candidates.Where(candidate => candidate.Family == family)
+                .GroupBy(candidate => candidate.Label, StringComparer.Ordinal)
+                .Select(group => new TriageLabelCandidate(family, group.Key, group.Max(candidate => candidate.Confidence),
+                    group.SelectMany(candidate => candidate.Evidence).Distinct(StringComparer.Ordinal).Take(10).Select(evidence => evidence.Length <= 300 ? evidence : evidence[..300]).ToArray()))
+                .OrderBy(candidate => candidate.Label, StringComparer.Ordinal).ToArray();
+            if (familyCandidates.Length == 0) { unresolved.Add(family); continue; }
+            if (exclusiveFamilies.Contains(family) && familyCandidates.Length > 1) { unresolved.Add(family); continue; }
+            selected.Add(new(family, familyCandidates.Select(candidate => new TriageSelectedLabel(candidate.Label, candidate.Confidence, candidate.Evidence)).ToArray()));
+            unresolved.Remove(family);
+        }
+        var unresolvedResult = unresolved.Order(StringComparer.Ordinal).ToArray();
+        return new(selected.OrderBy(item => item.Family, StringComparer.Ordinal).ToArray(), unresolvedResult,
+            invalidCandidate || unresolvedResult.Length > 0);
     }
 
     public static TriageClassification Classify(IssueTriageFacts facts, JsonElement labelCatalog)
