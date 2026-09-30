@@ -119,16 +119,16 @@ public sealed class GitHubReviewCommentReader(IGitHubReadClient client)
         var comments = document.RootElement.EnumerateArray().Select(Parse).ToArray();
         Uri? next = null;
         if (response.Headers.TryGetValues("Link", out var links)) foreach (var link in links.SelectMany(x => x.Split(',')))
-            if (link.Contains("rel=\"next\"", StringComparison.Ordinal) && Uri.TryCreate(link.Split(';')[0].Trim().Trim('<', '>'), UriKind.Absolute, out var parsed)) { next = parsed; break; }
+                if (link.Contains("rel=\"next\"", StringComparison.Ordinal) && Uri.TryCreate(link.Split(';')[0].Trim().Trim('<', '>'), UriKind.Absolute, out var parsed)) { next = parsed; break; }
         return new(comments, next);
     }
-    static GitHubReviewComment Parse(JsonElement e) => new(Long(e, "id") ?? throw new JsonException("Review comment is missing id."), Long(e, "pull_request_review_id"), Str(e,"node_id"), Str(e,"path"), Int(e,"position"), Int(e,"original_position"), Str(e,"commit_id"), Str(e,"original_commit_id"), Nested(e,"user","login"), Str(e,"body"), Date(e,"created_at"), Date(e,"updated_at"), Url(e,"html_url"), Url(e,"pull_request_url"), Long(e,"in_reply_to_id"), Str(e,"author_association"), Int(e,"start_line"), Int(e,"original_start_line"), Str(e,"start_side"), Int(e,"line"), Int(e,"original_line"), Str(e,"side"), Str(e,"diff_hunk"), e.Clone());
-    static string? Str(JsonElement e,string n) => e.TryGetProperty(n,out var p)&&p.ValueKind==JsonValueKind.String?p.GetString():null;
-    static long? Long(JsonElement e,string n) => e.TryGetProperty(n,out var p)&&p.TryGetInt64(out var v)?v:null;
-    static int? Int(JsonElement e,string n) => e.TryGetProperty(n,out var p)&&p.TryGetInt32(out var v)?v:null;
-    static DateTimeOffset? Date(JsonElement e,string n) => DateTimeOffset.TryParse(Str(e,n),CultureInfo.InvariantCulture,DateTimeStyles.RoundtripKind,out var v)?v:null;
-    static Uri? Url(JsonElement e,string n) => Uri.TryCreate(Str(e,n),UriKind.Absolute,out var u)&&u.Scheme==Uri.UriSchemeHttps?u:null;
-    static string? Nested(JsonElement e,string p,string n) => e.TryGetProperty(p,out var v)&&v.ValueKind==JsonValueKind.Object?Str(v,n):null;
+    static GitHubReviewComment Parse(JsonElement e) => new(Long(e, "id") ?? throw new JsonException("Review comment is missing id."), Long(e, "pull_request_review_id"), Str(e, "node_id"), Str(e, "path"), Int(e, "position"), Int(e, "original_position"), Str(e, "commit_id"), Str(e, "original_commit_id"), Nested(e, "user", "login"), Str(e, "body"), Date(e, "created_at"), Date(e, "updated_at"), Url(e, "html_url"), Url(e, "pull_request_url"), Long(e, "in_reply_to_id"), Str(e, "author_association"), Int(e, "start_line"), Int(e, "original_start_line"), Str(e, "start_side"), Int(e, "line"), Int(e, "original_line"), Str(e, "side"), Str(e, "diff_hunk"), e.Clone());
+    static string? Str(JsonElement e, string n) => e.TryGetProperty(n, out var p) && p.ValueKind == JsonValueKind.String ? p.GetString() : null;
+    static long? Long(JsonElement e, string n) => e.TryGetProperty(n, out var p) && p.TryGetInt64(out var v) ? v : null;
+    static int? Int(JsonElement e, string n) => e.TryGetProperty(n, out var p) && p.TryGetInt32(out var v) ? v : null;
+    static DateTimeOffset? Date(JsonElement e, string n) => DateTimeOffset.TryParse(Str(e, n), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var v) ? v : null;
+    static Uri? Url(JsonElement e, string n) => Uri.TryCreate(Str(e, n), UriKind.Absolute, out var u) && u.Scheme == Uri.UriSchemeHttps ? u : null;
+    static string? Nested(JsonElement e, string p, string n) => e.TryGetProperty(p, out var v) && v.ValueKind == JsonValueKind.Object ? Str(v, n) : null;
 }
 
 public sealed record GitHubRepositoryMetadata(
