@@ -921,6 +921,9 @@ public static class LocalRunEventStore
     public static JsonElement AppendTransition(string directory, Guid runId, string? fromState, string toState) =>
         Append(directory, runId, "state-transition", fromState, toState, null, null, null);
 
+    public static JsonElement AppendOperationCompleted(string directory, Guid runId, string operation) =>
+        Append(directory, runId, "operation-completed", null, null, null, null, operation);
+
     public static JsonElement AppendExternalIdentifier(string directory, Guid runId, string externalSystem, string identifierType, string identifier) =>
         Append(directory, runId, "external-identifier-recorded", null, null, externalSystem, identifierType, identifier);
 
@@ -987,6 +990,12 @@ public static class LocalRunEventStore
                             item.GetProperty(name).ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(item.GetProperty(name).GetString())))
                         throw new InvalidDataException("Run external identifier is invalid.");
                 }
+                else if (type == "operation-completed")
+                {
+                    if (!properties.SetEquals(["schemaVersion", "runId", "sequence", "occurredAt", "eventType", "operation"]) ||
+                        item.GetProperty("operation").GetString() is not ("branch-created" or "branch-pushed"))
+                        throw new InvalidDataException("Run operation completion is invalid.");
+                }
                 else throw new InvalidDataException("Run event type is invalid.");
                 events.Add(item.Clone());
             }
@@ -1010,7 +1019,9 @@ public static class LocalRunEventStore
     public static object Explain(string directory, Guid runId)
     {
         var events = Read(directory, runId);
-        var timeline = events.Select(item => item.GetProperty("eventType").GetString() == "state-transition"
+        var timeline = events.Select(item => item.GetProperty("eventType").GetString() == "operation-completed"
+            ? (object)new { sequence = item.GetProperty("sequence").GetInt32(), occurredAt = item.GetProperty("occurredAt").GetString(), type = "operation-completed", from = (string?)null, to = item.GetProperty("operation").GetString() }
+            : item.GetProperty("eventType").GetString() == "state-transition"
             ? (object)new { sequence = item.GetProperty("sequence").GetInt32(), occurredAt = item.GetProperty("occurredAt").GetString(), type = "state-transition", from = item.GetProperty("fromState").GetString(), to = item.GetProperty("toState").GetString() }
             : new { sequence = item.GetProperty("sequence").GetInt32(), occurredAt = item.GetProperty("occurredAt").GetString(), type = "external-identifier-recorded", from = (string?)null, to = $"{item.GetProperty("externalSystem").GetString()}:{item.GetProperty("identifierType").GetString()}={item.GetProperty("identifier").GetString()}" }).ToArray();
         return new { kind = "run-explanation", runId = runId.ToString("D"), eventCount = events.Count, timeline };
@@ -1056,7 +1067,9 @@ public static class LocalRunEventStore
             if (string.IsNullOrWhiteSpace(toState) || fromState is not null && string.IsNullOrWhiteSpace(fromState))
                 throw new ArgumentException("Transition states must be nonempty.");
         }
-        else if (string.IsNullOrWhiteSpace(externalSystem) || string.IsNullOrWhiteSpace(identifierType) || string.IsNullOrWhiteSpace(identifier))
+        else if (eventType == "operation-completed" && identifier is not ("branch-created" or "branch-pushed"))
+            throw new ArgumentException("Unknown operation.");
+        else if (eventType != "operation-completed" && (string.IsNullOrWhiteSpace(externalSystem) || string.IsNullOrWhiteSpace(identifierType) || string.IsNullOrWhiteSpace(identifier)))
             throw new ArgumentException("External identifier fields must be nonempty.");
 
         var path = Path.Combine(directory, runId.ToString("D"));
@@ -1065,6 +1078,8 @@ public static class LocalRunEventStore
         var sequence = Read(directory, runId).Count + 1;
         var payload = eventType == "state-transition"
             ? new { schemaVersion = 1, runId = runId.ToString("D"), sequence, occurredAt = DateTimeOffset.UtcNow, eventType, fromState, toState } as object
+            : eventType == "operation-completed"
+            ? new { schemaVersion = 1, runId = runId.ToString("D"), sequence, occurredAt = DateTimeOffset.UtcNow, eventType, operation = identifier }
             : new { schemaVersion = 1, runId = runId.ToString("D"), sequence, occurredAt = DateTimeOffset.UtcNow, eventType, externalSystem, identifierType, identifier };
         var bytes = JsonSerializer.SerializeToUtf8Bytes(payload);
         var temporary = Path.Combine(path, "." + Guid.NewGuid().ToString("N") + ".tmp");
@@ -1090,8 +1105,68 @@ public sealed record StartWorkResult(Guid ProductRunId, string Repository, int S
     string BaseSha, string BranchName, string State);
 
 /// <summary>Checks the chosen start-work target before recording its durable STARTING state.</summary>
-public sealed class StartWorkCoordinator(GitHubIssueReader issueReader)
+public sealed class StartWorkCoordinator(GitHubIssueReader issueReader, AgentTool.GitHubAuthorizationProbe authorizationProbe)
 {
+    public async Task<StartWorkResult> ContinueAsync(StartWorkRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        var root = Path.GetFullPath(request.RepositoryRoot);
+        var directory = Path.Combine(root, ".sdeveng", "runs");
+        var events = LocalRunEventStore.Read(directory, request.ProductRunId);
+        var stateEvent = events.LastOrDefault(item => item.GetProperty("eventType").GetString() == "state-transition");
+        if (stateEvent.ValueKind == JsonValueKind.Undefined || stateEvent.GetProperty("toState").GetString() != "STARTING")
+            throw new InvalidOperationException("Branch push requires a validated STARTING run.");
+        await Git.Require(root, "check-ref-format", "--branch", request.BranchName);
+        var baseSha = (await Git.Require(root, "rev-parse", "--verify", "--end-of-options", request.BaseRef + "^{commit}")).Trim();
+        if (!string.Equals(baseSha, request.ExpectedBaseSha, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("Expected base SHA is stale.");
+        var origin = (await Git.Require(root, "remote", "get-url", "--all", "origin"))
+            .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Distinct(StringComparer.Ordinal).ToArray();
+        if (origin.Length != 1) throw new InvalidOperationException("Canonical origin must have one GitHub URL.");
+        var (owner, repository) = AgentTool.GitHubAuthorizationProbe.ParseGitHubTarget(origin[0]);
+        var target = $"{owner}/{repository}";
+        bool HasIdentifier(string system, string type, string value) => events.Any(item =>
+            item.GetProperty("eventType").GetString() == "external-identifier-recorded" &&
+            item.GetProperty("externalSystem").GetString() == system && item.GetProperty("identifierType").GetString() == type && item.GetProperty("identifier").GetString() == value);
+        if (!HasIdentifier("git", "repository", target) || !HasIdentifier("github", "issue", request.SourceIssueNumber.ToString(CultureInfo.InvariantCulture)))
+            throw new InvalidOperationException("STARTING target does not match its recorded identifiers.");
+        if (events.Any(item => item.GetProperty("eventType").GetString() == "external-identifier-recorded" &&
+            item.GetProperty("identifierType").GetString() == "branch" && item.GetProperty("identifier").GetString() != request.BranchName))
+            throw new InvalidOperationException("STARTING run already owns a different branch.");
+        bool Completed(string operation) => events.Any(item => item.GetProperty("eventType").GetString() == "operation-completed" && item.GetProperty("operation").GetString() == operation);
+        var gitState = await Git.State(root);
+        if (gitState.Operations.Count != 0) throw new InvalidOperationException("Worktree has an unfinished Git operation.");
+        var branchRef = "refs/heads/" + request.BranchName;
+        var branch = await Processes.Run("git", ["rev-parse", "--verify", branchRef], root);
+        if (branch.ExitCode == 0)
+        {
+            if (branch.Output.Trim() != baseSha ||
+                (await Git.Require(root, "config", "--get", "branch." + request.BranchName + "." + GitOwnershipMarkers.BranchConfigKey)).Trim() != GitOwnershipMarkers.BranchConfigValue)
+                throw new InvalidOperationException("Existing branch is not the owned branch at the verified base.");
+        }
+        else
+        {
+            if (Completed("branch-created")) throw new InvalidOperationException("Recorded owned branch is missing.");
+            if (gitState.Head != baseSha) throw new InvalidOperationException("HEAD must match the verified base.");
+            var changes = await Git.Require(root, "status", "--porcelain=v1", "-z", "--untracked-files=all", "--", ".", ":(exclude).sdeveng/runs");
+            if (changes.Length != 0) throw new InvalidOperationException("Worktree has unrelated changes.");
+            await Git.Require(root, "branch", request.BranchName, baseSha);
+            await Git.Require(root, "config", "branch." + request.BranchName + "." + GitOwnershipMarkers.BranchConfigKey, GitOwnershipMarkers.BranchConfigValue);
+        }
+        if (!HasIdentifier("git", "branch", request.BranchName)) LocalRunEventStore.AppendBranchIdentifier(directory, request.ProductRunId, request.BranchName);
+        if (!Completed("branch-created")) LocalRunEventStore.AppendOperationCompleted(directory, request.ProductRunId, "branch-created");
+        if (!Completed("branch-pushed"))
+        {
+            var capabilities = await authorizationProbe.ProbeAsync(root, cancellationToken);
+            if (!capabilities.Capabilities.Any(item => item.Operation == "branch-push" && item.TargetRepository == target && item.State == "allowed"))
+                throw new InvalidOperationException("Branch push capability is not allowed.");
+            var push = await Processes.Run("git", ["push", "--", "origin", branchRef + ":" + branchRef], root);
+            if (push.ExitCode != 0) throw new InvalidOperationException("Branch push failed; the owned local branch remains available: " + Secrets.Redact(push.Output.Trim()));
+            LocalRunEventStore.AppendOperationCompleted(directory, request.ProductRunId, "branch-pushed");
+        }
+        return new(request.ProductRunId, target, request.SourceIssueNumber, baseSha, request.BranchName, "STARTING");
+    }
+
     public async Task<StartWorkResult> StartAsync(StartWorkRequest request, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(request);

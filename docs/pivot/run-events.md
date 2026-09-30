@@ -29,6 +29,9 @@ nonterminal run. Missing runs and runs already in a terminal state are rejected.
 nonempty strings so future workflow states can be introduced without changing
 this event version. `external-identifier-recorded` records the issuing
 `externalSystem`, its `identifierType`, and the opaque `identifier` value.
+`operation-completed` records `branch-created` or `branch-pushed` after that
+operation succeeds. The branch identifier is recorded before branch creation
+completion, and a failed push leaves the owned local branch available for resume.
 Record an external identifier before any later action depends on it.
 GitHub issue and pull request identifiers use `externalSystem: "github"` with
 `identifierType: "issue"` and `"pull-request"`, respectively.

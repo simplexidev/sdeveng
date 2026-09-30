@@ -15,12 +15,13 @@
     },
     "sequence": { "type": "integer", "minimum": 1 },
     "occurredAt": { "type": "string", "format": "date-time" },
-    "eventType": { "enum": ["state-transition", "external-identifier-recorded"] },
+    "eventType": { "enum": ["state-transition", "external-identifier-recorded", "operation-completed"] },
     "fromState": { "type": ["string", "null"], "minLength": 1 },
     "toState": { "type": "string", "minLength": 1 },
     "externalSystem": { "type": "string", "minLength": 1 },
     "identifierType": { "type": "string", "minLength": 1 },
-    "identifier": { "type": "string", "minLength": 1 }
+    "identifier": { "type": "string", "minLength": 1 },
+    "operation": { "enum": ["branch-created", "branch-pushed"] }
   },
   "oneOf": [
     {
@@ -32,6 +33,11 @@
       "properties": { "eventType": { "const": "external-identifier-recorded" } },
       "required": ["externalSystem", "identifierType", "identifier"],
       "not": { "anyOf": [{ "required": ["fromState"] }, { "required": ["toState"] }] }
+    },
+    {
+      "properties": { "eventType": { "const": "operation-completed" } },
+      "required": ["operation"],
+      "not": { "anyOf": [{ "required": ["fromState"] }, { "required": ["toState"] }, { "required": ["externalSystem"] }, { "required": ["identifierType"] }, { "required": ["identifier"] }] }
     }
   ]
 }
