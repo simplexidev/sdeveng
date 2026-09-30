@@ -95,6 +95,45 @@ public sealed class GitHubIssueLabelWriterTests
     }
 
     [Fact]
+    public async Task ReadyRemovalRequiresConfiguredStatusAndDeletesOnlyReady()
+    {
+        using var catalog = JsonDocument.Parse("""{"labels":[{"name":"READY","family":"status"}]}""");
+        var write = new ReadyWriteClient();
+        var readClient = new ReadyReadClient("READY,customer-label", "customer-label");
+        var reader = new GitHubIssueReader(readClient);
+        var result = await new GitHubIssueLabelWriter(write, reader).RemoveConfiguredReadyLabelAsync("acme/widget", 42, Allowed(), catalog.RootElement);
+        Assert.Equal("applied", result.Status);
+        Assert.Equal(HttpMethod.Delete, write.Method);
+        Assert.Equal("https://api.github.com/repos/acme/widget/issues/42/labels/READY", write.Endpoint!.AbsoluteUri);
+        Assert.Equal(new[] { "customer-label" }, readClient.LastLabels);
+
+        using var unconfigured = JsonDocument.Parse("""{"labels":[]}""");
+        var noWrite = new ReadyWriteClient();
+        var noOp = await new GitHubIssueLabelWriter(noWrite, new GitHubIssueReader(new ReadyReadClient("READY")))
+            .RemoveConfiguredReadyLabelAsync("acme/widget", 42, Allowed(), unconfigured.RootElement);
+        Assert.Equal("no-op", noOp.Status);
+        Assert.Null(noWrite.Method);
+
+        var absent = new ReadyWriteClient();
+        var absentResult = await new GitHubIssueLabelWriter(absent, new GitHubIssueReader(new ReadyReadClient("customer-label")))
+            .RemoveConfiguredReadyLabelAsync("acme/widget", 42, Allowed(), catalog.RootElement);
+        Assert.Equal("no-op", absentResult.Status);
+        Assert.Null(absent.Method);
+    }
+
+    [Fact]
+    public async Task ReadyDeletionFailureIsReportedAndUnrelatedLabelsArePreserved()
+    {
+        using var catalog = JsonDocument.Parse("""{"labels":[{"name":"READY","family":"status"}]}""");
+        var write = new ReadyWriteClient(HttpStatusCode.Forbidden);
+        var result = await new GitHubIssueLabelWriter(write, new GitHubIssueReader(new ReadyReadClient("READY,customer-label")))
+            .RemoveConfiguredReadyLabelAsync("acme/widget", 42, Allowed(), catalog.RootElement);
+        Assert.Equal("failure", result.Status);
+        Assert.Equal(HttpMethod.Delete, write.Method);
+        Assert.Equal("https://api.github.com/repos/acme/widget/issues/42/labels/READY", write.Endpoint!.AbsoluteUri);
+    }
+
+    [Fact]
     public async Task EmptyAreaSelectionPreservesUnresolvedStatusWithoutRequest()
     {
         var transport = new FakeWriteClient();
@@ -205,6 +244,31 @@ public sealed class GitHubIssueLabelWriterTests
             var labelObjects = currentLabels.Length == 0 ? Array.Empty<Dictionary<string, string>>() : currentLabels.Split(',').Select(name => new Dictionary<string, string> { ["name"] = name }).ToArray();
             var json = JsonSerializer.Serialize(new { number = 42, title = "Issue", state = "open", html_url = "https://github.com/acme/widget/issues/42", labels = labelObjects });
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(json) });
+        }
+    }
+
+    sealed class ReadyWriteClient(HttpStatusCode status = HttpStatusCode.NoContent) : IGitHubWriteClient
+    {
+        public HttpMethod? Method { get; private set; }
+        public Uri? Endpoint { get; private set; }
+        public Task<HttpResponseMessage> SendAsync(HttpMethod method, Uri endpoint, HttpContent? content = null, CancellationToken cancellationToken = default)
+        {
+            Method = method;
+            Endpoint = endpoint;
+            return Task.FromResult(new HttpResponseMessage(status));
+        }
+    }
+
+    sealed class ReadyReadClient(params string[] labelSets) : IGitHubReadClient
+    {
+        int reads;
+        public string[] LastLabels { get; private set; } = [];
+        public Task<HttpResponseMessage> GetAsync(Uri endpoint, CancellationToken cancellationToken = default)
+        {
+            LastLabels = labelSets[Math.Min(reads++, labelSets.Length - 1)].Split(',', StringSplitOptions.RemoveEmptyEntries);
+            var labels = LastLabels.Select(name => new { name });
+            var body = JsonSerializer.Serialize(new { number = 42, title = "Issue", state = "open", html_url = "https://github.com/acme/widget/issues/42", labels });
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body) });
         }
     }
 }
