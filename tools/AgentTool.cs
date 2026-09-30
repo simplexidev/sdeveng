@@ -1170,7 +1170,7 @@ public static class AgentTool
         }
     }
 
-    public sealed record GitHubCapability(string Operation, string? TargetRepository, string State, string Evidence);
+    public sealed record GitHubCapability(string Operation, string? TargetRepository, string State, string ProbeKind, string Evidence);
     public sealed record GitHubCapabilities(string Kind, IReadOnlyList<GitHubCapability> Capabilities);
 
     public interface IGitHubAuthorizationProcess
@@ -1213,7 +1213,20 @@ public static class AgentTool
             var credentialEvidence = auth.ExitCode == 0 ? authEvidence : "";
             var prCreate = PullRequestCreateCapability(target, repo, credentialEvidence);
             var branchPush = await BranchPushCapability(root, target, cancellationToken);
-            return new("github-capabilities", [read, label, branchPush, prCreate]);
+            var workflowRerun = await WorkflowRerunCapability(root, target);
+            return new("github-capabilities", [read, label, branchPush, prCreate, workflowRerun]);
+        }
+
+        async Task<GitHubCapability> WorkflowRerunCapability(string root, string target)
+        {
+            ProcessResult actions;
+            try { actions = await process.Run("gh", ["api", "--method", "GET", $"repos/{target}/actions/runs?per_page=1"], root); }
+            catch { return Cap("workflow-rerun", target, "unknown", "actions-runs-get", "Actions read evidence unavailable; rerun write permission is unproven"); }
+            if (ExplicitReject(actions.Output))
+                return Cap("workflow-rerun", target, "denied", "actions-runs-get", "GitHub explicitly denied authenticated Actions access");
+            return Cap("workflow-rerun", target, "unknown", "actions-runs-get", actions.ExitCode == 0
+                ? "authenticated Actions GET succeeded; it does not prove rerun write permission"
+                : "Actions GET did not establish access or rerun write permission");
         }
 
         async Task<GitHubCapability> BranchPushCapability(string root, string target, CancellationToken cancellationToken)
@@ -1229,10 +1242,10 @@ public static class AgentTool
             ProcessResult push;
             try { push = await process.Run("git", ["push", "--dry-run", "--porcelain", "origin", $"HEAD:{branch}"], root); }
             catch { return Cap("branch-push", target, "unknown", "dry-run push did not establish authorization"); }
-            if (push.ExitCode == 0) return Cap("branch-push", target, "allowed", "git push dry-run to a unique probe ref succeeded");
+            if (push.ExitCode == 0) return Cap("branch-push", target, "allowed", "git-push-dry-run", "git push dry-run to a unique probe ref succeeded");
             return ExplicitReject(push.Output) || Regex.IsMatch(push.Output, @"(?i)(protected branch|pre-receive hook declined|prohibited by.*policy|repository rule|cannot push|push declined)")
-                ? Cap("branch-push", target, "denied", "remote explicitly rejected the dry-run push")
-                : Cap("branch-push", target, "unknown", "dry-run push failed without a deterministic authorization rejection");
+                ? Cap("branch-push", target, "denied", "git-push-dry-run", "remote explicitly rejected the dry-run push")
+                : Cap("branch-push", target, "unknown", "git-push-dry-run", "dry-run push failed without a deterministic authorization rejection");
         }
 
         static GitHubCapability PullRequestCreateCapability(string target, ProcessResult repository, string auth)
@@ -1282,8 +1295,9 @@ public static class AgentTool
         }
 
         static bool ExplicitReject(string output) => Regex.IsMatch(output, @"(?i)(HTTP\s+401|HTTP\s+403|\b(unauthorized|forbidden|requires authentication|resource not accessible)\b)");
-        static GitHubCapability Cap(string operation, string? target, string state, string evidence) => new(operation, target, state, evidence);
-        static GitHubCapabilities Unknown(string? target, string evidence) => new("github-capabilities", [Cap("issues.read", target, "unknown", evidence), Cap("issues.labels.write", target, "unknown", evidence), Cap("branch-push", target, "unknown", evidence), Cap("pr-create", target, "unknown", evidence)]);
+        static GitHubCapability Cap(string operation, string? target, string state, string evidence) => Cap(operation, target, state, "authenticated-get", evidence);
+        static GitHubCapability Cap(string operation, string? target, string state, string probeKind, string evidence) => new(operation, target, state, probeKind, evidence);
+        static GitHubCapabilities Unknown(string? target, string evidence) => new("github-capabilities", [Cap("issues.read", target, "unknown", evidence), Cap("issues.labels.write", target, "unknown", evidence), Cap("branch-push", target, "unknown", evidence), Cap("pr-create", target, "unknown", evidence), Cap("workflow-rerun", target, "unknown", evidence)]);
         public static (string Owner, string Repository) ParseGitHubTarget(string remote)
         {
             string path;
