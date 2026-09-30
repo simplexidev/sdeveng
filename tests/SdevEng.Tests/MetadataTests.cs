@@ -66,10 +66,11 @@ public class MetadataTests
         var schema = JsonSchema.FromFile(Path.Combine(Root, "schemas/label-catalog.schema.json"));
         Assert.True(schema.Evaluate(catalog, new() { OutputFormat = OutputFormat.List }).IsValid);
         var labels = catalog["labels"]!.AsArray();
-        Assert.Equal(13, labels.Count);
+        Assert.Equal(14, labels.Count);
         Assert.All(labels, label => Assert.Matches("^[0-9A-Fa-f]{6}$", label!["color"]!.GetValue<string>()));
-        var inProgress = labels.Single(label => label!["family"]!.GetValue<string>() == "status");
+        var inProgress = labels.Single(label => label!["name"]!.GetValue<string>() == "IN_PROGRESS");
         Assert.Equal("IN_PROGRESS", inProgress!["name"]!.GetValue<string>());
+        Assert.Contains(labels, label => label!["name"]!.GetValue<string>() == "TRIAGED" && label["family"]!.GetValue<string>() == "status");
         Assert.Equal("status", inProgress["family"]!.GetValue<string>());
         Assert.Contains(labels, label => label!["family"]!.GetValue<string>() == "type" && label["name"]!.GetValue<string>() == "type:chore");
         Assert.Contains(labels, label => label!["family"]!.GetValue<string>() == "area" && label["name"]!.GetValue<string>() == "area:tooling");

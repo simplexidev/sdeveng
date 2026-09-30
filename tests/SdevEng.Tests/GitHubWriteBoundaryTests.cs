@@ -5,14 +5,15 @@ using Microsoft.Extensions.DependencyInjection;
 public sealed class GitHubWriteBoundaryTests
 {
     [Fact]
-    public async Task AllowlistPermitsOnlyPullRequestCreationAndEditing()
+    public async Task AllowlistPermitsOwnedPullRequestAndIssueLabelEndpointsOnly()
     {
         var sent = 0;
         using var http = new HttpClient(new RecordingHandler(() => sent++));
         var client = new GitHubWriteClient(http, new FakeCredentials("secret-token"));
         await client.SendAsync(HttpMethod.Post, new Uri("https://api.github.com/repos/owner/repo/pulls"));
         await client.SendAsync(HttpMethod.Patch, new Uri("https://api.github.com/repos/owner/repo/pulls/12"));
-        Assert.Equal(2, sent);
+        await client.SendAsync(HttpMethod.Post, new Uri("https://api.github.com/repos/owner/repo/issues/12/labels"), new StringContent("{\"labels\":[\"TRIAGED\"]}"));
+        Assert.Equal(3, sent);
 
         foreach (var (method, path) in new[]
         {
@@ -23,7 +24,9 @@ public sealed class GitHubWriteBoundaryTests
             (HttpMethod.Patch, "/repos/owner/repo/pulls/0")
         })
             await Assert.ThrowsAsync<InvalidOperationException>(() => client.SendAsync(method, new Uri("https://api.github.com" + path)));
-        Assert.Equal(2, sent);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => client.SendAsync(HttpMethod.Put, new Uri("https://api.github.com/repos/owner/repo/issues/12/labels")));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => client.SendAsync(HttpMethod.Post, new Uri("https://api.github.com/repos/owner/repo/issues/0/labels")));
+        Assert.Equal(3, sent);
     }
 
     [Fact]
@@ -118,6 +121,7 @@ public sealed class GitHubWriteBoundaryTests
         AgentTool.AgentToolModule.Register(services);
         using var provider = services.BuildServiceProvider();
         Assert.IsType<GitHubWriteClient>(provider.GetRequiredService<IGitHubWriteClient>());
+        Assert.IsType<GitHubIssueLabelWriter>(provider.GetRequiredService<GitHubIssueLabelWriter>());
         Assert.IsType<GitHubCredentialProvider>(provider.GetRequiredService<IGitHubCredentialProvider>());
     }
 
@@ -126,7 +130,7 @@ public sealed class GitHubWriteBoundaryTests
     {
         var source = File.ReadAllText(Path.Combine(AgentTool.FindToolkit(), "tools/AgentTool.cs"));
 
-        Assert.Equal(3, Regex.Matches(source, @"\bIGitHubWriteClient\b").Count);
+        Assert.Equal(4, Regex.Matches(source, @"\bIGitHubWriteClient\b").Count);
         Assert.Contains("public sealed class GitHubWriteClient(HttpClient http, IGitHubCredentialProvider credentials) : IGitHubWriteClient", source);
         Assert.Contains("Processes.Run(\"gh\", [\"auth\", \"status\"]", source);
         Assert.DoesNotContain("Processes.Run(\"gh\", [\"pr\", \"", source);
