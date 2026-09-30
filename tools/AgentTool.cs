@@ -776,6 +776,41 @@ public sealed class GitHubChecksWorkflowReader(IGitHubReadClient client)
     static Uri? OptionalUrl(JsonElement root, string name) => Uri.TryCreate(OptionalString(root, name), UriKind.Absolute, out var url) && url.Scheme == Uri.UriSchemeHttps ? url : null;
 }
 
+public sealed record CiObservationCheck(int Id, string Name, Uri? DetailsUrl, string ProviderStatus, string? ProviderConclusion, string State);
+public sealed record CiObservation(string CommitSha, IReadOnlyList<CiObservationCheck> Checks);
+
+/// <summary>Builds bounded CI facts for the commit recorded on a product run.</summary>
+public sealed class CiObservationService(GitHubChecksWorkflowReader checksReader)
+{
+    public async Task<CiObservation> ObserveAsync(string runDirectory, Guid productRunId, string owner, string repository,
+        string? explicitCommitSha = null, int limit = 100, CancellationToken cancellationToken = default)
+    {
+        if (limit is < 1 or > 200) throw new ArgumentOutOfRangeException(nameof(limit));
+        var events = LocalRunEventStore.Read(runDirectory, productRunId);
+        var commit = events.LastOrDefault(item => item.GetProperty("eventType").GetString() == "external-identifier-recorded" &&
+            item.GetProperty("externalSystem").GetString() == "git" && item.GetProperty("identifierType").GetString() == "step-commit");
+        var sha = commit.ValueKind == JsonValueKind.Undefined ? explicitCommitSha : commit.GetProperty("identifier").GetString();
+        if (sha is null || !Regex.IsMatch(sha, @"^(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$", RegexOptions.CultureInvariant))
+            throw new ArgumentException("A full commit SHA is required when run metadata has no valid step commit.", nameof(explicitCommitSha));
+        var checks = await checksReader.ReadChecksAsync(owner, repository, sha, cancellationToken);
+        return new(sha, checks.Take(limit).Select(check => new CiObservationCheck(check.Id, check.Name, check.DetailsUrl,
+            check.Status, check.Conclusion, Normalize(check.Status, check.Conclusion))).ToArray());
+    }
+
+    static string Normalize(string status, string? conclusion)
+    {
+        if (!string.Equals(status, "completed", StringComparison.OrdinalIgnoreCase)) return "pending";
+        return conclusion?.ToLowerInvariant() switch
+        {
+            "success" or "neutral" => "success",
+            "failure" or "timed_out" or "action_required" => "failure",
+            "cancelled" => "cancelled",
+            "skipped" => "skipped",
+            _ => "unknown"
+        };
+    }
+}
+
 public interface IGitHubCredentialProvider
 {
     Task<string?> GetTokenAsync(CancellationToken cancellationToken = default);
@@ -1759,6 +1794,7 @@ public static class AgentTool
             services.AddTransient<GitHubIssueReader>();
             services.AddTransient<StartWorkCoordinator>();
             services.AddTransient<GitHubChecksWorkflowReader>();
+            services.AddTransient<CiObservationService>();
             services.AddTransient<GitHubActionsReader>();
             services.AddTransient<GitHubPrStatusReader>();
             services.AddTransient<GitHubReviewCommentReader>();
