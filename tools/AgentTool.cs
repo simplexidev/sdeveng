@@ -765,6 +765,27 @@ public sealed class GitHubChecksWorkflowReader(IGitHubReadClient client)
     static Uri? OptionalUrl(JsonElement root, string name) => Uri.TryCreate(OptionalString(root, name), UriKind.Absolute, out var url) && url.Scheme == Uri.UriSchemeHttps ? url : null;
 }
 
+public interface IGitHubCredentialProvider
+{
+    Task<string?> GetTokenAsync(CancellationToken cancellationToken = default);
+}
+
+/// <summary>Reads the active GitHub CLI token into memory for an authenticated API request.</summary>
+public sealed class GitHubCredentialProvider : IGitHubCredentialProvider
+{
+    public async Task<string?> GetTokenAsync(CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var result = await Processes.Run("gh", ["auth", "token"], Environment.CurrentDirectory, timeout: TimeSpan.FromSeconds(10));
+            if (result.ExitCode != 0) return null;
+            var token = result.Output.Trim();
+            return token.Length > 0 && !token.Any(char.IsControl) ? token : null;
+        }
+        catch { return null; }
+    }
+}
+
 /// <summary>Performs mutations against the GitHub API.</summary>
 public interface IGitHubWriteClient
 {
@@ -772,9 +793,9 @@ public interface IGitHubWriteClient
 }
 
 /// <summary>Restricts GitHub writes to explicitly owned pull request creation and editing.</summary>
-public sealed class GitHubWriteClient(HttpClient http) : IGitHubWriteClient
+public sealed class GitHubWriteClient(HttpClient http, IGitHubCredentialProvider credentials) : IGitHubWriteClient
 {
-    public Task<HttpResponseMessage> SendAsync(HttpMethod method, Uri endpoint, HttpContent? content = null, CancellationToken cancellationToken = default)
+    public async Task<HttpResponseMessage> SendAsync(HttpMethod method, Uri endpoint, HttpContent? content = null, CancellationToken cancellationToken = default)
     {
         if (method is null || endpoint is null || endpoint.Scheme != Uri.UriSchemeHttps ||
             endpoint.Host != "api.github.com" || endpoint.Port != 443 ||
@@ -787,7 +808,21 @@ public sealed class GitHubWriteClient(HttpClient http) : IGitHubWriteClient
             (method == HttpMethod.Post && parts.Length == 4 ||
              method == HttpMethod.Patch && parts.Length == 5 && int.TryParse(parts[4], NumberStyles.None, CultureInfo.InvariantCulture, out var number) && number > 0);
         if (!allowed) throw new InvalidOperationException("GitHub mutation is not allowlisted.");
-        return http.SendAsync(new HttpRequestMessage(method, endpoint) { Content = content }, cancellationToken);
+        string? token;
+        try { token = await credentials.GetTokenAsync(cancellationToken); }
+        catch { token = null; }
+        if (string.IsNullOrWhiteSpace(token) || token.Any(char.IsControl))
+            throw new InvalidOperationException("GitHub authentication is unavailable.");
+
+        using var request = new HttpRequestMessage(method, endpoint) { Content = content };
+        request.Headers.Accept.ParseAdd("application/vnd.github+json");
+        request.Headers.UserAgent.ParseAdd("sdeveng");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        try { return await http.SendAsync(request, cancellationToken); }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            throw new HttpRequestException("GitHub mutation request failed.");
+        }
     }
 }
 
@@ -1134,6 +1169,9 @@ public static class AgentTool
             });
             services.AddTransient<GitHubReadClient>();
             services.AddTransient<IGitHubReadClient>(provider => provider.GetRequiredService<GitHubReadClient>());
+            services.AddSingleton<IGitHubCredentialProvider, GitHubCredentialProvider>();
+            services.AddTransient<GitHubWriteClient>();
+            services.AddTransient<IGitHubWriteClient>(provider => provider.GetRequiredService<GitHubWriteClient>());
             services.AddTransient<GitHubCommitReader>();
             services.AddTransient<GitHubRepositoryMetadataReader>();
             services.AddTransient<GitHubIssueReader>();
