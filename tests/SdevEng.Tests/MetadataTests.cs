@@ -60,6 +60,19 @@ public class MetadataTests
         }
     }
     [Fact]
+    public void LabelCatalogDefinesTheStatusLabelFamily()
+    {
+        var catalog = JsonNode.Parse(File.ReadAllText(Path.Combine(Root, "config/labels.json")))!;
+        var schema = JsonSchema.FromFile(Path.Combine(Root, "schemas/label-catalog.schema.json"));
+        Assert.True(schema.Evaluate(catalog, new() { OutputFormat = OutputFormat.List }).IsValid);
+        var labels = catalog["labels"]!.AsArray();
+        var inProgress = Assert.Single(labels);
+        Assert.Equal("IN_PROGRESS", inProgress!["name"]!.GetValue<string>());
+        Assert.Equal("status", inProgress["family"]!.GetValue<string>());
+        Assert.False(schema.Evaluate(JsonNode.Parse("""{"version":2,"labels":[]}""")!, new() { OutputFormat = OutputFormat.List }).IsValid);
+        Assert.False(schema.Evaluate(JsonNode.Parse("""{"version":1,"labels":[{"name":"","family":"status","description":"invalid"}]}""")!, new() { OutputFormat = OutputFormat.List }).IsValid);
+    }
+    [Fact]
     public void PhaseAndStageSchemasDefineOrderedRoadmapFields()
     {
         var schemas = Path.Combine(Root, "schemas");
