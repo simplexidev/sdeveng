@@ -232,6 +232,11 @@ public sealed record IssueSymbolReference(string Value);
 public sealed record IssueReferenceFacts(IssueFileReference[] Files, IssueSymbolReference[] Symbols);
 public sealed record LinkedIssueReference(string Owner, string Repository, int Number, string Kind);
 public sealed record TriageFacts(string? CandidateRepository, IReadOnlyList<LinkedIssueReference> References, bool ReferencesTruncated);
+public sealed record IssueTriageFacts(
+    string? CandidateRepository, string Title, string Body,
+    IReadOnlyList<IssueFileReference> Files, IReadOnlyList<IssueSymbolReference> Symbols,
+    IReadOnlyList<LinkedIssueReference> LinkedReferences, IReadOnlyList<string> AreaHints,
+    IReadOnlyList<string> UnresolvedFamilies, bool Truncated);
 
 /// <summary>Extracts explicit issue references and the invocation repository from normalized issue text.</summary>
 public static class TriageFactsExtractor
@@ -239,6 +244,32 @@ public static class TriageFactsExtractor
     static readonly Regex HttpsReference = new(@"https://github\.com/([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)/(issues|pull)/([1-9][0-9]*)(?![A-Za-z0-9_/?#.-])", RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
     static readonly Regex QualifiedReference = new(@"(?<![A-Za-z0-9_./-])([A-Za-z0-9_.-]+)/([A-Za-z0-9_.-]+)#([1-9][0-9]*)(?![0-9])", RegexOptions.Compiled | RegexOptions.CultureInvariant);
     static readonly Regex LocalReference = new(@"(?<![A-Za-z0-9_./-])#([1-9][0-9]*)(?![0-9])", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+    static readonly Regex AreaHint = new(@"(?<![A-Za-z0-9_-])area:([A-Za-z0-9_.-]+)(?![A-Za-z0-9_.-])", RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+
+    public static async Task<IssueTriageFacts> ExtractIssueAsync(GitHubIssue issue, string repositoryRoot, int maxItems = 50, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(issue);
+        ArgumentException.ThrowIfNullOrWhiteSpace(repositoryRoot);
+        if (maxItems < 1) throw new ArgumentOutOfRangeException(nameof(maxItems));
+        var text = issue.Title + "\n" + (issue.Body ?? "");
+        var references = await ExtractAsync(text, repositoryRoot, maxItems, cancellationToken);
+        var sourceFacts = IssueReferenceExtractor.Extract(issue, repositoryRoot, maxItems);
+        var files = sourceFacts.Files.Take(maxItems).ToArray();
+        var symbols = sourceFacts.Symbols.Take(maxItems).ToArray();
+        var areas = new List<string>();
+        var areaSeen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var file in files)
+        {
+            var segment = file.Path.Split('/')[0];
+            if (areaSeen.Add(segment)) areas.Add(segment);
+        }
+        foreach (Match match in AreaHint.Matches(text))
+            if (areaSeen.Add(match.Groups[1].Value)) areas.Add("area:" + match.Groups[1].Value);
+        var truncated = references.ReferencesTruncated || sourceFacts.Files.Length > maxItems || sourceFacts.Symbols.Length > maxItems || areas.Count > maxItems;
+        return new(references.CandidateRepository, issue.Title, issue.Body ?? "", files, symbols,
+            references.References.Take(maxItems).ToArray(), areas.Take(maxItems).ToArray(),
+            new[] { "type", "area", "risk", "complexity", "scope" }, truncated);
+    }
 
     public static TriageFacts Extract(string normalizedIssueText, string repositoryRoot, int maxItems = 50)
     {
