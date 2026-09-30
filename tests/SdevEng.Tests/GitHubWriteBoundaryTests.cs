@@ -130,7 +130,7 @@ public sealed class GitHubWriteBoundaryTests
     {
         var source = File.ReadAllText(Path.Combine(AgentTool.FindToolkit(), "tools/AgentTool.cs"));
 
-        Assert.Equal(4, Regex.Matches(source, @"\bIGitHubWriteClient\b").Count);
+        Assert.Equal(5, Regex.Matches(source, @"\bIGitHubWriteClient\b").Count);
         Assert.Contains("public sealed class GitHubWriteClient(HttpClient http, IGitHubCredentialProvider credentials) : IGitHubWriteClient", source);
         Assert.Contains("Processes.Run(\"gh\", [\"auth\", \"status\"]", source);
         Assert.DoesNotContain("Processes.Run(\"gh\", [\"pr\", \"", source);

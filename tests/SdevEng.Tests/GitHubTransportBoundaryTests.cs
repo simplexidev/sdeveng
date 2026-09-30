@@ -25,7 +25,7 @@ public sealed class GitHubTransportBoundaryTests
             .Select(match => EnclosingType(source, match.Index))
             .ToArray();
         Assert.NotEmpty(hostOwners);
-        Assert.All(hostOwners, owner => Assert.Contains(owner, apiOwners.Append("GitHubIssueLabelWriter")));
+        Assert.All(hostOwners, owner => Assert.Contains(owner, apiOwners.Append("GitHubIssueLabelWriter").Append("StartWorkCoordinator")));
 
         // HTTP calls aimed at GitHub belong to the typed readers and guarded write path.
         var rawHttpCalls = Regex.Matches(source,

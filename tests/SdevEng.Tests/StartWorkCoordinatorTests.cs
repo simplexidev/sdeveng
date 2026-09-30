@@ -36,7 +36,7 @@ public sealed class StartWorkCoordinatorTests
         Assert.Equal(markerRun.ToString("D"), markerJson["runId"]!.GetValue<string>());
         Assert.Equal("draft-pr-bootstrap", markerJson["purpose"]!.GetValue<string>());
         Assert.Equal((int.Parse(commitCount) + 1).ToString(), repo.Run("rev-list", "--count", "HEAD").Trim());
-        Assert.Equal(Path.Combine(".sdeveng", "bootstrap", markerRun.ToString("D") + ".json"), repo.Run("diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD").Trim());
+        Assert.Equal($".sdeveng/bootstrap/{markerRun:D}.json", repo.Run("diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD").Trim());
         Assert.StartsWith("A  unrelated.txt\n", repo.Run("status", "--porcelain"));
         Assert.Equal("marker", LocalRunEventStore.Read(Store(repo), markerRun).Single().GetProperty("detail").GetString());
         var otherRun = Guid.NewGuid();
