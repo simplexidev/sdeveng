@@ -23,6 +23,7 @@ jobs:
         with:
           global-json-file: global.json
       - run: dotnet tools/AgentTool.cs help
+      - run: dotnet build src/SdevEng.Cli/SdevEng.Cli.csproj --configuration Release
       - run: dotnet test tests/SdevEng.Tests/SdevEng.Tests.csproj --logger trx --results-directory TestResults
       - run: dotnet tools/AgentTool.cs validate --json
       - run: dotnet format tests/SdevEng.Tests/SdevEng.Tests.csproj --no-restore --verify-no-changes
