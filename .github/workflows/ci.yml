@@ -1,7 +1,7 @@
 name: CI
 on:
   push:
-    branches: [main]
+    branches: ['**']
   pull_request:
 permissions:
   contents: read
@@ -10,6 +10,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   test:
+    continue-on-error: ${{ github.event_name == 'push' }}
     strategy:
       fail-fast: false
       matrix:

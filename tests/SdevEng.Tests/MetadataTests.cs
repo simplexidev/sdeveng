@@ -445,6 +445,21 @@ public class MetadataTests
         Assert.Contains("(cd artifacts && sha256sum sdeveng.zip > SHA256SUMS)", workflow);
         Assert.DoesNotContain("sha256sum artifacts/sdeveng.zip > artifacts/SHA256SUMS", workflow);
     }
+
+    [Fact]
+    public void WorkUnitHostedChecksRunOnPushesAsAdvisoryAndRemainBlockingOnPullRequests()
+    {
+        var workflow = File.ReadAllText(Path.Combine(Root, ".github/workflows/ci.yml"));
+        var gates = File.ReadAllText(Path.Combine(Root, "docs/pivot/validation-gates.md"));
+        Assert.Contains("branches: ['**']", workflow);
+        Assert.Contains("continue-on-error: ${{ github.event_name == 'push' }}", workflow);
+        Assert.Contains("pull_request:", workflow);
+        Assert.Contains("The `CI` workflow may run the same test, validation, format, and diff checks", gates);
+        Assert.Contains("dotnet test tests/SdevEng.Tests/SdevEng.Tests.csproj", gates);
+        Assert.Contains("dotnet tools/AgentTool.cs validate --json", gates);
+        Assert.Contains("dotnet format tests/SdevEng.Tests/SdevEng.Tests.csproj --no-restore --verify-no-changes", gates);
+        Assert.Contains("git diff --check", gates);
+    }
 }
 
 public class RepositoryIntegrityTests
