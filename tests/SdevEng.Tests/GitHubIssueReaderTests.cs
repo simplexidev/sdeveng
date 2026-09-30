@@ -21,6 +21,18 @@ public sealed class GitHubIssueReaderTests
     }
 
     [Fact]
+    public async Task NormalizesIssueTitleAndBodyBoundariesAndLineEndings()
+    {
+        const string response = """
+            {"number":7,"title":"  Fix the thing\r\n ","state":"open","html_url":"https://github.com/owner/project/issues/7","body":"  First line\r\nSecond line\rThird line  ","user":{"login":"octocat"}}
+            """;
+        var result = await new GitHubIssueReader(new StubReadClient(response)).ReadIssueAsync("owner", "project", 7);
+
+        Assert.Equal("Fix the thing", result.Title);
+        Assert.Equal("First line\nSecond line\nThird line", result.Body);
+    }
+
+    [Fact]
     public async Task ReadsPullRequestFromExplicitEndpoint()
     {
         var transport = new StubReadClient(PullRequest);

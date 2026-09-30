@@ -257,7 +257,9 @@ public sealed class GitHubIssueReader(IGitHubReadClient client)
     }
 
     static GitHubIssue ToIssue(JsonElement root) =>
-        new(Number(root), String(root, "title"), String(root, "state"), Url(root), OptionalString(root, "body"), Author(root));
+        new(Number(root), NormalizeIssueText(String(root, "title"))!, String(root, "state"), Url(root), NormalizeIssueText(OptionalString(root, "body")), Author(root));
+
+    static string? NormalizeIssueText(string? value) => value?.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n').Trim();
 
     static GitHubPullRequest ToPullRequest(JsonElement root)
     {
