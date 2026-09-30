@@ -84,14 +84,16 @@ public sealed class StartWorkCoordinatorTests
         {
             repo.Run("remote", "set-url", "--push", "origin", bare);
             var request = NewRequest(repo);
-            var coordinator = Registered(new IssueClient(), capability);
+            var client = new IssueClient();
+            var coordinator = Registered(client, capability);
             await coordinator.StartAsync(request);
             if (pushed) await coordinator.ContinueAsync(request);
             else await Assert.ThrowsAsync<InvalidOperationException>(() => coordinator.ContinueAsync(request));
-            Assert.Equal(request.ExpectedBaseSha, repo.Run("rev-parse", "refs/heads/" + request.BranchName).Trim());
+            var branchSha = repo.Run("rev-parse", "refs/heads/" + request.BranchName).Trim();
+            Assert.NotEqual(request.ExpectedBaseSha, branchSha);
             Assert.Equal(GitOwnershipMarkers.BranchConfigValue, repo.Run("config", "--get", "branch." + request.BranchName + "." + GitOwnershipMarkers.BranchConfigKey).Trim());
             var remote = await Processes.Run("git", ["--git-dir", bare, "for-each-ref", "--format=%(refname):%(objectname)", "refs/heads"], repo.Root);
-            Assert.Equal(pushed ? $"refs/heads/{request.BranchName}:{request.ExpectedBaseSha}\n" : "", remote.Output);
+            Assert.Equal(pushed ? $"refs/heads/{request.BranchName}:{branchSha}\n" : "", remote.Output);
             var events = LocalRunEventStore.Read(Store(repo), request.ProductRunId);
             Assert.Equal(pushed ? 1 : 0, events.Count(item => item.GetProperty("eventType").GetString() == "start-work-progress" && item.GetProperty("operation").GetString() == "branch-pushed" && item.GetProperty("status").GetString() == "completed"));
             Assert.Contains(events, item => item.GetProperty("eventType").GetString() == "start-work-progress" && item.GetProperty("operation").GetString() == "branch-created" && item.GetProperty("status").GetString() == "completed");
@@ -99,9 +101,20 @@ public sealed class StartWorkCoordinatorTests
             Assert.All(events, item => Assert.True(schema.Evaluate(JsonNode.Parse(item.GetRawText())!).IsValid));
             if (pushed)
             {
+                Assert.Single(client.WriteClient.Requests);
+                var create = client.WriteClient.Requests[0];
+                Assert.Equal(HttpMethod.Post, create.Method);
+                Assert.Equal(new Uri("https://api.github.com/repos/owner/project/pulls"), create.Endpoint);
+                var payload = JsonNode.Parse(create.Body)!;
+                Assert.Equal("Issue", payload["title"]!.GetValue<string>());
+                Assert.Equal(request.BranchName, payload["head"]!.GetValue<string>());
+                Assert.Equal(request.BaseRef, payload["base"]!.GetValue<string>());
+                Assert.True(payload["draft"]!.GetValue<bool>());
+                Assert.Equal($"<!-- sdeveng-run:{request.ProductRunId:D} -->", payload["body"]!.GetValue<string>());
                 var count = events.Count;
                 await coordinator.ContinueAsync(request);
                 Assert.Equal(count, LocalRunEventStore.Read(Store(repo), request.ProductRunId).Count);
+                Assert.Single(client.WriteClient.Requests);
             }
         }
         finally { DeleteBareRepository(bare); }
@@ -116,7 +129,7 @@ public sealed class StartWorkCoordinatorTests
         var coordinator = Registered(new IssueClient(), "allowed");
         await coordinator.StartAsync(request);
         await Assert.ThrowsAsync<IOException>(() => coordinator.ContinueAsync(request));
-        Assert.Equal(request.ExpectedBaseSha, repo.Run("rev-parse", "refs/heads/" + request.BranchName).Trim());
+        Assert.NotEqual(request.ExpectedBaseSha, repo.Run("rev-parse", "refs/heads/" + request.BranchName).Trim());
         Assert.Equal("STARTING_RETRYABLE", System.Text.Json.JsonSerializer.SerializeToNode(LocalRunEventStore.Status(Store(repo), request.ProductRunId), AgentTool.Json)!["state"]!.GetValue<string>());
         Assert.DoesNotContain(LocalRunEventStore.Read(Store(repo), request.ProductRunId), item =>
             item.GetProperty("eventType").GetString() == "start-work-progress" && item.GetProperty("operation").GetString() == "branch-pushed" && item.GetProperty("status").GetString() == "completed");
@@ -129,9 +142,30 @@ public sealed class StartWorkCoordinatorTests
             var events = LocalRunEventStore.Read(Store(repo), request.ProductRunId);
             Assert.Single(events, item => item.GetProperty("eventType").GetString() == "start-work-progress" && item.GetProperty("operation").GetString() == "branch-created" && item.GetProperty("status").GetString() == "completed");
             Assert.Single(events, item => item.GetProperty("eventType").GetString() == "start-work-progress" && item.GetProperty("operation").GetString() == "branch-pushed" && item.GetProperty("status").GetString() == "completed");
-            Assert.DoesNotContain(events, item => item.GetProperty("eventType").GetString() == "external-identifier-recorded" && item.GetProperty("identifierType").GetString() == "pull-request");
+            Assert.Single(events, item => item.GetProperty("eventType").GetString() == "external-identifier-recorded" && item.GetProperty("identifierType").GetString() == "pull-request");
         }
         finally { DeleteBareRepository(bare); }
+    }
+
+    [Fact]
+    public async Task PullRequestCapabilityUnknownDoesNotPost()
+    {
+        using var repo = NewRepository();
+        var bare = Path.Combine(Path.GetTempPath(), "sdeveng-pr-unknown-" + Guid.NewGuid().ToString("N"));
+        await Processes.Run("git", ["init", "--bare", bare], repo.Root);
+        repo.Run("remote", "set-url", "--push", "origin", bare);
+        var request = NewRequest(repo);
+        var client = new IssueClient();
+        var coordinator = Registered(client, "pr-unknown");
+        await coordinator.StartAsync(request);
+
+        try { await Assert.ThrowsAsync<InvalidOperationException>(() => coordinator.ContinueAsync(request)); }
+        finally { DeleteBareRepository(bare); }
+
+        Assert.Empty(client.WriteClient.Requests);
+        var events = LocalRunEventStore.Read(Store(repo), request.ProductRunId);
+        Assert.DoesNotContain(events, item => item.GetProperty("eventType").GetString() == "start-work-progress" && item.GetProperty("operation").GetString() == "pr-created" && item.GetProperty("status").GetString() == "completed");
+        Assert.DoesNotContain(events, item => item.GetProperty("eventType").GetString() == "external-identifier-recorded" && item.GetProperty("identifierType").GetString() == "pull-request");
     }
 
     [Fact]
@@ -179,7 +213,7 @@ public sealed class StartWorkCoordinatorTests
             await coordinator.StartAsync(request);
             await Assert.ThrowsAsync<InvalidOperationException>(() => coordinator.ContinueAsync(request));
             Assert.Equal("STARTING_FAILED", System.Text.Json.JsonSerializer.SerializeToNode(LocalRunEventStore.Status(Store(repo), request.ProductRunId), AgentTool.Json)!["state"]!.GetValue<string>());
-            Assert.Equal(request.ExpectedBaseSha, repo.Run("rev-parse", "refs/heads/" + request.BranchName).Trim());
+            Assert.NotEqual(request.ExpectedBaseSha, repo.Run("rev-parse", "refs/heads/" + request.BranchName).Trim());
             var remote = await Processes.Run("git", ["--git-dir", bare, "rev-parse", "refs/heads/" + request.BranchName], repo.Root);
             Assert.Equal(divergentSha, remote.Output.Trim());
             await Assert.ThrowsAsync<InvalidOperationException>(() => coordinator.ContinueAsync(request));
@@ -196,10 +230,11 @@ public sealed class StartWorkCoordinatorTests
         var coordinator = Registered(new IssueClient(), "allowed");
         await coordinator.StartAsync(request);
         await Assert.ThrowsAsync<IOException>(() => coordinator.ContinueAsync(request));
+        var ownedSha = repo.Run("rev-parse", "refs/heads/" + request.BranchName).Trim();
         var stale = request with { ExpectedBaseSha = new string('0', 40) };
         await Assert.ThrowsAsync<InvalidOperationException>(() => coordinator.ContinueAsync(stale));
         Assert.Equal("STARTING_FAILED", System.Text.Json.JsonSerializer.SerializeToNode(LocalRunEventStore.Status(Store(repo), request.ProductRunId), AgentTool.Json)!["state"]!.GetValue<string>());
-        Assert.Equal(request.ExpectedBaseSha, repo.Run("rev-parse", "refs/heads/" + request.BranchName).Trim());
+        Assert.Equal(ownedSha, repo.Run("rev-parse", "refs/heads/" + request.BranchName).Trim());
     }
 
     [Fact]
@@ -287,6 +322,7 @@ public sealed class StartWorkCoordinatorTests
         services.AddLogging();
         AgentTool.AgentToolModule.Register(services);
         services.AddSingleton<IGitHubReadClient>(client);
+        services.AddSingleton<IGitHubWriteClient>(client.WriteClient);
         services.AddSingleton<AgentTool.IGitHubAuthorizationProcess>(new CapabilityProcess(capability));
         services.AddSingleton<IStartWorkGitProcess>(git ?? new StartWorkGitProcess());
         return services.BuildServiceProvider().GetRequiredService<StartWorkCoordinator>();
@@ -313,10 +349,11 @@ public sealed class StartWorkCoordinatorTests
                 : args.SequenceEqual(["rev-parse", "--short=12", "HEAD"]) ? new ProcessResult(0, "abcdef123456")
                 : args.Contains("--dry-run") ? capability switch
                 {
-                    "allowed" => new ProcessResult(0, ""),
+                    "allowed" or "pr-unknown" => new ProcessResult(0, ""),
                     "denied" => new ProcessResult(1, "remote: error: protected branch"),
                     _ => new ProcessResult(1, "timeout")
                 }
+                : args.SequenceEqual(["api", "--method", "GET", "repos/owner/project"]) ? new ProcessResult(0, capability == "pr-unknown" ? "{\"permissions\":{\"push\":false}}" : "{\"permissions\":{\"push\":true}}")
                 : new ProcessResult(0, "{}");
             return Task.FromResult(result);
         }
@@ -333,6 +370,7 @@ public sealed class StartWorkCoordinatorTests
 
     private sealed class IssueClient : IGitHubReadClient
     {
+        public FakeWriteClient WriteClient { get; } = new();
         public Uri? Endpoint { get; private set; }
         public string IssueUrl { get; set; } = "https://github.com/owner/project/issues/42";
         public Task<HttpResponseMessage> GetAsync(Uri endpoint, CancellationToken cancellationToken = default)
@@ -340,8 +378,23 @@ public sealed class StartWorkCoordinatorTests
             Endpoint = endpoint;
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
             {
-                Content = new StringContent($$"""{"number":42,"title":"Issue","state":"open","html_url":"{{IssueUrl}}"}""")
+                Content = new StringContent(endpoint.AbsolutePath.Contains("/pulls/", StringComparison.Ordinal)
+                    ? $$"""{"number":17,"title":"Issue","state":"open","html_url":"https://github.com/owner/project/pull/17","body":"{{WriteClient.CreatedBody}}","base":{"ref":"main"},"head":{"ref":"factory/issue-42"},"draft":true,"merged":false}"""
+                    : $$"""{"number":42,"title":"Issue","state":"open","html_url":"{{IssueUrl}}"}""")
             });
+        }
+    }
+
+    private sealed class FakeWriteClient : IGitHubWriteClient
+    {
+        public string CreatedBody { get; private set; } = "";
+        public List<(HttpMethod Method, Uri Endpoint, string Body)> Requests { get; } = [];
+        public async Task<HttpResponseMessage> SendAsync(HttpMethod method, Uri endpoint, HttpContent? content = null, CancellationToken cancellationToken = default)
+        {
+            var body = content is null ? "" : await content.ReadAsStringAsync(cancellationToken);
+            Requests.Add((method, endpoint, body));
+            if (body.Length > 0) CreatedBody = JsonNode.Parse(body)!["body"]!.GetValue<string>();
+            return new HttpResponseMessage(HttpStatusCode.Created) { Content = new StringContent("{\"number\":17}") };
         }
     }
 }
