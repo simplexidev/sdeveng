@@ -1082,9 +1082,19 @@ public static class LocalRunEventStore
             checks.Count > 100 || workflowRuns.Count > 100 || checks.Any(state => state is not ("pending" or "success" or "failure" or "cancelled" or "skipped" or "unknown")) ||
             workflowRuns.Any(run => !Regex.IsMatch(run.Id, @"^[1-9][0-9]*$", RegexOptions.CultureInvariant) || run.State.Length is < 1 or > 32))
             throw new ArgumentException("CI snapshot contains invalid or unbounded facts.");
-        var payload = new { schemaVersion = 1, runId = runId.ToString("D"), sequence = 0, occurredAt = DateTimeOffset.UtcNow, eventType = "ci-check-snapshot",
-            snapshotVersion = 1, commitSha = commitSha.ToLowerInvariant(), observedAt, checks = checks.Select(state => new { state }).ToArray(),
-            workflowRuns = workflowRuns.Select(run => new { id = run.Id, state = run.State }).ToArray() };
+        var payload = new
+        {
+            schemaVersion = 1,
+            runId = runId.ToString("D"),
+            sequence = 0,
+            occurredAt = DateTimeOffset.UtcNow,
+            eventType = "ci-check-snapshot",
+            snapshotVersion = 1,
+            commitSha = commitSha.ToLowerInvariant(),
+            observedAt,
+            checks = checks.Select(state => new { state }).ToArray(),
+            workflowRuns = workflowRuns.Select(run => new { id = run.Id, state = run.State }).ToArray()
+        };
         return AppendSnapshot(directory, runId, payload);
     }
 
@@ -1231,9 +1241,13 @@ public static class LocalRunEventStore
             : item.GetProperty("eventType").GetString() == "ci-check-snapshot"
             ? (object)new { sequence = item.GetProperty("sequence").GetInt32(), occurredAt = item.GetProperty("occurredAt").GetString(), type = "ci-check-snapshot", from = (string?)null, to = item.GetProperty("commitSha").GetString() }
             : new { sequence = item.GetProperty("sequence").GetInt32(), occurredAt = item.GetProperty("occurredAt").GetString(), type = "external-identifier-recorded", from = (string?)null, to = $"{item.GetProperty("externalSystem").GetString()}:{item.GetProperty("identifierType").GetString()}={item.GetProperty("identifier").GetString()}" }).ToArray();
-        object? ciSnapshot = snapshot.ValueKind == JsonValueKind.Undefined ? null : new { commitSha = snapshot.GetProperty("commitSha").GetString(), observedAt = snapshot.GetProperty("observedAt").GetString(),
+        object? ciSnapshot = snapshot.ValueKind == JsonValueKind.Undefined ? null : new
+        {
+            commitSha = snapshot.GetProperty("commitSha").GetString(),
+            observedAt = snapshot.GetProperty("observedAt").GetString(),
             checks = snapshot.GetProperty("checks").EnumerateArray().GroupBy(check => check.GetProperty("state").GetString()).ToDictionary(group => group.Key!, group => group.Count()),
-            workflowRuns = snapshot.GetProperty("workflowRuns").EnumerateArray().Select(run => new { id = run.GetProperty("id").GetString(), state = run.GetProperty("state").GetString() }).ToArray() };
+            workflowRuns = snapshot.GetProperty("workflowRuns").EnumerateArray().Select(run => new { id = run.GetProperty("id").GetString(), state = run.GetProperty("state").GetString() }).ToArray()
+        };
         return new { kind = "run-explanation", runId = runId.ToString("D"), eventCount = events.Count, timeline, ciSnapshot };
     }
 
