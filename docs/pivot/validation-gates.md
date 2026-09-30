@@ -18,11 +18,13 @@ the push until the WorkUnit is repaired and the complete gate passes again.
 
 ## Hosted advisory checks
 
-The `CI` workflow may run the same test, validation, format, and diff checks on
-each pushed branch. Push-triggered results are advisory and do not block the
-push or change local gate results. Pull request runs remain blocking. The
+The `CI` workflow runs the same test, validation, format, and diff checks on
+each pushed branch. Results from intermediate WorkUnit pushes are advisory:
+they do not block the push or change the synchronous local gate result. The
 workflow's Ubuntu and Windows test matrix provides hosted platform coverage;
 it is supporting evidence and does not replace the synchronous local gate.
+Pull request runs are blocking, and the final PR-head set below must pass
+before merge.
 
 ## Blocking final PR-head checks
 
@@ -41,8 +43,8 @@ blocking pull-request checks on the current head before merge.
 
 ## Release checks
 
-The tag-triggered release workflow runs this release set before creating a
-draft release:
+The tag-triggered release workflow runs this blocking release set before
+creating a draft release:
 
 ```sh
 dotnet test tests/SdevEng.Tests/SdevEng.Tests.csproj
