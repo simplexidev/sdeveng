@@ -227,6 +227,10 @@ public sealed class GitHubRepositoryMetadataReader(IGitHubReadClient client)
 public sealed record GitHubIssue(
     int Number, string Title, string State, Uri HtmlUrl, string? Body, string? Author);
 
+public sealed record IssueFileReference(string Path, int? StartLine, int? EndLine, bool Exists);
+public sealed record IssueSymbolReference(string Value);
+public sealed record IssueReferenceFacts(IssueFileReference[] Files, IssueSymbolReference[] Symbols);
+
 public sealed record GitHubPullRequest(
     int Number, string Title, string State, Uri HtmlUrl, string? Body, string? Author,
     string BaseBranch, string HeadBranch, bool IsDraft, bool IsMerged);
@@ -288,6 +292,68 @@ public sealed class GitHubIssueReader(IGitHubReadClient client)
         ? value.GetBoolean() : throw new JsonException($"GitHub response is missing '{name}'.");
     static Uri Url(JsonElement root) => Uri.TryCreate(String(root, "html_url"), UriKind.Absolute, out var url) && url.Scheme == Uri.UriSchemeHttps
         ? url : throw new JsonException("GitHub response has an invalid 'html_url'.");
+}
+
+/// <summary>Extracts explicit repository file and C# symbol references from normalized issue text.</summary>
+public static class IssueReferenceExtractor
+{
+    static readonly Regex InlineCode = new(@"(?<!`)`([^`\r\n]+)`(?!`)", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+    static readonly Regex MarkdownLink = new(@"\[[^\]\r\n]*\]\(([^\s)]+)(?:\s+[^)]*)?\)", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+    static readonly Regex Symbol = new(@"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*(?:\(\))?$", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+    static readonly Regex LineSuffix = new(@"(?::([1-9][0-9]*)(?:-([1-9][0-9]*))?|#L([1-9][0-9]*)(?:-L([1-9][0-9]*))?)$", RegexOptions.Compiled | RegexOptions.CultureInvariant);
+
+    public static IssueReferenceFacts Extract(GitHubIssue issue, string repositoryRoot, int maxItems)
+    {
+        ArgumentNullException.ThrowIfNull(issue);
+        ArgumentException.ThrowIfNullOrWhiteSpace(repositoryRoot);
+        if (maxItems < 1) throw new ArgumentOutOfRangeException(nameof(maxItems));
+        var root = Path.GetFullPath(repositoryRoot);
+        var text = issue.Title + "\n" + (issue.Body ?? "");
+        var spans = InlineCode.Matches(text).Cast<Match>().Select(match => (Match: match, Value: match.Groups[1].Value)).ToArray();
+        var files = new List<IssueFileReference>();
+        var symbols = new List<IssueSymbolReference>();
+        var seenFiles = new HashSet<string>(StringComparer.Ordinal);
+        var seenSymbols = new HashSet<string>(StringComparer.Ordinal);
+        void AddFile(string raw)
+        {
+            if (files.Count >= maxItems || !TryFile(raw, out var path, out var start, out var end) || !seenFiles.Add(path)) return;
+            var fullPath = Path.GetFullPath(path.Replace('/', Path.DirectorySeparatorChar), root);
+            files.Add(new(path, start, end, File.Exists(fullPath) || Directory.Exists(fullPath)));
+        }
+        var references = spans.Select(item => (item.Match.Index, item.Value, IsCode: true))
+            .Concat(MarkdownLink.Matches(text).Cast<Match>().Select(match => (match.Index, match.Groups[1].Value, IsCode: false)))
+            .OrderBy(item => item.Index);
+        foreach (var item in references)
+        {
+            if (TryFile(item.Value, out _, out _, out _) && (!Symbol.IsMatch(item.Value) || HasFileExtension(item.Value))) { AddFile(item.Value); continue; }
+            if (item.IsCode && symbols.Count < maxItems && Symbol.IsMatch(item.Value) && seenSymbols.Add(item.Value)) symbols.Add(new(item.Value));
+        }
+        return new(files.ToArray(), symbols.ToArray());
+    }
+
+    static bool HasFileExtension(string value) => Regex.IsMatch(value, @"\.(?:cs|csx|md|json|ya?ml|txt|xml|html|css|js|ts|sh|ps1|sln|csproj|props|targets)$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    static bool TryFile(string raw, out string path, out int? start, out int? end)
+    {
+        path = ""; start = end = null;
+        if (string.IsNullOrWhiteSpace(raw) || raw.Contains(' ') || Uri.TryCreate(raw, UriKind.Absolute, out _)) return false;
+        var value = raw.Replace('\\', '/');
+        var suffix = LineSuffix.Match(value);
+        if (suffix.Success)
+        {
+            var first = suffix.Groups[1].Success ? suffix.Groups[1] : suffix.Groups[3];
+            var last = suffix.Groups[2].Success ? suffix.Groups[2] : suffix.Groups[4];
+            if (!int.TryParse(first.Value, NumberStyles.None, CultureInfo.InvariantCulture, out var firstLine) || (last.Success && !int.TryParse(last.Value, NumberStyles.None, CultureInfo.InvariantCulture, out _))) return false;
+            start = firstLine;
+            end = last.Success ? int.Parse(last.Value, CultureInfo.InvariantCulture) : firstLine;
+            if (end < start) return false;
+            value = value[..suffix.Index];
+        }
+        if (value.Length == 0 || value.Contains(':') || value.Contains('#') || value.StartsWith("/", StringComparison.Ordinal) || Regex.IsMatch(value, @"^[A-Za-z]:") || value.Split('/').Any(part => part is "" or "." or "..")) return false;
+        if (!value.Contains('/') && !Path.HasExtension(value)) return false;
+        path = value;
+        return true;
+    }
 }
 
 public sealed record GitHubCheck(int Id, string Name, string Status, string? Conclusion, Uri? DetailsUrl);
