@@ -47,5 +47,9 @@
       "required": ["progressVersion", "operation", "status", "detail"],
       "not": { "anyOf": [{ "required": ["fromState"] }, { "required": ["toState"] }, { "required": ["externalSystem"] }, { "required": ["identifierType"] }, { "required": ["identifier"] }] }
     }
+  ],
+  "allOf": [
+    { "if": { "properties": { "eventType": { "const": "external-identifier-recorded" }, "externalSystem": { "const": "github" }, "identifierType": { "const": "pull-request-number" } }, "required": ["eventType", "externalSystem", "identifierType"] }, "then": { "properties": { "identifier": { "type": "string", "pattern": "^[1-9][0-9]*$" } } } },
+    { "if": { "properties": { "eventType": { "const": "external-identifier-recorded" }, "externalSystem": { "const": "github" }, "identifierType": { "const": "pull-request-url" } }, "required": ["eventType", "externalSystem", "identifierType"] }, "then": { "properties": { "identifier": { "type": "string", "format": "uri", "pattern": "^https://github\\.com/[^/]+/[^/]+/pull/[1-9][0-9]*$" } } } }
   ]
 }

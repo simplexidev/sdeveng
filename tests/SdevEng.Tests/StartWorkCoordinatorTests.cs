@@ -151,7 +151,8 @@ public sealed class StartWorkCoordinatorTests
             var events = LocalRunEventStore.Read(Store(repo), request.ProductRunId);
             Assert.Single(events, item => item.GetProperty("eventType").GetString() == "start-work-progress" && item.GetProperty("operation").GetString() == "branch-created" && item.GetProperty("status").GetString() == "completed");
             Assert.Single(events, item => item.GetProperty("eventType").GetString() == "start-work-progress" && item.GetProperty("operation").GetString() == "branch-pushed" && item.GetProperty("status").GetString() == "completed");
-            Assert.Single(events, item => item.GetProperty("eventType").GetString() == "external-identifier-recorded" && item.GetProperty("identifierType").GetString() == "pull-request");
+            Assert.Contains(events, item => item.GetProperty("eventType").GetString() == "external-identifier-recorded" && item.GetProperty("identifierType").GetString() == "pull-request-number");
+            Assert.Contains(events, item => item.GetProperty("eventType").GetString() == "external-identifier-recorded" && item.GetProperty("identifierType").GetString() == "pull-request-url");
         }
         finally { DeleteBareRepository(bare); }
     }
