@@ -17,11 +17,12 @@ public sealed class CiRerunCoordinatorTests
         var writer = new RecordingWriter();
         var coordinator = new CiRerunCoordinator(new Probe("allowed", "owner/repo"), writer);
 
-        var result = await coordinator.RerunAsync(store.Path, runId, Sha, store.Path);
+        var result = await coordinator.RerunAsync(store.Path, runId, Sha, store.Path, "Retry after timeout");
 
         Assert.Equal("rerun-requested", result.Status);
         Assert.Equal(HttpMethod.Post, writer.Method);
         Assert.Equal("https://api.github.com/repos/owner/repo/actions/jobs/91/rerun", writer.Endpoint!.ToString());
+        Assert.Equal(1, writer.Attempts);
         var events = LocalRunEventStore.Read(store.Path, runId);
         var rerun = Assert.Single(events, item => item.GetProperty("eventType").GetString() == "ci-rerun");
         var schema = JsonSchema.FromFile(Path.Combine(AgentTool.FindToolkit(), "schemas/run-event.schema.json"));
@@ -45,7 +46,7 @@ public sealed class CiRerunCoordinatorTests
         var writer = new RecordingWriter();
         var coordinator = new CiRerunCoordinator(new Probe(capability, "owner/repo"), writer);
 
-        var result = await coordinator.RerunAsync(store.Path, runId, stale ? new string('a', 40) : Sha, store.Path);
+        var result = await coordinator.RerunAsync(store.Path, runId, stale ? new string('a', 40) : Sha, store.Path, "retry");
         Assert.Equal("not-eligible", result.Status);
         Assert.Null(writer.Endpoint);
     }
@@ -57,11 +58,48 @@ public sealed class CiRerunCoordinatorTests
         var runId = Guid.NewGuid();
         LocalRunEventStore.AppendRepositoryIdentifier(store.Path, runId, "owner/repo");
         LocalRunEventStore.AppendCiFailureEvidence(store.Path, runId, Sha, "81", "91", "infrastructure", false, "failure");
-        LocalRunEventStore.AppendCiRerunEvent(store.Path, runId, "owner/repo", Sha, "81", "91");
+        LocalRunEventStore.AppendCiRerunEvent(store.Path, runId, "owner/repo", Sha, "81", "91", "job", "retry");
         var writer = new RecordingWriter();
-        var result = await new CiRerunCoordinator(new Probe("allowed", "owner/repo"), writer).RerunAsync(store.Path, runId, Sha, store.Path);
+        var result = await new CiRerunCoordinator(new Probe("allowed", "owner/repo"), writer).RerunAsync(store.Path, runId, Sha, store.Path, "retry");
         Assert.Equal("not-eligible", result.Status);
         Assert.Null(writer.Endpoint);
+    }
+
+    [Fact]
+    public async Task UnsupportedJobEndpointFallsBackOnceAndPersistsModeAndRedactedReason()
+    {
+        using var store = new TempDirectory();
+        var runId = Guid.NewGuid();
+        LocalRunEventStore.AppendRepositoryIdentifier(store.Path, runId, "owner/repo");
+        LocalRunEventStore.AppendCiFailureEvidence(store.Path, runId, Sha, "81", "91", "timeout", false, "failure");
+        var writer = new RecordingWriter(HttpStatusCode.NotFound, HttpStatusCode.Accepted);
+        var result = await new CiRerunCoordinator(new Probe("allowed", "owner/repo"), writer)
+            .RerunAsync(store.Path, runId, Sha, store.Path, "retry token=secret");
+        Assert.Equal("rerun-requested", result.Status);
+        Assert.Equal(2, writer.Attempts);
+        Assert.Equal(new[] { "https://api.github.com/repos/owner/repo/actions/jobs/91/rerun", "https://api.github.com/repos/owner/repo/actions/runs/81/rerun-failed-jobs" }, writer.Endpoints.Select(x => x.ToString()));
+        var rerun = Assert.Single(LocalRunEventStore.Read(store.Path, runId), x => x.GetProperty("eventType").GetString() == "ci-rerun");
+        Assert.Equal("failed-jobs", rerun.GetProperty("rerunMode").GetString());
+        Assert.DoesNotContain("secret", rerun.GetProperty("rerunReason").GetString());
+        var schema = JsonSchema.FromFile(Path.Combine(AgentTool.FindToolkit(), "schemas/run-event.schema.json"));
+        Assert.True(schema.Evaluate(JsonNode.Parse(rerun.GetRawText())!).IsValid);
+    }
+
+    [Theory]
+    [InlineData(HttpStatusCode.Unauthorized)]
+    [InlineData(HttpStatusCode.Forbidden)]
+    [InlineData(HttpStatusCode.InternalServerError)]
+    [InlineData(HttpStatusCode.ServiceUnavailable)]
+    public async Task JobFailureOtherThanUnsupportedDoesNotFallback(HttpStatusCode status)
+    {
+        using var store = new TempDirectory();
+        var runId = Guid.NewGuid();
+        LocalRunEventStore.AppendRepositoryIdentifier(store.Path, runId, "owner/repo");
+        LocalRunEventStore.AppendCiFailureEvidence(store.Path, runId, Sha, "81", "91", "timeout", false, "failure");
+        var writer = new RecordingWriter(status);
+        var result = await new CiRerunCoordinator(new Probe("allowed", "owner/repo"), writer).RerunAsync(store.Path, runId, Sha, store.Path, "retry");
+        Assert.Equal("not-eligible", result.Status);
+        Assert.Equal(1, writer.Attempts);
     }
 
     [Fact]
@@ -85,10 +123,15 @@ public sealed class CiRerunCoordinatorTests
     {
         public HttpMethod? Method { get; private set; }
         public Uri? Endpoint { get; private set; }
+        public List<Uri> Endpoints { get; } = [];
+        public int Attempts { get; private set; }
+        readonly HttpStatusCode[] statuses;
+        int next;
+        public RecordingWriter(params HttpStatusCode[] statuses) => this.statuses = statuses.Length == 0 ? [HttpStatusCode.NoContent] : statuses;
         public Task<HttpResponseMessage> SendAsync(HttpMethod method, Uri endpoint, HttpContent? content = null, CancellationToken cancellationToken = default)
         {
-            Method = method; Endpoint = endpoint;
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NoContent));
+            Method = method; Endpoint = endpoint; Endpoints.Add(endpoint); Attempts++;
+            return Task.FromResult(new HttpResponseMessage(statuses[Math.Min(next++, statuses.Length - 1)]));
         }
     }
 

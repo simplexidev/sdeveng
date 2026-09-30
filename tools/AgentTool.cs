@@ -941,6 +941,9 @@ public sealed class GitHubWriteClient(HttpClient http, IGitHubCredentialProvider
         allowed |= parts.Length == 7 && parts[0] == "repos" && parts[1].Length > 0 && parts[2].Length > 0 &&
             parts[3] == "actions" && parts[4] == "jobs" && Regex.IsMatch(parts[5], @"^[1-9][0-9]{0,31}$", RegexOptions.CultureInvariant) &&
             parts[6] == "rerun" && method == HttpMethod.Post;
+        allowed |= parts.Length == 7 && parts[0] == "repos" && parts[1].Length > 0 && parts[2].Length > 0 &&
+            parts[3] == "actions" && parts[4] == "runs" && Regex.IsMatch(parts[5], @"^[1-9][0-9]{0,31}$", RegexOptions.CultureInvariant) &&
+            parts[6] == "rerun-failed-jobs" && method == HttpMethod.Post;
         if (!allowed) throw new InvalidOperationException("GitHub mutation is not allowlisted.");
         string? token;
         try { token = await credentials.GetTokenAsync(cancellationToken); }
@@ -969,6 +972,17 @@ public sealed class GitHubActionsJobRerunWriter(IGitHubWriteClient client)
             !Regex.IsMatch(jobId ?? "", @"^[1-9][0-9]{0,31}$", RegexOptions.CultureInvariant))
             throw new ArgumentException("Rerun requires an exact repository and provider job ID.");
         return client.SendAsync(HttpMethod.Post, new Uri($"https://api.github.com/repos/{repository}/actions/jobs/{jobId}/rerun"), cancellationToken: cancellationToken);
+    }
+}
+
+public sealed class GitHubActionsFailedJobsRerunWriter(IGitHubWriteClient client)
+{
+    public Task<HttpResponseMessage> RerunAsync(string repository, string runId, CancellationToken cancellationToken = default)
+    {
+        if (!Regex.IsMatch(repository ?? "", @"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$", RegexOptions.CultureInvariant) ||
+            !Regex.IsMatch(runId ?? "", @"^[1-9][0-9]{0,31}$", RegexOptions.CultureInvariant))
+            throw new ArgumentException("Rerun requires an exact repository and provider run ID.");
+        return client.SendAsync(HttpMethod.Post, new Uri($"https://api.github.com/repos/{repository}/actions/runs/{runId}/rerun-failed-jobs"), cancellationToken: cancellationToken);
     }
 }
 
@@ -1208,10 +1222,13 @@ public static class LocalRunEventStore
         return AppendSnapshot(directory, runId, payload);
     }
 
-    public static JsonElement AppendCiRerunEvent(string directory, Guid runId, string repository, string commitSha, string providerRunId, string providerJobId)
+    public static JsonElement AppendCiRerunEvent(string directory, Guid runId, string repository, string commitSha, string providerRunId, string providerJobId, string mode, string reason)
     {
+        if (mode is not ("job" or "failed-jobs") || string.IsNullOrWhiteSpace(reason) || reason.Length > 256)
+            throw new ArgumentException("Rerun mode and bounded nonempty reason are required.");
+        reason = Secrets.Redact(reason);
         var payload = new { schemaVersion = 1, runId = runId.ToString("D"), sequence = 0, occurredAt = DateTimeOffset.UtcNow,
-            eventType = "ci-rerun", rerunVersion = 1, repository, commitSha = commitSha.ToLowerInvariant(), providerRunId, providerJobId };
+            eventType = "ci-rerun", rerunVersion = 1, repository, commitSha = commitSha.ToLowerInvariant(), providerRunId, providerJobId, rerunMode = mode, rerunReason = reason };
         return AppendSnapshot(directory, runId, payload);
     }
 
@@ -1339,8 +1356,10 @@ public static class LocalRunEventStore
                 }
                 else if (type == "ci-rerun")
                 {
-                    if (!properties.SetEquals(["schemaVersion", "runId", "sequence", "occurredAt", "eventType", "rerunVersion", "repository", "commitSha", "providerRunId", "providerJobId"]) ||
+                    if (!properties.SetEquals(["schemaVersion", "runId", "sequence", "occurredAt", "eventType", "rerunVersion", "repository", "commitSha", "providerRunId", "providerJobId", "rerunMode", "rerunReason"]) ||
                         item.GetProperty("rerunVersion").GetInt32() != 1 ||
+                        item.GetProperty("rerunMode").GetString() is not ("job" or "failed-jobs") ||
+                        string.IsNullOrWhiteSpace(item.GetProperty("rerunReason").GetString()) || item.GetProperty("rerunReason").GetString()!.Length > 256 || Secrets.LooksSensitive(item.GetProperty("rerunReason").GetString()!) ||
                         !Regex.IsMatch(item.GetProperty("repository").GetString() ?? "", @"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$", RegexOptions.CultureInvariant) ||
                         !Regex.IsMatch(item.GetProperty("commitSha").GetString() ?? "", @"^(?:[0-9a-f]{40}|[0-9a-f]{64})$", RegexOptions.CultureInvariant) ||
                         !Regex.IsMatch(item.GetProperty("providerRunId").GetString() ?? "", @"^[1-9][0-9]{0,31}$", RegexOptions.CultureInvariant) ||
@@ -1486,8 +1505,11 @@ public interface IGitHubAuthorizationProbe
 
 public sealed class CiRerunCoordinator(IGitHubAuthorizationProbe authorizationProbe, IGitHubWriteClient writeClient)
 {
-    public async Task<CiRerunResult> RerunAsync(string runDirectory, Guid runId, string currentCommitSha, string root, CancellationToken cancellationToken = default)
+    public async Task<CiRerunResult> RerunAsync(string runDirectory, Guid runId, string currentCommitSha, string root, string reason, CancellationToken cancellationToken = default)
     {
+        if (string.IsNullOrWhiteSpace(reason)) return Ineligible("rerun reason is required");
+        reason = Secrets.Redact(reason.Trim());
+        if (reason.Length > 256) reason = reason[..256];
         var events = LocalRunEventStore.Read(runDirectory, runId);
         var evidence = events.LastOrDefault(item => item.GetProperty("eventType").GetString() == "ci-failure-evidence");
         if (evidence.ValueKind == JsonValueKind.Undefined) return Ineligible("persisted failure evidence is missing");
@@ -1510,8 +1532,16 @@ public sealed class CiRerunCoordinator(IGitHubAuthorizationProbe authorizationPr
         if (!capability.Capabilities.Any(item => item.Operation == "workflow-rerun" && item.TargetRepository == repository && item.State == "allowed"))
             return Ineligible("workflow-rerun capability is not allowed");
         using var response = await new GitHubActionsJobRerunWriter(writeClient).RerunAsync(repository, job, cancellationToken);
-        if (!response.IsSuccessStatusCode) return Ineligible("GitHub rejected the job rerun");
-        LocalRunEventStore.AppendCiRerunEvent(runDirectory, runId, repository, commit, run, job);
+        var mode = "job";
+        if ((int)response.StatusCode is 404 or 410)
+        {
+            response.Dispose();
+            using var fallback = await new GitHubActionsFailedJobsRerunWriter(writeClient).RerunAsync(repository, run, cancellationToken);
+            if (!fallback.IsSuccessStatusCode) return Ineligible("GitHub rejected the failed-jobs rerun");
+            mode = "failed-jobs";
+        }
+        else if (!response.IsSuccessStatusCode) return Ineligible("GitHub rejected the job rerun");
+        LocalRunEventStore.AppendCiRerunEvent(runDirectory, runId, repository, commit, run, job, mode, reason);
         return new("rerun-requested", repository, run, job, null);
 
         CiRerunResult Ineligible(string reason) => new("not-eligible", null, null, null, reason);
@@ -2054,6 +2084,7 @@ public static class AgentTool
             services.AddTransient<IGitHubWriteClient>(provider => provider.GetRequiredService<GitHubWriteClient>());
             services.AddTransient<GitHubIssueLabelWriter>();
             services.AddTransient<GitHubActionsJobRerunWriter>();
+            services.AddTransient<GitHubActionsFailedJobsRerunWriter>();
             services.AddTransient<CiRerunCoordinator>();
             services.AddTransient<GitHubCommitReader>();
             services.AddTransient<GitHubRepositoryMetadataReader>();

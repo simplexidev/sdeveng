@@ -38,6 +38,8 @@
     "excerpt": { "type": "string", "minLength": 1, "maxLength": 4096 }
     ,"rerunVersion": { "const": 1 },
     "repository": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$" }
+    ,"rerunMode": { "enum": ["job", "failed-jobs"] },
+    "rerunReason": { "type": "string", "minLength": 1, "maxLength": 256 }
   },
   "oneOf": [
     {
@@ -72,7 +74,7 @@
     },
     {
       "properties": { "eventType": { "const": "ci-rerun" }, "commitSha": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" } },
-      "required": ["rerunVersion", "repository", "commitSha", "providerRunId", "providerJobId"],
+      "required": ["rerunVersion", "repository", "commitSha", "providerRunId", "providerJobId", "rerunMode", "rerunReason"],
       "not": { "anyOf": [{ "required": ["fromState"] }, { "required": ["toState"] }, { "required": ["externalSystem"] }, { "required": ["identifierType"] }, { "required": ["identifier"] }, { "required": ["detail"] }, { "required": ["operation"] }] }
     }
   ],
