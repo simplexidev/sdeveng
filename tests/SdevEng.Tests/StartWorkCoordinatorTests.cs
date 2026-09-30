@@ -34,6 +34,68 @@ public sealed class StartWorkCoordinatorTests
         Assert.Equal("STARTING", System.Text.Json.JsonSerializer.SerializeToNode(LocalRunEventStore.Status(Store(repo), request.ProductRunId), AgentTool.Json)!["state"]!.GetValue<string>());
     }
 
+    [Theory]
+    [InlineData("allowed", true)]
+    [InlineData("unknown", false)]
+    [InlineData("denied", false)]
+    public async Task ContinueCreatesOwnedExactBranchAndPushesOnlyWhenAllowed(string capability, bool pushed)
+    {
+        using var repo = NewRepository();
+        var bare = Path.Combine(Path.GetTempPath(), "sdeveng-start-bare-" + Guid.NewGuid().ToString("N"));
+        await Processes.Run("git", ["init", "--bare", bare], repo.Root);
+        try
+        {
+            repo.Run("remote", "set-url", "--push", "origin", bare);
+            var request = NewRequest(repo);
+            var coordinator = Registered(new IssueClient(), capability);
+            await coordinator.StartAsync(request);
+            if (pushed) await coordinator.ContinueAsync(request);
+            else await Assert.ThrowsAsync<InvalidOperationException>(() => coordinator.ContinueAsync(request));
+            Assert.Equal(request.ExpectedBaseSha, repo.Run("rev-parse", "refs/heads/" + request.BranchName).Trim());
+            Assert.Equal(GitOwnershipMarkers.BranchConfigValue, repo.Run("config", "--get", "branch." + request.BranchName + "." + GitOwnershipMarkers.BranchConfigKey).Trim());
+            var remote = await Processes.Run("git", ["--git-dir", bare, "for-each-ref", "--format=%(refname):%(objectname)", "refs/heads"], repo.Root);
+            Assert.Equal(pushed ? $"refs/heads/{request.BranchName}:{request.ExpectedBaseSha}\n" : "", remote.Output);
+            var events = LocalRunEventStore.Read(Store(repo), request.ProductRunId);
+            Assert.Equal(pushed ? 1 : 0, events.Count(item => item.GetProperty("eventType").GetString() == "operation-completed" && item.GetProperty("operation").GetString() == "branch-pushed"));
+            Assert.Contains(events, item => item.GetProperty("eventType").GetString() == "operation-completed" && item.GetProperty("operation").GetString() == "branch-created");
+            var schema = JsonSchema.FromFile(Path.Combine(AgentTool.FindToolkit(), "schemas/run-event.schema.json"));
+            Assert.All(events, item => Assert.True(schema.Evaluate(JsonNode.Parse(item.GetRawText())!).IsValid));
+            if (pushed)
+            {
+                var count = events.Count;
+                await coordinator.ContinueAsync(request);
+                Assert.Equal(count, LocalRunEventStore.Read(Store(repo), request.ProductRunId).Count);
+            }
+        }
+        finally { Directory.Delete(bare, true); }
+    }
+
+    [Fact]
+    public async Task FailedPushKeepsOwnedBranchForResume()
+    {
+        using var repo = NewRepository();
+        repo.Run("remote", "set-url", "--push", "origin", Path.Combine(repo.Root, "missing-bare-remote"));
+        var request = NewRequest(repo);
+        var coordinator = Registered(new IssueClient(), "allowed");
+        await coordinator.StartAsync(request);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => coordinator.ContinueAsync(request));
+        Assert.Equal(request.ExpectedBaseSha, repo.Run("rev-parse", "refs/heads/" + request.BranchName).Trim());
+        Assert.DoesNotContain(LocalRunEventStore.Read(Store(repo), request.ProductRunId), item =>
+            item.GetProperty("eventType").GetString() == "operation-completed" && item.GetProperty("operation").GetString() == "branch-pushed");
+        var bare = Path.Combine(Path.GetTempPath(), "sdeveng-resume-bare-" + Guid.NewGuid().ToString("N"));
+        await Processes.Run("git", ["init", "--bare", bare], repo.Root);
+        try
+        {
+            repo.Run("remote", "set-url", "--push", "origin", bare);
+            await coordinator.ContinueAsync(request);
+            var events = LocalRunEventStore.Read(Store(repo), request.ProductRunId);
+            Assert.Single(events, item => item.GetProperty("eventType").GetString() == "operation-completed" && item.GetProperty("operation").GetString() == "branch-created");
+            Assert.Single(events, item => item.GetProperty("eventType").GetString() == "operation-completed" && item.GetProperty("operation").GetString() == "branch-pushed");
+            Assert.DoesNotContain(events, item => item.GetProperty("eventType").GetString() == "external-identifier-recorded" && item.GetProperty("identifierType").GetString() == "pull-request");
+        }
+        finally { Directory.Delete(bare, true); }
+    }
+
     [Fact]
     public async Task StaleBaseLeavesRunAndRepositoryUntouched()
     {
@@ -103,13 +165,33 @@ public sealed class StartWorkCoordinatorTests
 
     private static string Store(TemporaryGitRepository repo) => Path.Combine(repo.Root, ".sdeveng", "runs");
 
-    private static StartWorkCoordinator Registered(IssueClient client)
+    private static StartWorkCoordinator Registered(IssueClient client, string capability = "unknown")
     {
         var services = new ServiceCollection();
         services.AddLogging();
         AgentTool.AgentToolModule.Register(services);
         services.AddSingleton<IGitHubReadClient>(client);
+        services.AddSingleton<AgentTool.IGitHubAuthorizationProcess>(new CapabilityProcess(capability));
         return services.BuildServiceProvider().GetRequiredService<StartWorkCoordinator>();
+    }
+
+    private sealed class CapabilityProcess(string capability) : AgentTool.IGitHubAuthorizationProcess
+    {
+        public Task<ProcessResult> Run(string executable, IEnumerable<string> arguments, string cwd)
+        {
+            var args = arguments.ToArray();
+            var result = args.SequenceEqual(["remote", "get-url", "--all", "origin"]) ? new ProcessResult(0, "https://github.com/owner/project.git")
+                : args.SequenceEqual(["auth", "status"]) ? new ProcessResult(0, "Token scopes: repo")
+                : args.SequenceEqual(["rev-parse", "--short=12", "HEAD"]) ? new ProcessResult(0, "abcdef123456")
+                : args.Contains("--dry-run") ? capability switch
+                {
+                    "allowed" => new ProcessResult(0, ""),
+                    "denied" => new ProcessResult(1, "remote: error: protected branch"),
+                    _ => new ProcessResult(1, "timeout")
+                }
+                : new ProcessResult(0, "{}");
+            return Task.FromResult(result);
+        }
     }
 
     private static void AssertOnlyCreated(TemporaryGitRepository repo, StartWorkRequest request)
