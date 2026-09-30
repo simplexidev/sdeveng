@@ -34,6 +34,12 @@ GitHub issue and pull request identifiers use `externalSystem: "github"` with
 `identifierType: "issue"` and `"pull-request"`, respectively.
 Step commits use `externalSystem: "git"` with `identifierType: "step-commit"`;
 CI runs use `externalSystem: "github-actions"` with `identifierType: "ci-run"`.
+`StartWorkCoordinator` records the canonical origin repository (`git:repository`)
+and source issue (`github:issue`) on an existing `created` product run after
+validating the clean Git worktree, chosen ref and branch, exact base commit SHA,
+and source issue ownership. It then appends `created` → `STARTING`. This state
+records preparation only; it does not assert that a branch was created, pushed,
+or linked to a pull request.
 
 Examples:
 
