@@ -21,6 +21,16 @@ public sealed class GitHubIssueReaderTests
     }
 
     [Fact]
+    public async Task ReadsTypedIssueLabelNames()
+    {
+        const string response = """{"number":7,"title":"Issue","state":"open","html_url":"https://github.com/owner/project/issues/7","labels":[{"name":"customer"},{"name":"IN_PROGRESS"}]}""";
+        var transport = new StubReadClient(response);
+        var labels = await new GitHubIssueReader(transport).ReadIssueLabelNamesAsync("owner", "project", 7);
+        Assert.Equal(new[] { "customer", "IN_PROGRESS" }, labels);
+        Assert.Equal(new Uri("https://api.github.com/repos/owner/project/issues/7"), transport.Endpoint);
+    }
+
+    [Fact]
     public async Task NormalizesIssueTitleAndBodyBoundariesAndLineEndings()
     {
         const string response = """

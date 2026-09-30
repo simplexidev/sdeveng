@@ -9,7 +9,7 @@ public sealed class GitHubIssueLabelWriterTests
     public async Task AddsOnlyDistinctConfiguredAreasToCanonicalIssue()
     {
         var transport = new FakeWriteClient();
-        var writer = new GitHubIssueLabelWriter(transport);
+        var writer = Writer(transport);
         using var catalog = Catalog();
         var result = await writer.AddTriageLabelsAsync("acme/widget", "acme/widget", 42, Resolved(), Allowed(), catalog.RootElement);
 
@@ -21,6 +21,42 @@ public sealed class GitHubIssueLabelWriterTests
         Assert.Equal(new[] { "area:tooling" }, JsonDocument.Parse(transport.Body!).RootElement.GetProperty("labels").EnumerateArray().Select(x => x.GetString()));
     }
 
+    [Fact]
+    public async Task ExistingInProgressRefusesTriageBeforeMutation()
+    {
+        var transport = new FakeWriteClient();
+        using var catalog = Catalog();
+        var reader = new GitHubIssueReader(new StubIssueReadClient("IN_PROGRESS"));
+        var result = await new GitHubIssueLabelWriter(transport, reader).AddTriageLabelsAsync("acme/widget", "acme/widget", 42, Resolved(), Allowed(), catalog.RootElement);
+        Assert.Equal("review", result.Status);
+        Assert.Null(transport.Endpoint);
+    }
+
+    [Fact]
+    public async Task NoOpTriageReadsAndPreservesExistingLabels()
+    {
+        var transport = new FakeWriteClient();
+        using var catalog = Catalog();
+        var read = new StubIssueReadClient("customer-label");
+        var result = await new GitHubIssueLabelWriter(transport, new GitHubIssueReader(read)).AddTriageLabelsAsync("acme/widget", "acme/widget", 42,
+            new TriageDecision([], ["area"], true), Allowed(), catalog.RootElement);
+        Assert.Equal("review", result.Status);
+        Assert.Equal(2, read.ReadCount);
+        Assert.Null(transport.Endpoint);
+    }
+
+    [Fact]
+    public async Task InProgressPostconditionReturnsReviewAfterLabelAdd()
+    {
+        var transport = new FakeWriteClient();
+        using var catalog = Catalog();
+        var read = new StubIssueReadClient("", "IN_PROGRESS");
+        var result = await new GitHubIssueLabelWriter(transport, new GitHubIssueReader(read)).AddTriageLabelsAsync("acme/widget", "acme/widget", 42, Resolved(), Allowed(), catalog.RootElement);
+        Assert.Equal("review", result.Status);
+        Assert.NotNull(transport.Endpoint);
+        Assert.Equal(2, read.ReadCount);
+    }
+
     [Theory]
     [InlineData("unknown")]
     [InlineData("denied")]
@@ -28,7 +64,7 @@ public sealed class GitHubIssueLabelWriterTests
     {
         var transport = new FakeWriteClient();
         using var catalog = Catalog();
-        var result = await new GitHubIssueLabelWriter(transport).AddTriageLabelsAsync("acme/widget", "acme/widget", 42, Resolved(), Allowed(state), catalog.RootElement);
+        var result = await Writer(transport).AddTriageLabelsAsync("acme/widget", "acme/widget", 42, Resolved(), Allowed(state), catalog.RootElement);
         Assert.Equal("review", result.Status);
         Assert.Null(transport.Endpoint);
     }
@@ -37,7 +73,7 @@ public sealed class GitHubIssueLabelWriterTests
     public async Task ReviewUnresolvedRepositoryMismatchAndUnconfiguredTypeSendNothing()
     {
         var transport = new FakeWriteClient();
-        var writer = new GitHubIssueLabelWriter(transport);
+        var writer = Writer(transport);
         using var catalog = Catalog();
         Assert.Equal("review", (await writer.AddTriageLabelsAsync("acme/widget", "acme/widget", 42, new TriageDecision([], ["area"], true), Allowed(), catalog.RootElement)).Status);
         Assert.Equal("review", (await writer.AddTriageLabelsAsync("acme/widget", "acme/other", 42, Resolved(), Allowed(), catalog.RootElement)).Status);
@@ -52,7 +88,7 @@ public sealed class GitHubIssueLabelWriterTests
         using var catalog = JsonDocument.Parse("""{"labels":[{"name":"area:tooling","family":"area"},{"name":"area:docs","family":"area"}]}""");
         var decision = new TriageDecision([new("area", [new("area:tooling", 1, ["a"]), new("area:docs", 1, ["b"]), new("area:tooling", 1, ["c"])])], [], false);
         var transport = new FakeWriteClient();
-        var result = await new GitHubIssueLabelWriter(transport).AddTriageLabelsAsync("acme/widget", "acme/widget", 42, decision, Allowed(), catalog.RootElement);
+        var result = await Writer(transport).AddTriageLabelsAsync("acme/widget", "acme/widget", 42, decision, Allowed(), catalog.RootElement);
         Assert.Equal(new[] { "area:tooling", "area:docs" }, result.Labels);
         Assert.Equal(new[] { "area:tooling", "area:docs" }, JsonDocument.Parse(transport.Body!).RootElement.GetProperty("labels").EnumerateArray().Select(x => x.GetString()));
         Assert.DoesNotContain("existing-label", transport.Body!, StringComparison.Ordinal);
@@ -63,7 +99,7 @@ public sealed class GitHubIssueLabelWriterTests
     {
         var transport = new FakeWriteClient();
         using var catalog = Catalog();
-        var result = await new GitHubIssueLabelWriter(transport).AddTriageLabelsAsync("acme/widget", "acme/widget", 42,
+        var result = await Writer(transport).AddTriageLabelsAsync("acme/widget", "acme/widget", 42,
             new TriageDecision([], ["area"], true), Allowed(), catalog.RootElement);
         Assert.Equal("review", result.Status);
         Assert.Null(transport.Endpoint);
@@ -80,7 +116,7 @@ public sealed class GitHubIssueLabelWriterTests
             new("area", [new("area:docs", 1, ["must-not-apply"])])
         ], [], false);
         var transport = new FakeWriteClient();
-        var result = await new GitHubIssueLabelWriter(transport).AddTriageLabelsAsync("acme/widget", "acme/widget", 42, decision, Allowed(), catalog.RootElement);
+        var result = await Writer(transport).AddTriageLabelsAsync("acme/widget", "acme/widget", 42, decision, Allowed(), catalog.RootElement);
         Assert.Equal("applied", result.Status);
         Assert.Equal(new[] { "area:docs", "risk:high", "complexity:low" }, result.Labels);
         Assert.Equal(new[] { "area:docs", "risk:high", "complexity:low" }, JsonDocument.Parse(transport.Body!).RootElement.GetProperty("labels").EnumerateArray().Select(x => x.GetString()));
@@ -96,7 +132,7 @@ public sealed class GitHubIssueLabelWriterTests
         var label = selected == "risk" ? "risk:high" : "complexity:low";
         var decision = new TriageDecision([new(selected, [new(label, 1, ["explicit"])])], [unresolvedFamily], true);
         var transport = new FakeWriteClient();
-        var result = await new GitHubIssueLabelWriter(transport).AddTriageLabelsAsync("acme/widget", "acme/widget", 42, decision, Allowed(), catalog.RootElement);
+        var result = await Writer(transport).AddTriageLabelsAsync("acme/widget", "acme/widget", 42, decision, Allowed(), catalog.RootElement);
         Assert.Equal("applied", result.Status);
         Assert.Equal(new[] { label }, result.Labels);
     }
@@ -109,7 +145,7 @@ public sealed class GitHubIssueLabelWriterTests
         using var catalog = JsonDocument.Parse($"{{\"labels\":[{{\"name\":\"{first}\",\"family\":\"{family}\"}},{{\"name\":\"{second}\",\"family\":\"{family}\"}}]}}");
         var decision = new TriageDecision([new(family, [new(first, 1, []), new(second, 1, [])])], [], false);
         var transport = new FakeWriteClient();
-        var result = await new GitHubIssueLabelWriter(transport).AddTriageLabelsAsync("acme/widget", "acme/widget", 42, decision, Allowed(), catalog.RootElement);
+        var result = await Writer(transport).AddTriageLabelsAsync("acme/widget", "acme/widget", 42, decision, Allowed(), catalog.RootElement);
         Assert.Equal("failure", result.Status);
         Assert.Null(transport.Endpoint);
     }
@@ -122,12 +158,13 @@ public sealed class GitHubIssueLabelWriterTests
         using var catalog = JsonDocument.Parse("""{"labels":[{"name":"risk:high","family":"risk"},{"name":"complexity:low","family":"complexity"}]}""");
         var decision = new TriageDecision([new(family, [new(label, 1, [])])], [], false);
         var transport = new FakeWriteClient();
-        var result = await new GitHubIssueLabelWriter(transport).AddTriageLabelsAsync("acme/widget", "acme/widget", 42, decision, Allowed(), catalog.RootElement);
+        var result = await Writer(transport).AddTriageLabelsAsync("acme/widget", "acme/widget", 42, decision, Allowed(), catalog.RootElement);
         Assert.Equal("failure", result.Status);
         Assert.Null(transport.Endpoint);
     }
 
     static JsonDocument Catalog() => JsonDocument.Parse(File.ReadAllText(Path.Combine(AgentTool.FindToolkit(), "config/labels.json")));
+    static GitHubIssueLabelWriter Writer(FakeWriteClient transport) => new(transport, new GitHubIssueReader(new FakeIssueReadClient(transport)));
     static TriageDecision Resolved() => new([new("area", [new("area:tooling", 1, ["explicit"])])], [], false);
     static AgentTool.GitHubCapabilities Allowed(string state = "allowed") => new("github-capabilities", [new("issues.labels.write", "acme/widget", state, "fake", "test")]);
 
@@ -144,6 +181,30 @@ public sealed class GitHubIssueLabelWriterTests
             Body = content is null ? null : await content.ReadAsStringAsync(cancellationToken);
             ContentType = content?.Headers.ContentType?.MediaType;
             return new HttpResponseMessage(HttpStatusCode.OK);
+        }
+    }
+
+    sealed class FakeIssueReadClient(FakeWriteClient writeClient) : IGitHubReadClient
+    {
+        public Task<HttpResponseMessage> GetAsync(Uri endpoint, CancellationToken cancellationToken = default)
+        {
+            var labels = writeClient.Endpoint is null ? "[]" : "[{\"name\":\"existing-label\"}]";
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent($"{{\"number\":42,\"title\":\"Issue\",\"state\":\"open\",\"html_url\":\"https://github.com/acme/widget/issues/42\",\"labels\":{labels}}}")
+            });
+        }
+    }
+
+    sealed class StubIssueReadClient(params string[] labels) : IGitHubReadClient
+    {
+        public int ReadCount { get; private set; }
+        public Task<HttpResponseMessage> GetAsync(Uri endpoint, CancellationToken cancellationToken = default)
+        {
+            var currentLabels = labels[Math.Min(ReadCount++, labels.Length - 1)];
+            var labelObjects = currentLabels.Length == 0 ? Array.Empty<Dictionary<string, string>>() : currentLabels.Split(',').Select(name => new Dictionary<string, string> { ["name"] = name }).ToArray();
+            var json = JsonSerializer.Serialize(new { number = 42, title = "Issue", state = "open", html_url = "https://github.com/acme/widget/issues/42", labels = labelObjects });
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(json) });
         }
     }
 }
