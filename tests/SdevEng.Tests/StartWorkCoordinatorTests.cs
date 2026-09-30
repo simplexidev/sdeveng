@@ -132,7 +132,7 @@ public sealed class StartWorkCoordinatorTests
             Assert.All(events, item => Assert.True(schema.Evaluate(JsonNode.Parse(item.GetRawText())!).IsValid));
             if (pushed)
             {
-                Assert.Single(client.WriteClient.Requests);
+                Assert.Equal(2, client.WriteClient.Requests.Count);
                 var create = client.WriteClient.Requests[0];
                 Assert.Equal(HttpMethod.Post, create.Method);
                 Assert.Equal(new Uri("https://api.github.com/repos/owner/project/pulls"), create.Endpoint);
@@ -142,19 +142,21 @@ public sealed class StartWorkCoordinatorTests
                 Assert.Equal(request.BaseRef, payload["base"]!.GetValue<string>());
                 Assert.True(payload["draft"]!.GetValue<bool>());
                 Assert.Equal($"<!-- sdeveng-run:{request.ProductRunId:D} -->", payload["body"]!.GetValue<string>());
+                Assert.Equal(new Uri("https://api.github.com/repos/owner/project/issues/42/labels"), client.WriteClient.Requests[1].Endpoint);
+                Assert.Equal(new[] { "IN_PROGRESS" }, JsonNode.Parse(client.WriteClient.Requests[1].Body)!["labels"]!.AsArray().Select(item => item!.GetValue<string>()));
                 var count = events.Count;
                 await coordinator.ContinueAsync(request);
                 Assert.Equal(count + 1, LocalRunEventStore.Read(Store(repo), request.ProductRunId).Count);
                 Assert.Single(LocalRunEventStore.Read(Store(repo), request.ProductRunId), item => item.GetProperty("eventType").GetString() == "start-work-progress" && item.GetProperty("operation").GetString() == "pr-linked" && item.GetProperty("status").GetString() == "completed");
-                Assert.Equal(2, client.WriteClient.Requests.Count);
-                var edit = client.WriteClient.Requests[1];
+                Assert.Equal(3, client.WriteClient.Requests.Count);
+                var edit = client.WriteClient.Requests[2];
                 Assert.Equal(HttpMethod.Patch, edit.Method);
                 Assert.Equal(new Uri("https://api.github.com/repos/owner/project/pulls/17"), edit.Endpoint);
                 var linkedBody = JsonNode.Parse(edit.Body)!;
                 Assert.Contains("<!-- sdeveng-source-issue:42 -->", linkedBody["body"]!.GetValue<string>(), StringComparison.Ordinal);
                 Assert.Contains("Refs #42", linkedBody["body"]!.GetValue<string>(), StringComparison.Ordinal);
                 await coordinator.ContinueAsync(request);
-                Assert.Equal(2, client.WriteClient.Requests.Count);
+                Assert.Equal(3, client.WriteClient.Requests.Count);
             }
         }
         finally { DeleteBareRepository(bare); }

@@ -1284,6 +1284,9 @@ public sealed class StartWorkCoordinator(GitHubIssueReader issueReader, AgentToo
             if (origin.Length != 1) throw new InvalidOperationException("Canonical origin must have one GitHub URL.");
             var (owner, repository) = AgentTool.GitHubAuthorizationProbe.ParseGitHubTarget(origin[0]);
             var target = $"{owner}/{repository}";
+            string? Persisted(string system, string type) => events.Where(item => item.GetProperty("eventType").GetString() == "external-identifier-recorded" &&
+                item.GetProperty("externalSystem").GetString() == system && item.GetProperty("identifierType").GetString() == type)
+                .Select(item => item.GetProperty("identifier").GetString()).LastOrDefault();
             bool HasIdentifier(string system, string type, string value) => events.Any(item =>
                 item.GetProperty("eventType").GetString() == "external-identifier-recorded" &&
                 item.GetProperty("externalSystem").GetString() == system && item.GetProperty("identifierType").GetString() == type && item.GetProperty("identifier").GetString() == value);
@@ -1344,7 +1347,8 @@ public sealed class StartWorkCoordinator(GitHubIssueReader issueReader, AgentToo
                 var remoteSha = remoteBranch.Output.Split('\t')[0].Trim();
                 if (remoteSha.Length != 0 && remoteSha != baseSha)
                     throw new InvalidOperationException("Remote branch differs from the owned base; preserving it for recovery.");
-                if (remoteSha.Length == 0)
+                var ownedBranchSha = (await Git.Require(root, "rev-parse", "--verify", branchRef)).Trim();
+                if (!string.Equals(remoteSha, ownedBranchSha, StringComparison.OrdinalIgnoreCase))
                 {
                     var push = await Processes.Run("git", ["push", "--", "origin", branchRef + ":" + branchRef], root);
                     if (push.ExitCode != 0) throw new IOException("Branch push failed; the owned local branch remains available: " + Secrets.Redact(push.Output.Trim()));
@@ -1413,6 +1417,41 @@ public sealed class StartWorkCoordinator(GitHubIssueReader issueReader, AgentToo
                 LocalRunEventStore.AppendStartWorkProgress(directory, request.ProductRunId, "pr-created", "completed", persistedPr);
             }
             await CleanupBootstrapMarkerAsync(root, directory, request.ProductRunId, cancellationToken);
+            activeOperation = "metadata-persisted";
+            events = LocalRunEventStore.Read(directory, request.ProductRunId);
+            var persistedRepository = Persisted("git", "repository");
+            var persistedBranch = Persisted("git", "branch");
+            var persistedIssue = Persisted("github", "issue");
+            var persistedPullRequest = Persisted("github", "pull-request-number") ?? Persisted("github", "pull-request");
+            if (persistedRepository != target || persistedBranch != request.BranchName || persistedIssue != request.SourceIssueNumber.ToString(CultureInfo.InvariantCulture) ||
+                !int.TryParse(persistedPullRequest, NumberStyles.None, CultureInfo.InvariantCulture, out var verifiedPrNumber) || verifiedPrNumber <= 0)
+                throw new InvalidOperationException("Persisted startup identities are incomplete or inconsistent.");
+            var localBranch = await gitProcess.Run("git", ["rev-parse", "--verify", "refs/heads/" + persistedBranch], root);
+            if (localBranch.ExitCode != 0 || !Regex.IsMatch(localBranch.Output.Trim(), @"\A(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})\z"))
+                throw new InvalidOperationException("Owned local branch SHA is unavailable.");
+            var verificationPushUrl = (await Git.Require(root, "remote", "get-url", "--push", "origin")).Trim();
+            var verificationRemote = await gitProcess.Run("git", ["ls-remote", "--heads", verificationPushUrl, "refs/heads/" + persistedBranch], root);
+            var remoteLine = verificationRemote.Output.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).SingleOrDefault();
+            var remoteParts = remoteLine?.Split('\t');
+            if (verificationRemote.ExitCode != 0 || remoteParts is not { Length: 2 } || remoteParts[1] != "refs/heads/" + persistedBranch ||
+                !string.Equals(remoteParts[0], localBranch.Output.Trim(), StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("Remote branch is missing or differs from the owned local branch SHA.");
+            var pullRequest = await issueReader.ReadPullRequestAsync(owner, repository, verifiedPrNumber, cancellationToken);
+            if (pullRequest.Number != verifiedPrNumber || pullRequest.HeadBranch != persistedBranch || pullRequest.BaseBranch != request.BaseRef ||
+                !pullRequest.IsDraft || pullRequest.IsMerged || !string.Equals(pullRequest.State, "open", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("Persisted pull request is not the matching open draft pull request.");
+            if (!events.Any(item => item.GetProperty("eventType").GetString() == "start-work-progress" && item.GetProperty("operation").GetString() == "metadata-persisted" && item.GetProperty("status").GetString() == "completed"))
+            {
+                var capabilities = await authorizationProbe.ProbeAsync(root, cancellationToken);
+                if (!capabilities.Capabilities.Any(item => item.Operation == "issues.labels.write" && item.TargetRepository == target && item.State == "allowed"))
+                    throw new InvalidOperationException("Issue label write capability is not allowed.");
+                var labelContent = new StringContent(JsonSerializer.Serialize(new { labels = new[] { "IN_PROGRESS" } }));
+                labelContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
+                using var labelResponse = await writeClient.SendAsync(HttpMethod.Post,
+                    new Uri($"https://api.github.com/repos/{target}/issues/{request.SourceIssueNumber.ToString(CultureInfo.InvariantCulture)}/labels"), labelContent, cancellationToken);
+                if (!labelResponse.IsSuccessStatusCode) throw new HttpRequestException("GitHub rejected the startup label addition.");
+                LocalRunEventStore.AppendStartWorkProgress(directory, request.ProductRunId, "metadata-persisted", "completed", "IN_PROGRESS");
+            }
             return new(request.ProductRunId, target, request.SourceIssueNumber, baseSha, request.BranchName, "STARTING");
         }
         catch (Exception error) when (error is not OperationCanceledException)
