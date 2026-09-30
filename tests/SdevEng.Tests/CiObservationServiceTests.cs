@@ -44,6 +44,11 @@ public sealed class CiObservationServiceTests
         Assert.Equal(new Uri("https://github.com/o/r/runs/1"), observed.Checks[0].DetailsUrl);
         Assert.Equal(new long[] { 11, 13 }, observed.WorkflowRuns.Select(run => run.Id));
         Assert.All(observed.WorkflowRuns, run => Assert.Equal(sha, run.Sha));
+        var snapshot = Assert.Single(LocalRunEventStore.Read(directory.Path, runId), item => item.GetProperty("eventType").GetString() == "ci-check-snapshot");
+        Assert.Equal(sha, snapshot.GetProperty("commitSha").GetString());
+        Assert.Equal(new[] { "pending", "success", "success", "failure", "failure", "failure", "cancelled", "skipped" },
+            snapshot.GetProperty("checks").EnumerateArray().Select(check => check.GetProperty("state").GetString()));
+        Assert.Equal(new[] { "11", "13" }, snapshot.GetProperty("workflowRuns").EnumerateArray().Select(run => run.GetProperty("id").GetString()));
         Assert.Equal(2, transport.Endpoints.Count);
     }
 

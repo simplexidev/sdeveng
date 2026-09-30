@@ -802,8 +802,12 @@ public sealed class CiObservationService(GitHubChecksWorkflowReader checksReader
             throw new ArgumentException("A full commit SHA is required when run metadata has no valid step commit.", nameof(explicitCommitSha));
         var checks = await checksReader.ReadChecksAsync(owner, repository, sha, cancellationToken);
         var runs = await actionsReader.ReadRunsForCommitAsync(owner, repository, sha, limit, cancellationToken);
-        return new(sha, checks.Take(limit).Select(check => new CiObservationCheck(check.Id, check.Name, check.DetailsUrl,
+        var observation = new CiObservation(sha, checks.Take(limit).Select(check => new CiObservationCheck(check.Id, check.Name, check.DetailsUrl,
             check.Status, check.Conclusion, Normalize(check.Status, check.Conclusion))).ToArray(), runs);
+        LocalRunEventStore.AppendCiCheckSnapshot(runDirectory, productRunId, observation.CommitSha, DateTimeOffset.UtcNow,
+            observation.Checks.Take(100).Select(check => check.State).ToArray(), observation.WorkflowRuns.Take(100).Select(run => (run.Id.ToString(CultureInfo.InvariantCulture),
+                run.Conclusion ?? run.Status)).ToArray());
+        return observation;
     }
 
     static string Normalize(string status, string? conclusion)
@@ -1071,6 +1075,32 @@ public static class LocalRunEventStore
     public static JsonElement AppendCiRunIdentifier(string directory, Guid runId, string ciRun) =>
         AppendExternalIdentifier(directory, runId, "github-actions", "ci-run", ciRun);
 
+    public static JsonElement AppendCiCheckSnapshot(string directory, Guid runId, string commitSha, DateTimeOffset observedAt,
+        IReadOnlyList<string> checks, IReadOnlyList<(string Id, string State)> workflowRuns)
+    {
+        if (!Regex.IsMatch(commitSha, @"^(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$", RegexOptions.CultureInvariant) ||
+            checks.Count > 100 || workflowRuns.Count > 100 || checks.Any(state => state is not ("pending" or "success" or "failure" or "cancelled" or "skipped" or "unknown")) ||
+            workflowRuns.Any(run => !Regex.IsMatch(run.Id, @"^[1-9][0-9]*$", RegexOptions.CultureInvariant) || run.State.Length is < 1 or > 32))
+            throw new ArgumentException("CI snapshot contains invalid or unbounded facts.");
+        var payload = new { schemaVersion = 1, runId = runId.ToString("D"), sequence = 0, occurredAt = DateTimeOffset.UtcNow, eventType = "ci-check-snapshot",
+            snapshotVersion = 1, commitSha = commitSha.ToLowerInvariant(), observedAt, checks = checks.Select(state => new { state }).ToArray(),
+            workflowRuns = workflowRuns.Select(run => new { id = run.Id, state = run.State }).ToArray() };
+        return AppendSnapshot(directory, runId, payload);
+    }
+
+    private static JsonElement AppendSnapshot(string directory, Guid runId, object snapshot)
+    {
+        var path = Path.Combine(directory, runId.ToString("D"));
+        Directory.CreateDirectory(path);
+        using var gate = new FileStream(Path.Combine(path, ".lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+        var node = JsonSerializer.SerializeToNode(snapshot, AgentTool.Json)!;
+        node["sequence"] = Read(directory, runId).Count + 1;
+        var file = Path.Combine(path, node["sequence"]!.GetValue<int>().ToString("D20", CultureInfo.InvariantCulture) + ".json");
+        File.WriteAllText(file, node.ToJsonString(AgentTool.Json) + "\n", new UTF8Encoding(false));
+        using var document = JsonDocument.Parse(node.ToJsonString(AgentTool.Json));
+        return document.RootElement.Clone();
+    }
+
     public static IReadOnlyList<JsonElement> Read(string directory, Guid runId)
     {
         var path = Path.Combine(directory, runId.ToString("D"));
@@ -1157,6 +1187,17 @@ public static class LocalRunEventStore
                         item.GetProperty("detail").GetString()!.Length > 512 || Secrets.LooksSensitive(item.GetProperty("detail").GetString()!))
                         throw new InvalidDataException("Run start-work progress is invalid.");
                 }
+                else if (type == "ci-check-snapshot")
+                {
+                    if (!properties.SetEquals(["schemaVersion", "runId", "sequence", "occurredAt", "eventType", "snapshotVersion", "commitSha", "observedAt", "checks", "workflowRuns"]) ||
+                        item.GetProperty("snapshotVersion").GetInt32() != 1 || !Regex.IsMatch(item.GetProperty("commitSha").GetString() ?? "", @"^(?:[0-9a-f]{40}|[0-9a-f]{64})$", RegexOptions.CultureInvariant) ||
+                        !DateTimeOffset.TryParse(item.GetProperty("observedAt").GetString(), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out _) ||
+                        item.GetProperty("checks").ValueKind != JsonValueKind.Array || item.GetProperty("checks").GetArrayLength() > 100 ||
+                        item.GetProperty("workflowRuns").ValueKind != JsonValueKind.Array || item.GetProperty("workflowRuns").GetArrayLength() > 100 ||
+                        item.GetProperty("checks").EnumerateArray().Any(check => check.EnumerateObject().Count() != 1 || check.GetProperty("state").GetString() is not ("pending" or "success" or "failure" or "cancelled" or "skipped" or "unknown")) ||
+                        item.GetProperty("workflowRuns").EnumerateArray().Any(run => run.EnumerateObject().Count() != 2 || !Regex.IsMatch(run.GetProperty("id").GetString() ?? "", @"^[1-9][0-9]*$", RegexOptions.CultureInvariant) || string.IsNullOrWhiteSpace(run.GetProperty("state").GetString()) || run.GetProperty("state").GetString()!.Length > 32))
+                        throw new InvalidDataException("Run CI check snapshot is invalid.");
+                }
                 else throw new InvalidDataException("Run event type is invalid.");
                 events.Add(item.Clone());
             }
@@ -1180,14 +1221,20 @@ public static class LocalRunEventStore
     public static object Explain(string directory, Guid runId)
     {
         var events = Read(directory, runId);
+        var snapshot = events.LastOrDefault(item => item.GetProperty("eventType").GetString() == "ci-check-snapshot");
         var timeline = events.Select(item => item.GetProperty("eventType").GetString() == "start-work-progress"
             ? (object)new { sequence = item.GetProperty("sequence").GetInt32(), occurredAt = item.GetProperty("occurredAt").GetString(), type = "start-work-progress", from = item.GetProperty("operation").GetString(), to = item.GetProperty("status").GetString() }
             : item.GetProperty("eventType").GetString() == "operation-completed"
             ? (object)new { sequence = item.GetProperty("sequence").GetInt32(), occurredAt = item.GetProperty("occurredAt").GetString(), type = "operation-completed", from = (string?)null, to = item.GetProperty("operation").GetString() }
             : item.GetProperty("eventType").GetString() == "state-transition"
             ? (object)new { sequence = item.GetProperty("sequence").GetInt32(), occurredAt = item.GetProperty("occurredAt").GetString(), type = "state-transition", from = item.GetProperty("fromState").GetString(), to = item.GetProperty("toState").GetString() }
+            : item.GetProperty("eventType").GetString() == "ci-check-snapshot"
+            ? (object)new { sequence = item.GetProperty("sequence").GetInt32(), occurredAt = item.GetProperty("occurredAt").GetString(), type = "ci-check-snapshot", from = (string?)null, to = item.GetProperty("commitSha").GetString() }
             : new { sequence = item.GetProperty("sequence").GetInt32(), occurredAt = item.GetProperty("occurredAt").GetString(), type = "external-identifier-recorded", from = (string?)null, to = $"{item.GetProperty("externalSystem").GetString()}:{item.GetProperty("identifierType").GetString()}={item.GetProperty("identifier").GetString()}" }).ToArray();
-        return new { kind = "run-explanation", runId = runId.ToString("D"), eventCount = events.Count, timeline };
+        object? ciSnapshot = snapshot.ValueKind == JsonValueKind.Undefined ? null : new { commitSha = snapshot.GetProperty("commitSha").GetString(), observedAt = snapshot.GetProperty("observedAt").GetString(),
+            checks = snapshot.GetProperty("checks").EnumerateArray().GroupBy(check => check.GetProperty("state").GetString()).ToDictionary(group => group.Key!, group => group.Count()),
+            workflowRuns = snapshot.GetProperty("workflowRuns").EnumerateArray().Select(run => new { id = run.GetProperty("id").GetString(), state = run.GetProperty("state").GetString() }).ToArray() };
+        return new { kind = "run-explanation", runId = runId.ToString("D"), eventCount = events.Count, timeline, ciSnapshot };
     }
 
     public static JsonElement Resume(string directory, Guid runId) => TransitionCurrent(directory, runId, "paused", "running");
