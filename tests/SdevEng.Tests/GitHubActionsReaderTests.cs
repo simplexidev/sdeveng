@@ -3,6 +3,28 @@ namespace SdevEng.Tests;
 public sealed class GitHubActionsReaderTests
 {
     [Fact]
+    public async Task ReadsOnlyRunsForExactCommitAndPreservesRunFactsWithinLimit()
+    {
+        const string sha = "0123456789abcdef0123456789abcdef01234567";
+        var client = new StubReadClient("""
+            {"workflow_runs":[
+            {"id":1,"name":"CI","status":"completed","conclusion":"success","event":"push","head_branch":"main","head_sha":"0123456789abcdef0123456789abcdef01234567","html_url":"https://github.com/o/r/actions/runs/1","created_at":"2026-01-02T03:04:05Z","updated_at":"2026-01-02T03:05:05Z"},
+            {"id":2,"name":"CI","status":"failure","conclusion":"failure","event":"push","head_branch":"main","head_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","html_url":"https://github.com/o/r/actions/runs/2"},
+            {"id":3,"name":"CI","status":"in_progress","conclusion":null,"event":"push","head_branch":"main","head_sha":"0123456789abcdef0123456789abcdef01234567","html_url":"https://github.com/o/r/actions/runs/3"}]}
+            """);
+
+        var runs = await new GitHubActionsReader(client).ReadRunsForCommitAsync("o", "r", sha, 1);
+
+        Assert.Equal($"https://api.github.com/repos/o/r/actions/runs?head_sha={sha}&per_page=1", Assert.Single(client.Endpoints).ToString());
+        var run = Assert.Single(runs);
+        Assert.Equal(sha, run.Sha);
+        Assert.Equal((1L, "CI", "completed", "success"), (run.Id, run.Workflow, run.Status, run.Conclusion));
+        Assert.Equal(new Uri("https://github.com/o/r/actions/runs/1"), run.Url);
+        Assert.Equal(DateTimeOffset.Parse("2026-01-02T03:04:05Z"), run.CreatedAt);
+        Assert.Equal(DateTimeOffset.Parse("2026-01-02T03:05:05Z"), run.UpdatedAt);
+    }
+
+    [Fact]
     public async Task ReadsRunsDetailFailedStepsAndBoundedFailedLogs()
     {
         var run = """{"id":81,"name":"CI","display_title":"Fix build","status":"completed","conclusion":"failure","event":"push","head_branch":"main","head_sha":"abc","html_url":"https://github.com/o/r/actions/runs/81","created_at":"2026-01-02T03:04:05Z","updated_at":"2026-01-02T03:05:05Z"}""";
