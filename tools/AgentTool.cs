@@ -1405,6 +1405,8 @@ public static class AgentTool
                             : pages.AsEnumerable();
                         var remoteNames = remoteLabels.Select(label => label.GetProperty("name").GetString() ?? throw new JsonException("Remote label name is missing.")).ToHashSet(StringComparer.OrdinalIgnoreCase);
                         var missing = configured.Where(label => !remoteNames.Contains(label.name)).ToArray();
+                        var configuredNames = configured.Select(label => label.name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                        var unmanaged = remoteNames.Where(name => !configuredNames.Contains(name)).Order(StringComparer.OrdinalIgnoreCase).ToArray();
                         var created = new List<string>();
                         if (command.Flag("apply"))
                             foreach (var label in missing)
@@ -1413,7 +1415,7 @@ public static class AgentTool
                                 if (response.ExitCode != 0) throw new InvalidOperationException($"Could not create missing allowed label '{label.name}'.");
                                 created.Add(label.name);
                             }
-                        return Result.Ok(new { kind = "github-labels", repository = target, configured = configured.Select(x => x.name), remote = remoteNames.Order(StringComparer.OrdinalIgnoreCase), missing = command.Flag("apply") ? Array.Empty<string>() : missing.Select(x => x.name), created });
+                        return Result.Ok(new { kind = "github-labels", repository = target, configured = configured.Select(x => x.name), remote = remoteNames.Order(StringComparer.OrdinalIgnoreCase), missing = command.Flag("apply") ? Array.Empty<string>() : missing.Select(x => x.name), unmanaged, created });
                     }
                 case "github prepare-pr":
                     await Git.EnsureSafe(root, false);
