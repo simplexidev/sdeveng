@@ -1210,7 +1210,54 @@ public static class AgentTool
             try { repo = await process.Run("gh", ["api", "--method", "GET", $"repos/{target}"], root); }
             catch { repo = new(-1, ""); }
             var label = LabelCapability(target, repo, auth.ExitCode == 0 ? authEvidence : "");
-            return new("github-capabilities", [read, label]);
+            var credentialEvidence = auth.ExitCode == 0 ? authEvidence : "";
+            var prCreate = PullRequestCreateCapability(target, repo, credentialEvidence);
+            var branchPush = await BranchPushCapability(root, target, cancellationToken);
+            return new("github-capabilities", [read, label, branchPush, prCreate]);
+        }
+
+        async Task<GitHubCapability> BranchPushCapability(string root, string target, CancellationToken cancellationToken)
+        {
+            ProcessResult head;
+            try { head = await process.Run("git", ["rev-parse", "--short=12", "HEAD"], root); }
+            catch { return Cap("branch-push", target, "unknown", "current HEAD could not be identified"); }
+            var shortHead = head.Output.Trim();
+            if (head.ExitCode != 0 || !Regex.IsMatch(shortHead, @"^[0-9a-fA-F]{7,40}$"))
+                return Cap("branch-push", target, "unknown", "current HEAD could not be identified");
+            cancellationToken.ThrowIfCancellationRequested();
+            var branch = $"refs/heads/roadmap/sdeveng-capability-probe-{shortHead}";
+            ProcessResult push;
+            try { push = await process.Run("git", ["push", "--dry-run", "--porcelain", "origin", $"HEAD:{branch}"], root); }
+            catch { return Cap("branch-push", target, "unknown", "dry-run push did not establish authorization"); }
+            if (push.ExitCode == 0) return Cap("branch-push", target, "allowed", "git push dry-run to a unique probe ref succeeded");
+            return ExplicitReject(push.Output) || Regex.IsMatch(push.Output, @"(?i)(protected branch|pre-receive hook declined|prohibited by.*policy|repository rule|cannot push|push declined)")
+                ? Cap("branch-push", target, "denied", "remote explicitly rejected the dry-run push")
+                : Cap("branch-push", target, "unknown", "dry-run push failed without a deterministic authorization rejection");
+        }
+
+        static GitHubCapability PullRequestCreateCapability(string target, ProcessResult repository, string auth)
+        {
+            if (repository.ExitCode != 0)
+                return ExplicitReject(repository.Output) ? Cap("pr-create", target, "denied", "GitHub explicitly rejected repository permission evidence") : Cap("pr-create", target, "unknown", "repository permission evidence unavailable");
+            try
+            {
+                using var doc = JsonDocument.Parse(repository.Output);
+                var permissions = doc.RootElement.GetProperty("permissions");
+                var scopes = Regex.Match(auth, @"(?im)Token scopes:\s*(?<scopes>[^\r\n]+)");
+                if (permissions.TryGetProperty("push", out var push) && push.ValueKind == JsonValueKind.False)
+                    return Cap("pr-create", target, "denied", "repository permissions explicitly deny push access required by the same-repository pull request workflow");
+                if (scopes.Success)
+                {
+                    var tokenScopes = scopes.Groups["scopes"].Value.Split(',', StringSplitOptions.TrimEntries);
+                    if (!tokenScopes.Contains("repo", StringComparer.Ordinal))
+                        return Cap("pr-create", target, "denied", "authenticated token scopes explicitly lack the repository scope required for pull request creation");
+                    if (permissions.TryGetProperty("push", out push) && push.ValueKind == JsonValueKind.True)
+                        return Cap("pr-create", target, "allowed", "repository push permission and authenticated repo token scope are both explicit");
+                }
+            }
+            catch (JsonException) { }
+            catch (KeyNotFoundException) { }
+            return Cap("pr-create", target, "unknown", "available non-mutating evidence does not prove same-repository pull request creation permission");
         }
 
         static GitHubCapability LabelCapability(string target, ProcessResult repository, string auth)
@@ -1236,7 +1283,7 @@ public static class AgentTool
 
         static bool ExplicitReject(string output) => Regex.IsMatch(output, @"(?i)(HTTP\s+401|HTTP\s+403|\b(unauthorized|forbidden|requires authentication|resource not accessible)\b)");
         static GitHubCapability Cap(string operation, string? target, string state, string evidence) => new(operation, target, state, evidence);
-        static GitHubCapabilities Unknown(string? target, string evidence) => new("github-capabilities", [Cap("issues.read", target, "unknown", evidence), Cap("issues.labels.write", target, "unknown", evidence)]);
+        static GitHubCapabilities Unknown(string? target, string evidence) => new("github-capabilities", [Cap("issues.read", target, "unknown", evidence), Cap("issues.labels.write", target, "unknown", evidence), Cap("branch-push", target, "unknown", evidence), Cap("pr-create", target, "unknown", evidence)]);
         public static (string Owner, string Repository) ParseGitHubTarget(string remote)
         {
             string path;
