@@ -66,6 +66,24 @@ public sealed class CiObservationServiceTests
         Assert.Equal(2, transport.Endpoints.Count);
     }
 
+    [Fact]
+    public async Task FailureEvidenceUsesLatestMatchingSnapshotAndExactFailedRunId()
+    {
+        using var directory = new TemporaryDirectory();
+        var runId = Guid.NewGuid();
+        const string sha = "0123456789abcdef0123456789abcdef01234567";
+        LocalRunEventStore.AppendStepCommitIdentifier(directory.Path, runId, sha);
+        LocalRunEventStore.AppendCiCheckSnapshot(directory.Path, runId, sha, DateTimeOffset.UtcNow, [], [("10", "cancelled"), ("12", "failure")]);
+        var run = $$"""{"id":12,"name":"CI","status":"completed","conclusion":"failure","event":"push","head_sha":"{{sha}}","html_url":"https://github.com/o/r/actions/runs/12"}""";
+        var transport = new StubReadClient(run, """{"jobs":[{"id":4,"name":"build","conclusion":"action_required","steps":[{"name":"deploy","number":1,"conclusion":"failure"}]}]}""", "log");
+        var service = new CiObservationService(new GitHubChecksWorkflowReader(transport), new GitHubActionsReader(transport));
+
+        var evidence = await service.ReadLatestFailureEvidenceAsync(directory.Path, runId, "o", "r", 100);
+
+        Assert.Equal(12, evidence!.RunId);
+        Assert.Equal(new[] { "https://api.github.com/repos/o/r/actions/runs/12", "https://api.github.com/repos/o/r/actions/runs/12/jobs?per_page=200", "https://api.github.com/repos/o/r/actions/jobs/4/logs" }, transport.Endpoints.Select(endpoint => endpoint.ToString()));
+    }
+
     sealed class StubReadClient(params string[] bodies) : IGitHubReadClient
     {
         int index;

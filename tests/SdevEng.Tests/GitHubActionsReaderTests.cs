@@ -53,6 +53,33 @@ public sealed class GitHubActionsReaderTests
         await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => reader.ReadFailedLogsAsync("o", "r", 0, 5, 100));
     }
 
+    [Fact]
+    public async Task ReadsOnlyEarliestCausalJobLogAndMarksTruncation()
+    {
+        const string sha = "0123456789abcdef0123456789abcdef01234567";
+        var run = $$"""{"id":81,"name":"CI","status":"completed","conclusion":"failure","event":"push","head_sha":"{{sha}}","html_url":"https://github.com/o/r/actions/runs/81"}""";
+        var jobs = """{"jobs":[{"id":93,"name":"later","conclusion":"failure","started_at":"2026-01-02T03:05:00Z","steps":[{"name":"compile","number":1,"conclusion":"failure"}]},{"id":91,"name":"cancelled","conclusion":"cancelled","started_at":"2026-01-02T03:03:00Z"},{"id":92,"name":"earliest","conclusion":"timed_out","started_at":"2026-01-02T03:04:00Z","steps":[{"name":"test","number":2,"conclusion":"timed_out"}]}]}""";
+        var client = new StubReadClient(run, jobs, "0123456789");
+
+        var evidence = await new GitHubActionsReader(client).ReadFailureEvidenceAsync("o", "r", 81, sha, 8);
+
+        Assert.NotNull(evidence);
+        Assert.Equal((81L, "CI", 92L, "earliest"), (evidence.RunId, evidence.RunName, evidence.JobId, evidence.JobName));
+        Assert.Equal("test", Assert.Single(evidence.FailedSteps).Name);
+        Assert.True(evidence.Truncated);
+        Assert.Equal(8, evidence.Log.Length);
+        Assert.Equal(new[] { "https://api.github.com/repos/o/r/actions/runs/81", "https://api.github.com/repos/o/r/actions/runs/81/jobs?per_page=200", "https://api.github.com/repos/o/r/actions/jobs/92/logs" }, client.Endpoints.Select(endpoint => endpoint.ToString()));
+    }
+
+    [Fact]
+    public async Task RejectsRunWhoseShaDoesNotMatchBeforeFetchingJobs()
+    {
+        var run = """{"id":81,"name":"CI","status":"completed","conclusion":"failure","event":"push","head_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","html_url":"https://github.com/o/r/actions/runs/81"}""";
+        var client = new StubReadClient(run);
+        Assert.Null(await new GitHubActionsReader(client).ReadFailureEvidenceAsync("o", "r", 81, "0123456789abcdef0123456789abcdef01234567", 100));
+        Assert.Single(client.Endpoints);
+    }
+
     sealed class StubReadClient(params string[] bodies) : IGitHubReadClient
     {
         int index;

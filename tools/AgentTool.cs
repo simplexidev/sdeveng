@@ -661,6 +661,7 @@ public sealed record GitHubActionStep(string? Name, int? Number, string? Conclus
 public sealed record GitHubActionJob(long Id, string? Name, string? Status, string? Conclusion, DateTimeOffset? StartedAt, DateTimeOffset? CompletedAt, Uri? Url, IReadOnlyList<GitHubActionStep> FailedSteps);
 public sealed record GitHubActionRunDetail(GitHubActionRun Run, IReadOnlyList<GitHubActionJob> Jobs);
 public sealed record GitHubActionFailedLog(long JobId, string? JobName, string Log);
+public sealed record GitHubActionFailureEvidence(long RunId, string RunName, long JobId, string? JobName, IReadOnlyList<GitHubActionStep> FailedSteps, string Log, bool Truncated);
 
 /// <summary>Reads bounded Actions run and failure evidence through the shared GitHub read transport.</summary>
 public sealed class GitHubActionsReader(IGitHubReadClient client)
@@ -712,6 +713,30 @@ public sealed class GitHubActionsReader(IGitHubReadClient client)
             remaining -= length + (truncated ? marker.Length : 0);
         }
         return output;
+    }
+    public async Task<GitHubActionFailureEvidence?> ReadFailureEvidenceAsync(string owner, string repository, long runId, string stepCommitSha, int maxOutputChars, CancellationToken cancellationToken = default)
+    {
+        ValidateRunId(runId);
+        if (!Regex.IsMatch(stepCommitSha, @"^(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$", RegexOptions.CultureInvariant)) throw new ArgumentException("A full commit SHA is required.", nameof(stepCommitSha));
+        if (maxOutputChars < 1) throw new ArgumentOutOfRangeException(nameof(maxOutputChars));
+        var prefix = $"repos/{Part(owner, nameof(owner))}/{Part(repository, nameof(repository))}/actions/runs/{runId.ToString(CultureInfo.InvariantCulture)}";
+        var run = ParseRun(await ReadJsonAsync(prefix, cancellationToken));
+        if (!string.Equals(run.Sha, stepCommitSha, StringComparison.OrdinalIgnoreCase)) return null;
+        var jobsRoot = await ReadJsonAsync(prefix + "/jobs?per_page=200", cancellationToken);
+        var job = Array(jobsRoot, "jobs").Select(ParseJob)
+            .Where(item => item.Conclusion is "failure" or "timed_out" or "action_required")
+            .OrderBy(item => item.StartedAt ?? DateTimeOffset.MaxValue).ThenBy(item => item.Id).FirstOrDefault();
+        if (job is null) return null;
+        using var response = await GitHubTransport.GetAsync(client, new Uri(ApiRoot, $"repos/{Part(owner, nameof(owner))}/{Part(repository, nameof(repository))}/actions/jobs/{job.Id.ToString(CultureInfo.InvariantCulture)}/logs"), cancellationToken);
+        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        using var reader = new StreamReader(stream);
+        var buffer = new char[maxOutputChars + 1];
+        var count = await reader.ReadBlockAsync(buffer.AsMemory(), cancellationToken);
+        var truncated = count > maxOutputChars;
+        const string marker = "\n[truncated]";
+        var textLength = truncated ? Math.Max(0, maxOutputChars - marker.Length) : count;
+        var log = new string(buffer, 0, textLength) + (truncated ? marker[..Math.Min(marker.Length, maxOutputChars)] : "");
+        return new(runId, run.Workflow, job.Id, job.Name, job.FailedSteps, log, truncated);
     }
     async Task<JsonElement> ReadJsonAsync(string path, CancellationToken cancellationToken)
     {
@@ -790,6 +815,20 @@ public sealed record CiObservation(string CommitSha, IReadOnlyList<CiObservation
 /// <summary>Builds bounded CI facts for the commit recorded on a product run.</summary>
 public sealed class CiObservationService(GitHubChecksWorkflowReader checksReader, GitHubActionsReader actionsReader)
 {
+    public async Task<GitHubActionFailureEvidence?> ReadLatestFailureEvidenceAsync(string runDirectory, Guid productRunId, string owner, string repository, int maxOutputChars = 16000, CancellationToken cancellationToken = default)
+    {
+        var events = LocalRunEventStore.Read(runDirectory, productRunId);
+        var commitEvent = events.LastOrDefault(item => item.GetProperty("eventType").GetString() == "external-identifier-recorded" && item.GetProperty("externalSystem").GetString() == "git" && item.GetProperty("identifierType").GetString() == "step-commit");
+        var sha = commitEvent.ValueKind == JsonValueKind.Undefined ? null : commitEvent.GetProperty("identifier").GetString();
+        if (sha is null || !Regex.IsMatch(sha, @"^(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$", RegexOptions.CultureInvariant)) throw new ArgumentException("A full persisted step commit SHA is required.");
+        var snapshot = events.LastOrDefault(item => item.GetProperty("eventType").GetString() == "ci-check-snapshot");
+        if (snapshot.ValueKind == JsonValueKind.Undefined || !string.Equals(snapshot.GetProperty("commitSha").GetString(), sha, StringComparison.OrdinalIgnoreCase)) return null;
+        var failedRun = snapshot.GetProperty("workflowRuns").EnumerateArray()
+            .Where(item => item.GetProperty("state").GetString() is "failure" or "timed_out" or "action_required")
+            .Select(item => long.Parse(item.GetProperty("id").GetString()!, CultureInfo.InvariantCulture)).OrderBy(id => id).FirstOrDefault();
+        return failedRun == 0 ? null : await actionsReader.ReadFailureEvidenceAsync(owner, repository, failedRun, sha, maxOutputChars, cancellationToken);
+    }
+
     public async Task<CiObservation> ObserveAsync(string runDirectory, Guid productRunId, string owner, string repository,
         string? explicitCommitSha = null, int limit = 100, CancellationToken cancellationToken = default)
     {
