@@ -1149,68 +1149,68 @@ public sealed class StartWorkCoordinator(GitHubIssueReader issueReader, AgentToo
             ? "branch-pushed" : "branch-created";
         try
         {
-        await Git.Require(root, "check-ref-format", "--branch", request.BranchName);
-        var baseSha = (await Git.Require(root, "rev-parse", "--verify", "--end-of-options", request.BaseRef + "^{commit}")).Trim();
-        if (!string.Equals(baseSha, request.ExpectedBaseSha, StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException("Expected base SHA is stale.");
-        var origin = (await Git.Require(root, "remote", "get-url", "--all", "origin"))
-            .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Distinct(StringComparer.Ordinal).ToArray();
-        if (origin.Length != 1) throw new InvalidOperationException("Canonical origin must have one GitHub URL.");
-        var (owner, repository) = AgentTool.GitHubAuthorizationProbe.ParseGitHubTarget(origin[0]);
-        var target = $"{owner}/{repository}";
-        bool HasIdentifier(string system, string type, string value) => events.Any(item =>
-            item.GetProperty("eventType").GetString() == "external-identifier-recorded" &&
-            item.GetProperty("externalSystem").GetString() == system && item.GetProperty("identifierType").GetString() == type && item.GetProperty("identifier").GetString() == value);
-        if (!HasIdentifier("git", "repository", target) || !HasIdentifier("github", "issue", request.SourceIssueNumber.ToString(CultureInfo.InvariantCulture)))
-            throw new InvalidOperationException("STARTING target does not match its recorded identifiers.");
-        if (events.Any(item => item.GetProperty("eventType").GetString() == "external-identifier-recorded" &&
-            item.GetProperty("identifierType").GetString() == "branch" && item.GetProperty("identifier").GetString() != request.BranchName))
-            throw new InvalidOperationException("STARTING run already owns a different branch.");
-        if (currentState == "STARTING_RETRYABLE")
-            LocalRunEventStore.AppendTransition(directory, request.ProductRunId, currentState, "STARTING");
-        bool Completed(string operation) => events.Any(item => item.GetProperty("eventType").GetString() == "start-work-progress" && item.GetProperty("operation").GetString() == operation && item.GetProperty("status").GetString() == "completed") ||
-            events.Any(item => item.GetProperty("eventType").GetString() == "operation-completed" && item.GetProperty("operation").GetString() == operation);
-        var gitState = await Git.State(root);
-        if (gitState.Operations.Count != 0) throw new InvalidOperationException("Worktree has an unfinished Git operation.");
-        var branchRef = "refs/heads/" + request.BranchName;
-        var branch = await Processes.Run("git", ["rev-parse", "--verify", branchRef], root);
-        if (branch.ExitCode == 0)
-        {
-            if (branch.Output.Trim() != baseSha ||
-                (await Git.Require(root, "config", "--get", "branch." + request.BranchName + "." + GitOwnershipMarkers.BranchConfigKey)).Trim() != GitOwnershipMarkers.BranchConfigValue)
-                throw new InvalidOperationException("Existing branch is not the owned branch at the verified base.");
-        }
-        else
-        {
-            if (Completed("branch-created")) throw new InvalidOperationException("Recorded owned branch is missing.");
-            if (gitState.Head != baseSha) throw new InvalidOperationException("HEAD must match the verified base.");
-            var changes = await Git.Require(root, "status", "--porcelain=v1", "-z", "--untracked-files=all", "--", ".", ":(exclude).sdeveng/runs");
-            if (changes.Length != 0) throw new InvalidOperationException("Worktree has unrelated changes.");
-            await Git.Require(root, "branch", request.BranchName, baseSha);
-            await Git.Require(root, "config", "branch." + request.BranchName + "." + GitOwnershipMarkers.BranchConfigKey, GitOwnershipMarkers.BranchConfigValue);
-        }
-        if (!HasIdentifier("git", "branch", request.BranchName)) LocalRunEventStore.AppendBranchIdentifier(directory, request.ProductRunId, request.BranchName);
-        if (!Completed("branch-created")) LocalRunEventStore.AppendStartWorkProgress(directory, request.ProductRunId, "branch-created", "completed");
-        activeOperation = "branch-pushed";
-        if (!Completed("branch-pushed"))
-        {
-            var capabilities = await authorizationProbe.ProbeAsync(root, cancellationToken);
-            if (!capabilities.Capabilities.Any(item => item.Operation == "branch-push" && item.TargetRepository == target && item.State == "allowed"))
-                throw new InvalidOperationException("Branch push capability is not allowed.");
-            var pushUrl = (await Git.Require(root, "remote", "get-url", "--push", "origin")).Trim();
-            var remoteBranch = await Processes.Run("git", ["ls-remote", "--heads", pushUrl, branchRef], root);
-            if (remoteBranch.ExitCode != 0) throw new IOException("Remote branch inspection failed.");
-            var remoteSha = remoteBranch.Output.Split('\t')[0].Trim();
-            if (remoteSha.Length != 0 && remoteSha != baseSha)
-                throw new InvalidOperationException("Remote branch differs from the owned base; preserving it for recovery.");
-            if (remoteSha.Length == 0)
+            await Git.Require(root, "check-ref-format", "--branch", request.BranchName);
+            var baseSha = (await Git.Require(root, "rev-parse", "--verify", "--end-of-options", request.BaseRef + "^{commit}")).Trim();
+            if (!string.Equals(baseSha, request.ExpectedBaseSha, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("Expected base SHA is stale.");
+            var origin = (await Git.Require(root, "remote", "get-url", "--all", "origin"))
+                .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Distinct(StringComparer.Ordinal).ToArray();
+            if (origin.Length != 1) throw new InvalidOperationException("Canonical origin must have one GitHub URL.");
+            var (owner, repository) = AgentTool.GitHubAuthorizationProbe.ParseGitHubTarget(origin[0]);
+            var target = $"{owner}/{repository}";
+            bool HasIdentifier(string system, string type, string value) => events.Any(item =>
+                item.GetProperty("eventType").GetString() == "external-identifier-recorded" &&
+                item.GetProperty("externalSystem").GetString() == system && item.GetProperty("identifierType").GetString() == type && item.GetProperty("identifier").GetString() == value);
+            if (!HasIdentifier("git", "repository", target) || !HasIdentifier("github", "issue", request.SourceIssueNumber.ToString(CultureInfo.InvariantCulture)))
+                throw new InvalidOperationException("STARTING target does not match its recorded identifiers.");
+            if (events.Any(item => item.GetProperty("eventType").GetString() == "external-identifier-recorded" &&
+                item.GetProperty("identifierType").GetString() == "branch" && item.GetProperty("identifier").GetString() != request.BranchName))
+                throw new InvalidOperationException("STARTING run already owns a different branch.");
+            if (currentState == "STARTING_RETRYABLE")
+                LocalRunEventStore.AppendTransition(directory, request.ProductRunId, currentState, "STARTING");
+            bool Completed(string operation) => events.Any(item => item.GetProperty("eventType").GetString() == "start-work-progress" && item.GetProperty("operation").GetString() == operation && item.GetProperty("status").GetString() == "completed") ||
+                events.Any(item => item.GetProperty("eventType").GetString() == "operation-completed" && item.GetProperty("operation").GetString() == operation);
+            var gitState = await Git.State(root);
+            if (gitState.Operations.Count != 0) throw new InvalidOperationException("Worktree has an unfinished Git operation.");
+            var branchRef = "refs/heads/" + request.BranchName;
+            var branch = await Processes.Run("git", ["rev-parse", "--verify", branchRef], root);
+            if (branch.ExitCode == 0)
             {
-                var push = await Processes.Run("git", ["push", "--", "origin", branchRef + ":" + branchRef], root);
-                if (push.ExitCode != 0) throw new IOException("Branch push failed; the owned local branch remains available: " + Secrets.Redact(push.Output.Trim()));
+                if (branch.Output.Trim() != baseSha ||
+                    (await Git.Require(root, "config", "--get", "branch." + request.BranchName + "." + GitOwnershipMarkers.BranchConfigKey)).Trim() != GitOwnershipMarkers.BranchConfigValue)
+                    throw new InvalidOperationException("Existing branch is not the owned branch at the verified base.");
             }
-            LocalRunEventStore.AppendStartWorkProgress(directory, request.ProductRunId, "branch-pushed", "completed");
-        }
-        return new(request.ProductRunId, target, request.SourceIssueNumber, baseSha, request.BranchName, "STARTING");
+            else
+            {
+                if (Completed("branch-created")) throw new InvalidOperationException("Recorded owned branch is missing.");
+                if (gitState.Head != baseSha) throw new InvalidOperationException("HEAD must match the verified base.");
+                var changes = await Git.Require(root, "status", "--porcelain=v1", "-z", "--untracked-files=all", "--", ".", ":(exclude).sdeveng/runs");
+                if (changes.Length != 0) throw new InvalidOperationException("Worktree has unrelated changes.");
+                await Git.Require(root, "branch", request.BranchName, baseSha);
+                await Git.Require(root, "config", "branch." + request.BranchName + "." + GitOwnershipMarkers.BranchConfigKey, GitOwnershipMarkers.BranchConfigValue);
+            }
+            if (!HasIdentifier("git", "branch", request.BranchName)) LocalRunEventStore.AppendBranchIdentifier(directory, request.ProductRunId, request.BranchName);
+            if (!Completed("branch-created")) LocalRunEventStore.AppendStartWorkProgress(directory, request.ProductRunId, "branch-created", "completed");
+            activeOperation = "branch-pushed";
+            if (!Completed("branch-pushed"))
+            {
+                var capabilities = await authorizationProbe.ProbeAsync(root, cancellationToken);
+                if (!capabilities.Capabilities.Any(item => item.Operation == "branch-push" && item.TargetRepository == target && item.State == "allowed"))
+                    throw new InvalidOperationException("Branch push capability is not allowed.");
+                var pushUrl = (await Git.Require(root, "remote", "get-url", "--push", "origin")).Trim();
+                var remoteBranch = await Processes.Run("git", ["ls-remote", "--heads", pushUrl, branchRef], root);
+                if (remoteBranch.ExitCode != 0) throw new IOException("Remote branch inspection failed.");
+                var remoteSha = remoteBranch.Output.Split('\t')[0].Trim();
+                if (remoteSha.Length != 0 && remoteSha != baseSha)
+                    throw new InvalidOperationException("Remote branch differs from the owned base; preserving it for recovery.");
+                if (remoteSha.Length == 0)
+                {
+                    var push = await Processes.Run("git", ["push", "--", "origin", branchRef + ":" + branchRef], root);
+                    if (push.ExitCode != 0) throw new IOException("Branch push failed; the owned local branch remains available: " + Secrets.Redact(push.Output.Trim()));
+                }
+                LocalRunEventStore.AppendStartWorkProgress(directory, request.ProductRunId, "branch-pushed", "completed");
+            }
+            return new(request.ProductRunId, target, request.SourceIssueNumber, baseSha, request.BranchName, "STARTING");
         }
         catch (Exception error) when (error is not OperationCanceledException)
         {
