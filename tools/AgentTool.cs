@@ -672,6 +672,14 @@ public sealed class GitHubActionsReader(IGitHubReadClient client)
         var root = await ReadJsonAsync($"repos/{Part(owner, nameof(owner))}/{Part(repository, nameof(repository))}/actions/runs?per_page={limit.ToString(CultureInfo.InvariantCulture)}", cancellationToken);
         return Array(root, "workflow_runs").Select(ParseRun).ToArray();
     }
+    public async Task<IReadOnlyList<GitHubActionRun>> ReadRunsForCommitAsync(string owner, string repository, string stepCommitSha, int limit, CancellationToken cancellationToken = default)
+    {
+        ValidateLimit(limit);
+        if (!Regex.IsMatch(stepCommitSha, @"^(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$", RegexOptions.CultureInvariant))
+            throw new ArgumentException("A full commit SHA is required.", nameof(stepCommitSha));
+        var root = await ReadJsonAsync($"repos/{Part(owner, nameof(owner))}/{Part(repository, nameof(repository))}/actions/runs?head_sha={Uri.EscapeDataString(stepCommitSha)}&per_page={limit.ToString(CultureInfo.InvariantCulture)}", cancellationToken);
+        return Array(root, "workflow_runs").Select(ParseRun).Where(run => string.Equals(run.Sha, stepCommitSha, StringComparison.OrdinalIgnoreCase)).Take(limit).ToArray();
+    }
     public async Task<GitHubActionRunDetail> ReadRunAsync(string owner, string repository, long runId, int maxItems, CancellationToken cancellationToken = default)
     {
         ValidateRunId(runId); ValidateLimit(maxItems);
@@ -777,10 +785,10 @@ public sealed class GitHubChecksWorkflowReader(IGitHubReadClient client)
 }
 
 public sealed record CiObservationCheck(int Id, string Name, Uri? DetailsUrl, string ProviderStatus, string? ProviderConclusion, string State);
-public sealed record CiObservation(string CommitSha, IReadOnlyList<CiObservationCheck> Checks);
+public sealed record CiObservation(string CommitSha, IReadOnlyList<CiObservationCheck> Checks, IReadOnlyList<GitHubActionRun> WorkflowRuns);
 
 /// <summary>Builds bounded CI facts for the commit recorded on a product run.</summary>
-public sealed class CiObservationService(GitHubChecksWorkflowReader checksReader)
+public sealed class CiObservationService(GitHubChecksWorkflowReader checksReader, GitHubActionsReader actionsReader)
 {
     public async Task<CiObservation> ObserveAsync(string runDirectory, Guid productRunId, string owner, string repository,
         string? explicitCommitSha = null, int limit = 100, CancellationToken cancellationToken = default)
@@ -793,8 +801,9 @@ public sealed class CiObservationService(GitHubChecksWorkflowReader checksReader
         if (sha is null || !Regex.IsMatch(sha, @"^(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$", RegexOptions.CultureInvariant))
             throw new ArgumentException("A full commit SHA is required when run metadata has no valid step commit.", nameof(explicitCommitSha));
         var checks = await checksReader.ReadChecksAsync(owner, repository, sha, cancellationToken);
+        var runs = await actionsReader.ReadRunsForCommitAsync(owner, repository, sha, limit, cancellationToken);
         return new(sha, checks.Take(limit).Select(check => new CiObservationCheck(check.Id, check.Name, check.DetailsUrl,
-            check.Status, check.Conclusion, Normalize(check.Status, check.Conclusion))).ToArray());
+            check.Status, check.Conclusion, Normalize(check.Status, check.Conclusion))).ToArray(), runs);
     }
 
     static string Normalize(string status, string? conclusion)
