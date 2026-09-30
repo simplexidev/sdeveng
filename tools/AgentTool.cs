@@ -3163,7 +3163,8 @@ public static class AgentTool
         SafeFiles.NoLinks(artifacts); Directory.CreateDirectory(artifacts);
         var path = Path.Combine(artifacts, $"{executable}-{DateTime.UtcNow:yyyyMMddTHHmmss}-{Guid.NewGuid():N}.log");
         var r = await Processes.Run(executable, args, root, path, TimeSpan.FromMinutes(20));
-        return new(r.ExitCode == 0 ? "ok" : "failed", new ProcessReport(r.ExitCode, Output.SummarizeFile(path, limits), path), r.ExitCode == 0 ? 0 : 1);
+        return new(r.ExitCode == 0 ? "ok" : "failed", new ProcessReport(r.ExitCode, Output.SummarizeFile(path, limits), path)
+        { Verification = VerificationResults.FromLocal(executable, args, r.ExitCode, path) }, r.ExitCode == 0 ? 0 : 1);
     }
 
     static async Task<Result> JevCommand(Cli c, string kind, string root, JevSettings settings)
@@ -3314,8 +3315,26 @@ public static class PromptReturnStatusContract
     }
 }
 
-public record ProcessReport(int ProcessExitCode, object Summary, string Artifact);
+public record ProcessReport(int ProcessExitCode, object Summary, string Artifact)
+{
+    public VerificationResult? Verification { get; init; }
+}
 public record ProcessResult(int ExitCode, string Output);
+
+public sealed record VerificationResult(int SchemaVersion, string Source, string Check, string Status, int ExitCode, string Artifact);
+
+public static class VerificationResults
+{
+    public static VerificationResult FromLocal(string executable, IEnumerable<string> arguments, int exitCode, string artifact)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(executable);
+        ArgumentException.ThrowIfNullOrWhiteSpace(artifact);
+        var check = string.Join(" ", new[] { executable }.Concat(arguments));
+        if (check.Length > 512) throw new ArgumentException("Verification check exceeds 512 characters.", nameof(arguments));
+        if (exitCode < 0) throw new ArgumentOutOfRangeException(nameof(exitCode));
+        return new(1, "local", check, exitCode == 0 ? "passed" : "failed", exitCode, Path.GetFullPath(artifact));
+    }
+}
 
 public static class DotnetSkillsDrift
 {
