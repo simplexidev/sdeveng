@@ -951,6 +951,25 @@ public static class LocalRunEventStore
     public static JsonElement AppendPullRequestIdentifier(string directory, Guid runId, string pullRequest) =>
         AppendExternalIdentifier(directory, runId, "github", "pull-request", pullRequest);
 
+    public static void AppendConfirmedPullRequestIdentity(string directory, Guid runId, string repository, int number)
+    {
+        if (!Regex.IsMatch(repository, @"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$", RegexOptions.CultureInvariant) || number <= 0)
+            throw new ArgumentException("Pull request identity requires a repository and positive number.");
+        if (!Read(directory, runId).Any(item => item.GetProperty("eventType").GetString() == "external-identifier-recorded" && item.GetProperty("externalSystem").GetString() == "git" && item.GetProperty("identifierType").GetString() == "repository" && item.GetProperty("identifier").GetString() == repository))
+            throw new InvalidDataException("Pull request identity repository does not match the recorded origin.");
+        var url = $"https://github.com/{repository}/pull/{number.ToString(CultureInfo.InvariantCulture)}";
+        var existing = Read(directory, runId).Where(item => item.GetProperty("eventType").GetString() == "external-identifier-recorded" &&
+            item.GetProperty("externalSystem").GetString() == "github" && item.GetProperty("identifierType").GetString() is "pull-request-number" or "pull-request-url").ToArray();
+        var expected = new Dictionary<string, string> { ["pull-request-number"] = number.ToString(CultureInfo.InvariantCulture), ["pull-request-url"] = url };
+        foreach (var item in existing)
+            if (!expected.TryGetValue(item.GetProperty("identifierType").GetString()!, out var value) || item.GetProperty("identifier").GetString() != value)
+                throw new InvalidDataException("Conflicting pull request identity metadata.");
+        if (!existing.Any(item => item.GetProperty("identifierType").GetString() == "pull-request-number"))
+            AppendExternalIdentifier(directory, runId, "github", "pull-request-number", expected["pull-request-number"]);
+        if (!existing.Any(item => item.GetProperty("identifierType").GetString() == "pull-request-url"))
+            AppendExternalIdentifier(directory, runId, "github", "pull-request-url", url);
+    }
+
     public static JsonElement AppendStepCommitIdentifier(string directory, Guid runId, string commit) =>
         AppendExternalIdentifier(directory, runId, "git", "step-commit", commit);
 
@@ -1001,6 +1020,31 @@ public static class LocalRunEventStore
                         new[] { "externalSystem", "identifierType", "identifier" }.Any(name =>
                             item.GetProperty(name).ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(item.GetProperty(name).GetString())))
                         throw new InvalidDataException("Run external identifier is invalid.");
+                    var system = item.GetProperty("externalSystem").GetString();
+                    var identifierType = item.GetProperty("identifierType").GetString();
+                    var identifier = item.GetProperty("identifier").GetString()!;
+                    if (system == "github" && identifierType == "pull-request-number" &&
+                        (!int.TryParse(identifier, NumberStyles.None, CultureInfo.InvariantCulture, out var prNumber) || prNumber <= 0 || identifier != prNumber.ToString(CultureInfo.InvariantCulture)))
+                        throw new InvalidDataException("Pull request number identifier is invalid.");
+                    if (system == "github" && identifierType == "pull-request-url" &&
+                        (!Uri.TryCreate(identifier, UriKind.Absolute, out var prUrl) || prUrl.Scheme != Uri.UriSchemeHttps || prUrl.Query.Length != 0 || prUrl.Fragment.Length != 0 ||
+                         !Regex.IsMatch(prUrl.AbsolutePath, @"^/[^/]+/[^/]+/pull/[1-9][0-9]*$", RegexOptions.CultureInvariant) || prUrl.GetLeftPart(UriPartial.Path) != identifier))
+                        throw new InvalidDataException("Pull request URL identifier is invalid.");
+                    if (system == "github" && identifierType == "pull-request-url")
+                    {
+                        var repo = events.LastOrDefault(existing => existing.GetProperty("eventType").GetString() == "external-identifier-recorded" && existing.GetProperty("externalSystem").GetString() == "git" && existing.GetProperty("identifierType").GetString() == "repository");
+                        if (repo.ValueKind == JsonValueKind.Undefined || !identifier.StartsWith($"https://github.com/{repo.GetProperty("identifier").GetString()}/pull/", StringComparison.Ordinal))
+                            throw new InvalidDataException("Pull request URL does not match the recorded origin repository.");
+                        var number = events.LastOrDefault(existing => existing.GetProperty("eventType").GetString() == "external-identifier-recorded" && existing.GetProperty("externalSystem").GetString() == "github" && existing.GetProperty("identifierType").GetString() == "pull-request-number");
+                        if (number.ValueKind != JsonValueKind.Undefined && !identifier.EndsWith("/" + number.GetProperty("identifier").GetString(), StringComparison.Ordinal))
+                            throw new InvalidDataException("Pull request URL does not match its recorded number.");
+                    }
+                    if (system == "github" && identifierType is "pull-request-number" or "pull-request-url")
+                    {
+                        var prior = events.Where(existing => existing.GetProperty("eventType").GetString() == "external-identifier-recorded" && existing.GetProperty("externalSystem").GetString() == system && existing.GetProperty("identifierType").GetString() == identifierType);
+                        if (prior.Any(existing => existing.GetProperty("identifier").GetString() != identifier))
+                            throw new InvalidDataException("Conflicting pull request identity metadata.");
+                    }
                 }
                 else if (type == "operation-completed")
                 {
@@ -1272,7 +1316,7 @@ public sealed class StartWorkCoordinator(GitHubIssueReader issueReader, AgentToo
             }
             activeOperation = "pr-created";
             var persistedPr = events.Where(item => item.GetProperty("eventType").GetString() == "external-identifier-recorded" &&
-                item.GetProperty("externalSystem").GetString() == "github" && item.GetProperty("identifierType").GetString() == "pull-request")
+                item.GetProperty("externalSystem").GetString() == "github" && item.GetProperty("identifierType").GetString() is "pull-request-number" or "pull-request")
                 .Select(item => item.GetProperty("identifier").GetString()).LastOrDefault();
             if (Completed("pr-created") || persistedPr is not null)
             {
@@ -1328,7 +1372,7 @@ public sealed class StartWorkCoordinator(GitHubIssueReader issueReader, AgentToo
                 var number = document.RootElement.GetProperty("number").GetInt32();
                 if (number <= 0) throw new JsonException("GitHub returned an invalid pull request number.");
                 persistedPr = number.ToString(CultureInfo.InvariantCulture);
-                LocalRunEventStore.AppendPullRequestIdentifier(directory, request.ProductRunId, persistedPr);
+                LocalRunEventStore.AppendConfirmedPullRequestIdentity(directory, request.ProductRunId, target, number);
                 LocalRunEventStore.AppendStartWorkProgress(directory, request.ProductRunId, "pr-created", "completed", persistedPr);
             }
             return new(request.ProductRunId, target, request.SourceIssueNumber, baseSha, request.BranchName, "STARTING");

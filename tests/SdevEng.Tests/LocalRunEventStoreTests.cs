@@ -176,6 +176,47 @@ public class LocalRunEventStoreTests
     }
 
     [Fact]
+    public void ConfirmedPullRequestIdentityIsCanonicalIdempotentAndRejectsConflicts()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "sdeveng-events-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var runId = Guid.NewGuid();
+            LocalRunEventStore.AppendRepositoryIdentifier(directory, runId, "simplexidev/sdeveng");
+            LocalRunEventStore.AppendConfirmedPullRequestIdentity(directory, runId, "simplexidev/sdeveng", 42);
+            var count = LocalRunEventStore.Read(directory, runId).Count;
+            LocalRunEventStore.AppendConfirmedPullRequestIdentity(directory, runId, "simplexidev/sdeveng", 42);
+            var events = LocalRunEventStore.Read(directory, runId);
+            Assert.Equal(count, events.Count);
+            Assert.Equal(new[] { "repository", "pull-request-number", "pull-request-url" }, events.Select(item => item.GetProperty("identifierType").GetString()));
+            Assert.Equal(new[] { "simplexidev/sdeveng", "42", "https://github.com/simplexidev/sdeveng/pull/42" }, events.Select(item => item.GetProperty("identifier").GetString()));
+            var schema = JsonSchema.FromFile(Path.Combine(AgentTool.FindToolkit(), "schemas/run-event.schema.json"));
+            foreach (var item in events) Assert.True(schema.Evaluate(JsonNode.Parse(item.GetRawText())!).IsValid);
+            Assert.Throws<InvalidDataException>(() => LocalRunEventStore.AppendConfirmedPullRequestIdentity(directory, runId, "simplexidev/sdeveng", 43));
+            Assert.Throws<InvalidDataException>(() => LocalRunEventStore.AppendConfirmedPullRequestIdentity(directory, runId, "simplexidev/other", 42));
+        }
+        finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
+    }
+
+    [Theory]
+    [InlineData("https://github.com/simplexidev/sdeveng/pull/0")]
+    [InlineData("http://github.com/simplexidev/sdeveng/pull/42")]
+    [InlineData("https://github.com/other/sdeveng/pull/42")]
+    [InlineData("https://github.com/simplexidev/sdeveng/pull/42?x=1")]
+    public void ReadRejectsMalformedOrWrongRepositoryPullRequestUrl(string url)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "sdeveng-events-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var runId = Guid.NewGuid();
+            LocalRunEventStore.AppendRepositoryIdentifier(directory, runId, "simplexidev/sdeveng");
+            LocalRunEventStore.AppendExternalIdentifier(directory, runId, "github", "pull-request-url", url);
+            Assert.Throws<InvalidDataException>(() => LocalRunEventStore.Read(directory, runId));
+        }
+        finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
+    }
+
+    [Fact]
     public void StepCommitAndCiRunIdentifiersSurviveReopenAndMatchContract()
     {
         var directory = Path.Combine(Path.GetTempPath(), "sdeveng-events-" + Guid.NewGuid().ToString("N"));
