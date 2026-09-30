@@ -74,6 +74,7 @@ public sealed class HostLifecycleTests
             ("github review-comments", typeof(AgentTool.GitHubCommandModule)),
             ("github prepare-pr", typeof(AgentTool.GitHubCommandModule)),
             ("github actions", typeof(AgentTool.GitHubCommandModule)),
+            ("github capabilities", typeof(AgentTool.GitHubCommandModule)),
             ("dotnet inspect", typeof(AgentTool.DotnetCommandModule)),
             ("dotnet build-plan", typeof(AgentTool.DotnetCommandModule)),
             ("dotnet test-plan", typeof(AgentTool.DotnetCommandModule)),
@@ -397,7 +398,7 @@ public sealed class HostLifecycleTests
     public async Task GitHubModuleOwnsOnlyRequestedCommandsAndDispatchesPreparePr()
     {
         var module = new AgentTool.GitHubCommandModule();
-        foreach (var command in new[] { "github prepare-pr", "github pr-status", "github review-comments", "github actions" })
+        foreach (var command in new[] { "github prepare-pr", "github pr-status", "github review-comments", "github actions", "github capabilities" })
             Assert.True(module.CanHandle(Cli.Parse(command.Split(' '))));
         Assert.False(module.CanHandle(Cli.Parse(["github issue"])));
 
