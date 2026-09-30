@@ -5,67 +5,80 @@
     {
       "name": "IN_PROGRESS",
       "family": "status",
-      "description": "Work has started after its branch, draft pull request, and startup metadata are established."
+      "description": "Work has started after its branch, draft pull request, and startup metadata are established.",
+      "color": "1D76DB"
     },
     {
       "name": "type:chore",
       "family": "type",
-      "description": "Maintenance or operational work that does not add a user-facing capability."
+      "description": "Maintenance or operational work that does not add a user-facing capability.",
+      "color": "D4C5F9"
     },
     {
       "name": "area:tooling",
       "family": "area",
-      "description": "Work primarily affecting developer tooling and automation."
+      "description": "Work primarily affecting developer tooling and automation.",
+      "color": "5319E7"
     },
     {
       "name": "risk:low",
       "family": "risk",
-      "description": "Work has limited impact and is straightforward to recover."
+      "description": "Work has limited impact and is straightforward to recover.",
+      "color": "0E8A16"
     },
     {
       "name": "risk:medium",
       "family": "risk",
-      "description": "Work has meaningful impact or requires careful validation."
+      "description": "Work has meaningful impact or requires careful validation.",
+      "color": "FBCA04"
     },
     {
       "name": "risk:high",
       "family": "risk",
-      "description": "Work has broad impact or significant failure consequences."
+      "description": "Work has broad impact or significant failure consequences.",
+      "color": "B60205"
     },
     {
       "name": "complexity:low",
       "family": "complexity",
-      "description": "Work is small and has few dependencies."
+      "description": "Work is small and has few dependencies.",
+      "color": "C2E0C6"
     },
     {
       "name": "complexity:medium",
       "family": "complexity",
-      "description": "Work spans several related changes or dependencies."
+      "description": "Work spans several related changes or dependencies.",
+      "color": "FEF2C0"
     },
     {
       "name": "complexity:high",
       "family": "complexity",
-      "description": "Work spans many components or has substantial coordination needs."
+      "description": "Work spans many components or has substantial coordination needs.",
+      "color": "F9D0C4"
     },
     {
       "name": "scope:single-repo",
       "family": "scope",
-      "description": "Work is contained within one repository."
+      "description": "Work is contained within one repository.",
+      "color": "C5DEF5"
     },
     {
       "name": "scope:cross-repo",
       "family": "scope",
-      "description": "Work spans multiple repositories."
+      "description": "Work spans multiple repositories.",
+      "color": "BFD4F2"
     },
     {
       "name": "automation:manual",
       "family": "automation",
-      "description": "Work is performed manually without automated execution."
+      "description": "Work is performed manually without automated execution.",
+      "color": "EDEDED"
     },
     {
       "name": "automation:automated",
       "family": "automation",
-      "description": "Work is performed by an automated process."
+      "description": "Work is performed by an automated process.",
+      "color": "D4C5F9"
     }
   ]
 }

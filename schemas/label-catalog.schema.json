@@ -19,11 +19,12 @@
     "label": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "family", "description"],
+      "required": ["name", "family", "description", "color"],
       "properties": {
         "name": { "type": "string", "minLength": 1 },
         "family": { "type": "string", "minLength": 1 },
-        "description": { "type": "string", "minLength": 1 }
+        "description": { "type": "string", "minLength": 1 },
+        "color": { "type": "string", "pattern": "^[0-9A-Fa-f]{6}$" }
       }
     }
   }
