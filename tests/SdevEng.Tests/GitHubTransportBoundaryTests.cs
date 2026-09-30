@@ -25,7 +25,11 @@ public sealed class GitHubTransportBoundaryTests
             .Select(match => EnclosingType(source, match.Index))
             .ToArray();
         Assert.NotEmpty(hostOwners);
-        Assert.All(hostOwners, owner => Assert.Contains(owner, apiOwners.Append("GitHubIssueLabelWriter").Append("StartWorkCoordinator")));
+        Assert.All(hostOwners, owner => Assert.Contains(owner, apiOwners
+            .Append("GitHubIssueLabelWriter")
+            .Append("GitHubActionsJobRerunWriter")
+            .Append("GitHubActionsFailedJobsRerunWriter")
+            .Append("StartWorkCoordinator")));
 
         // HTTP calls aimed at GitHub belong to the typed readers and guarded write path.
         var rawHttpCalls = Regex.Matches(source,
@@ -34,7 +38,7 @@ public sealed class GitHubTransportBoundaryTests
             .Where(match => EnclosingType(source, match.Index).StartsWith("GitHub", StringComparison.Ordinal))
             .ToArray();
         Assert.Equal(
-            new[] { "GitHubIssueLabelWriter", "GitHubIssueLabelWriter", "GitHubIssueLabelWriter", "GitHubReadClient", "GitHubTransport", "GitHubWriteClient" },
+            new[] { "GitHubActionsFailedJobsRerunWriter", "GitHubActionsJobRerunWriter", "GitHubIssueLabelWriter", "GitHubIssueLabelWriter", "GitHubIssueLabelWriter", "GitHubReadClient", "GitHubTransport", "GitHubWriteClient" },
             rawHttpCalls.Select(match => EnclosingType(source, match.Index)).OrderBy(name => name, StringComparer.Ordinal));
 
         // The doctor auth probe is explicitly outside typed product reads. No product
