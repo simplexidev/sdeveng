@@ -1282,6 +1282,33 @@ public sealed class StartWorkCoordinator(GitHubIssueReader issueReader, AgentToo
                 if (existing.HeadBranch != request.BranchName || existing.BaseBranch != request.BaseRef || !existing.IsDraft ||
                     existing.Body?.Contains($"<!-- sdeveng-run:{request.ProductRunId:D} -->", StringComparison.Ordinal) != true)
                     throw new InvalidOperationException("Persisted pull request does not match this run.");
+                if (!HasIdentifier("git", "repository", target) || !HasIdentifier("github", "issue", request.SourceIssueNumber.ToString(CultureInfo.InvariantCulture)) ||
+                    events.Where(item => item.GetProperty("eventType").GetString() == "external-identifier-recorded" && item.GetProperty("externalSystem").GetString() == "git" && item.GetProperty("identifierType").GetString() == "repository")
+                        .Any(item => item.GetProperty("identifier").GetString() != target) ||
+                    events.Where(item => item.GetProperty("eventType").GetString() == "external-identifier-recorded" && item.GetProperty("externalSystem").GetString() == "github" && item.GetProperty("identifierType").GetString() == "issue")
+                        .Any(item => item.GetProperty("identifier").GetString() != request.SourceIssueNumber.ToString(CultureInfo.InvariantCulture)))
+                    throw new InvalidOperationException("Persisted pull request source issue or repository does not match this run.");
+                if (!Completed("pr-linked"))
+                {
+                    var capabilities = await authorizationProbe.ProbeAsync(root, cancellationToken);
+                    if (!capabilities.Capabilities.Any(item => item.Operation == "pr-create" && item.TargetRepository == target && item.State == "allowed"))
+                        throw new InvalidOperationException("Pull request edit capability is not allowed.");
+                    var marker = $"<!-- sdeveng-source-issue:{request.SourceIssueNumber.ToString(CultureInfo.InvariantCulture)} -->";
+                    var reference = $"Refs #{request.SourceIssueNumber.ToString(CultureInfo.InvariantCulture)}";
+                    var body = existing.Body ?? string.Empty;
+                    var updatedBody = body;
+                    if (!body.Contains(marker, StringComparison.Ordinal)) updatedBody = updatedBody.TrimEnd() + (updatedBody.Length == 0 ? "" : "\n\n") + marker;
+                    if (!Regex.IsMatch(updatedBody, $@"(?m)^\s*Refs #{request.SourceIssueNumber.ToString(CultureInfo.InvariantCulture)}\s*$", RegexOptions.CultureInvariant))
+                        updatedBody = updatedBody.TrimEnd() + (updatedBody.Length == 0 ? "" : "\n\n") + reference;
+                    if (!string.Equals(updatedBody, body, StringComparison.Ordinal))
+                    {
+                        using var content = new StringContent(JsonSerializer.Serialize(new { body = updatedBody }));
+                        content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
+                        using var response = await writeClient.SendAsync(HttpMethod.Patch, new Uri($"https://api.github.com/repos/{target}/pulls/{existingNumber.ToString(CultureInfo.InvariantCulture)}"), content, cancellationToken);
+                        if (!response.IsSuccessStatusCode) throw new HttpRequestException("GitHub rejected draft pull request source issue linkage.");
+                    }
+                    LocalRunEventStore.AppendStartWorkProgress(directory, request.ProductRunId, "pr-linked", "completed", persistedPr);
+                }
             }
             else
             {
