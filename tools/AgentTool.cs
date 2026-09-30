@@ -1164,6 +1164,26 @@ public static class LocalRunEventStore
         return AppendSnapshot(directory, runId, payload);
     }
 
+    public static JsonElement AppendCiFailureEvidence(string directory, Guid runId, string commitSha, string providerRunId,
+        string providerJobId, string failureClass, bool truncated, string excerpt)
+    {
+        if (runId == Guid.Empty || !Regex.IsMatch(commitSha, @"^(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})$", RegexOptions.CultureInvariant) ||
+            !Regex.IsMatch(providerRunId, @"^[1-9][0-9]*$", RegexOptions.CultureInvariant) || providerRunId.Length > 32 ||
+            !Regex.IsMatch(providerJobId, @"^[1-9][0-9]*$", RegexOptions.CultureInvariant) || providerJobId.Length > 32 ||
+            string.IsNullOrWhiteSpace(failureClass) || failureClass.Length > 64 || string.IsNullOrWhiteSpace(excerpt))
+            throw new ArgumentException("CI failure evidence has invalid or empty identity fields.");
+        excerpt = Secrets.Redact(excerpt);
+        if (excerpt.Length > 4096) { excerpt = excerpt[..4096]; truncated = true; }
+        if (string.IsNullOrWhiteSpace(excerpt)) throw new ArgumentException("CI failure evidence excerpt must be nonempty.");
+        var payload = new
+        {
+            schemaVersion = 1, runId = runId.ToString("D"), sequence = 0, occurredAt = DateTimeOffset.UtcNow,
+            eventType = "ci-failure-evidence", evidenceVersion = 1, commitSha = commitSha.ToLowerInvariant(),
+            providerRunId, providerJobId, failureClass, truncated, excerpt
+        };
+        return AppendSnapshot(directory, runId, payload);
+    }
+
     private static JsonElement AppendSnapshot(string directory, Guid runId, object snapshot)
     {
         var path = Path.Combine(directory, runId.ToString("D"));
@@ -1274,6 +1294,18 @@ public static class LocalRunEventStore
                         item.GetProperty("workflowRuns").EnumerateArray().Any(run => run.EnumerateObject().Count() != 2 || !Regex.IsMatch(run.GetProperty("id").GetString() ?? "", @"^[1-9][0-9]*$", RegexOptions.CultureInvariant) || string.IsNullOrWhiteSpace(run.GetProperty("state").GetString()) || run.GetProperty("state").GetString()!.Length > 32))
                         throw new InvalidDataException("Run CI check snapshot is invalid.");
                 }
+                else if (type == "ci-failure-evidence")
+                {
+                    if (!properties.SetEquals(["schemaVersion", "runId", "sequence", "occurredAt", "eventType", "evidenceVersion", "commitSha", "providerRunId", "providerJobId", "failureClass", "truncated", "excerpt"]) ||
+                        item.GetProperty("evidenceVersion").GetInt32() != 1 || !Regex.IsMatch(item.GetProperty("commitSha").GetString() ?? "", @"^(?:[0-9a-f]{40}|[0-9a-f]{64})$", RegexOptions.CultureInvariant) ||
+                        !Regex.IsMatch(item.GetProperty("providerRunId").GetString() ?? "", @"^[1-9][0-9]{0,31}$", RegexOptions.CultureInvariant) ||
+                        !Regex.IsMatch(item.GetProperty("providerJobId").GetString() ?? "", @"^[1-9][0-9]{0,31}$", RegexOptions.CultureInvariant) ||
+                        string.IsNullOrWhiteSpace(item.GetProperty("failureClass").GetString()) || item.GetProperty("failureClass").GetString()!.Length > 64 ||
+                        item.GetProperty("truncated").ValueKind is not (JsonValueKind.True or JsonValueKind.False) ||
+                        item.GetProperty("excerpt").ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(item.GetProperty("excerpt").GetString()) ||
+                        item.GetProperty("excerpt").GetString()!.Length > 4096 || Secrets.LooksSensitive(item.GetProperty("excerpt").GetString()!))
+                        throw new InvalidDataException("Run CI failure evidence is invalid.");
+                }
                 else throw new InvalidDataException("Run event type is invalid.");
                 events.Add(item.Clone());
             }
@@ -1298,6 +1330,7 @@ public static class LocalRunEventStore
     {
         var events = Read(directory, runId);
         var snapshot = events.LastOrDefault(item => item.GetProperty("eventType").GetString() == "ci-check-snapshot");
+        var failureEvidence = events.LastOrDefault(item => item.GetProperty("eventType").GetString() == "ci-failure-evidence");
         var timeline = events.Select(item => item.GetProperty("eventType").GetString() == "start-work-progress"
             ? (object)new { sequence = item.GetProperty("sequence").GetInt32(), occurredAt = item.GetProperty("occurredAt").GetString(), type = "start-work-progress", from = item.GetProperty("operation").GetString(), to = item.GetProperty("status").GetString() }
             : item.GetProperty("eventType").GetString() == "operation-completed"
@@ -1306,6 +1339,8 @@ public static class LocalRunEventStore
             ? (object)new { sequence = item.GetProperty("sequence").GetInt32(), occurredAt = item.GetProperty("occurredAt").GetString(), type = "state-transition", from = item.GetProperty("fromState").GetString(), to = item.GetProperty("toState").GetString() }
             : item.GetProperty("eventType").GetString() == "ci-check-snapshot"
             ? (object)new { sequence = item.GetProperty("sequence").GetInt32(), occurredAt = item.GetProperty("occurredAt").GetString(), type = "ci-check-snapshot", from = (string?)null, to = item.GetProperty("commitSha").GetString() }
+            : item.GetProperty("eventType").GetString() == "ci-failure-evidence"
+            ? (object)new { sequence = item.GetProperty("sequence").GetInt32(), occurredAt = item.GetProperty("occurredAt").GetString(), type = "ci-failure-evidence", from = (string?)null, to = item.GetProperty("failureClass").GetString() }
             : new { sequence = item.GetProperty("sequence").GetInt32(), occurredAt = item.GetProperty("occurredAt").GetString(), type = "external-identifier-recorded", from = (string?)null, to = $"{item.GetProperty("externalSystem").GetString()}:{item.GetProperty("identifierType").GetString()}={item.GetProperty("identifier").GetString()}" }).ToArray();
         object? ciSnapshot = snapshot.ValueKind == JsonValueKind.Undefined ? null : new
         {
@@ -1314,7 +1349,17 @@ public static class LocalRunEventStore
             checks = snapshot.GetProperty("checks").EnumerateArray().GroupBy(check => check.GetProperty("state").GetString()).ToDictionary(group => group.Key!, group => group.Count()),
             workflowRuns = snapshot.GetProperty("workflowRuns").EnumerateArray().Select(run => new { id = run.GetProperty("id").GetString(), state = run.GetProperty("state").GetString() }).ToArray()
         };
-        return new { kind = "run-explanation", runId = runId.ToString("D"), eventCount = events.Count, timeline, ciSnapshot };
+        object? ciFailureEvidence = failureEvidence.ValueKind == JsonValueKind.Undefined ? null : new
+        {
+            commitSha = failureEvidence.GetProperty("commitSha").GetString(),
+            providerRunId = failureEvidence.GetProperty("providerRunId").GetString(),
+            providerJobId = failureEvidence.GetProperty("providerJobId").GetString(),
+            failureClass = failureEvidence.GetProperty("failureClass").GetString(),
+            truncated = failureEvidence.GetProperty("truncated").GetBoolean(),
+            excerpt = failureEvidence.GetProperty("excerpt").GetString(),
+            expansionCommand = $"sdeveng github actions --run-id {failureEvidence.GetProperty("providerRunId").GetString()} --failed-logs"
+        };
+        return new { kind = "run-explanation", runId = runId.ToString("D"), eventCount = events.Count, timeline, ciSnapshot, ciFailureEvidence };
     }
 
     public static JsonElement Resume(string directory, Guid runId) => TransitionCurrent(directory, runId, "paused", "running");

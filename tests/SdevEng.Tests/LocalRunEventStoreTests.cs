@@ -6,6 +6,44 @@ namespace SdevEng.Tests;
 public class LocalRunEventStoreTests
 {
     [Fact]
+    public void FailureEvidenceIsRedactedBoundedVersionedAndExplainOffersOnlyExplicitExpansion()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "sdeveng-events-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var runId = Guid.NewGuid();
+            var sha = new string('a', 40);
+            var evidence = LocalRunEventStore.AppendCiFailureEvidence(directory, runId, sha, "81", "91", "step-failure", false,
+                "token=secret " + new string('x', 5000));
+            var schema = JsonSchema.FromFile(Path.Combine(AgentTool.FindToolkit(), "schemas/run-event.schema.json"));
+            Assert.True(schema.Evaluate(JsonNode.Parse(evidence.GetRawText())!).IsValid);
+            Assert.Equal(1, evidence.GetProperty("evidenceVersion").GetInt32());
+            Assert.True(evidence.GetProperty("truncated").GetBoolean());
+            Assert.DoesNotContain("secret", evidence.GetProperty("excerpt").GetString());
+            Assert.True(evidence.GetProperty("excerpt").GetString()!.Length <= 4096);
+            LocalRunEventStore.AppendCiFailureEvidence(directory, runId, sha, "82", "92", "test-failure", false, "latest excerpt");
+            Assert.Throws<ArgumentException>(() => LocalRunEventStore.AppendCiFailureEvidence(directory, runId, "bad", "81", "91", "failure", false, "text"));
+            Assert.Throws<ArgumentException>(() => LocalRunEventStore.AppendCiFailureEvidence(directory, runId, sha, "", "91", "failure", false, "text"));
+            Assert.Throws<ArgumentException>(() => LocalRunEventStore.AppendCiFailureEvidence(directory, runId, sha, "81", "91", "failure", false, " "));
+
+            var before = Directory.GetFiles(Path.Combine(directory, runId.ToString("D"))).Order().ToArray();
+            var explanation = System.Text.Json.JsonSerializer.SerializeToNode(LocalRunEventStore.Explain(directory, runId), AgentTool.Json)!;
+            var summary = explanation["ciFailureEvidence"]!;
+            Assert.Equal(sha, summary["commitSha"]!.GetValue<string>());
+            Assert.Equal("82", summary["providerRunId"]!.GetValue<string>());
+            Assert.Equal("92", summary["providerJobId"]!.GetValue<string>());
+            Assert.Equal("latest excerpt", summary["excerpt"]!.GetValue<string>());
+            Assert.Equal("sdeveng github actions --run-id 82 --failed-logs", summary["expansionCommand"]!.GetValue<string>());
+            Assert.Equal(before, Directory.GetFiles(Path.Combine(directory, runId.ToString("D"))).Order());
+
+            var path = Path.Combine(directory, runId.ToString("D"), "00000000000000000002.json");
+            File.WriteAllText(path, File.ReadAllText(path).Replace("\"evidenceVersion\": 1", "\"evidenceVersion\": 2"));
+            Assert.Throws<InvalidDataException>(() => LocalRunEventStore.Read(directory, runId));
+        }
+        finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
+    }
+
+    [Fact]
     public void CiSnapshotsAppendValidateAndExplainOnlyTheLatestBoundedSummary()
     {
         var directory = Path.Combine(Path.GetTempPath(), "sdeveng-events-" + Guid.NewGuid().ToString("N"));

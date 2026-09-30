@@ -15,7 +15,7 @@
     },
     "sequence": { "type": "integer", "minimum": 1 },
     "occurredAt": { "type": "string", "format": "date-time" },
-    "eventType": { "enum": ["state-transition", "external-identifier-recorded", "operation-completed", "start-work-progress", "ci-check-snapshot"] },
+    "eventType": { "enum": ["state-transition", "external-identifier-recorded", "operation-completed", "start-work-progress", "ci-check-snapshot", "ci-failure-evidence"] },
     "fromState": { "type": ["string", "null"], "minLength": 1 },
     "toState": { "type": "string", "minLength": 1 },
     "externalSystem": { "type": "string", "minLength": 1 },
@@ -29,7 +29,13 @@
     "commitSha": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
     "observedAt": { "type": "string", "format": "date-time" },
     "checks": { "type": "array", "maxItems": 100, "items": { "type": "object", "additionalProperties": false, "required": ["state"], "properties": { "state": { "enum": ["pending", "success", "failure", "cancelled", "skipped", "unknown"] } } } },
-    "workflowRuns": { "type": "array", "maxItems": 100, "items": { "type": "object", "additionalProperties": false, "required": ["id", "state"], "properties": { "id": { "type": "string", "pattern": "^[1-9][0-9]*$" }, "state": { "type": "string", "minLength": 1, "maxLength": 32 } } } }
+    "workflowRuns": { "type": "array", "maxItems": 100, "items": { "type": "object", "additionalProperties": false, "required": ["id", "state"], "properties": { "id": { "type": "string", "pattern": "^[1-9][0-9]*$" }, "state": { "type": "string", "minLength": 1, "maxLength": 32 } } } },
+    "evidenceVersion": { "const": 1 },
+    "providerRunId": { "type": "string", "pattern": "^[1-9][0-9]{0,31}$" },
+    "providerJobId": { "type": "string", "pattern": "^[1-9][0-9]{0,31}$" },
+    "failureClass": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "truncated": { "type": "boolean" },
+    "excerpt": { "type": "string", "minLength": 1, "maxLength": 4096 }
   },
   "oneOf": [
     {
@@ -55,6 +61,11 @@
     {
       "properties": { "eventType": { "const": "ci-check-snapshot" } },
       "required": ["snapshotVersion", "commitSha", "observedAt", "checks", "workflowRuns"],
+      "not": { "anyOf": [{ "required": ["fromState"] }, { "required": ["toState"] }, { "required": ["externalSystem"] }, { "required": ["identifierType"] }, { "required": ["identifier"] }, { "required": ["detail"] }, { "required": ["operation"] }] }
+    },
+    {
+      "properties": { "eventType": { "const": "ci-failure-evidence" }, "commitSha": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" } },
+      "required": ["evidenceVersion", "commitSha", "providerRunId", "providerJobId", "failureClass", "truncated", "excerpt"],
       "not": { "anyOf": [{ "required": ["fromState"] }, { "required": ["toState"] }, { "required": ["externalSystem"] }, { "required": ["identifierType"] }, { "required": ["identifier"] }, { "required": ["detail"] }, { "required": ["operation"] }] }
     }
   ],
