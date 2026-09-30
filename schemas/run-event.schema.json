@@ -15,7 +15,7 @@
     },
     "sequence": { "type": "integer", "minimum": 1 },
     "occurredAt": { "type": "string", "format": "date-time" },
-    "eventType": { "enum": ["state-transition", "external-identifier-recorded", "operation-completed", "start-work-progress"] },
+    "eventType": { "enum": ["state-transition", "external-identifier-recorded", "operation-completed", "start-work-progress", "ci-check-snapshot"] },
     "fromState": { "type": ["string", "null"], "minLength": 1 },
     "toState": { "type": "string", "minLength": 1 },
     "externalSystem": { "type": "string", "minLength": 1 },
@@ -24,7 +24,12 @@
     "operation": { "enum": ["branch-created", "branch-pushed", "bootstrap-created", "bootstrap-cleanup", "pr-created", "pr-linked", "metadata-persisted"] },
     "progressVersion": { "const": 1 },
     "status": { "enum": ["completed", "retryable-failure", "terminal-failure"] },
-    "detail": { "type": "string", "maxLength": 512 }
+    "detail": { "type": "string", "maxLength": 512 },
+    "snapshotVersion": { "const": 1 },
+    "commitSha": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
+    "observedAt": { "type": "string", "format": "date-time" },
+    "checks": { "type": "array", "maxItems": 100, "items": { "type": "object", "additionalProperties": false, "required": ["state"], "properties": { "state": { "enum": ["pending", "success", "failure", "cancelled", "skipped", "unknown"] } } } },
+    "workflowRuns": { "type": "array", "maxItems": 100, "items": { "type": "object", "additionalProperties": false, "required": ["id", "state"], "properties": { "id": { "type": "string", "pattern": "^[1-9][0-9]*$" }, "state": { "type": "string", "minLength": 1, "maxLength": 32 } } } }
   },
   "oneOf": [
     {
@@ -46,6 +51,11 @@
       "properties": { "eventType": { "const": "start-work-progress" } },
       "required": ["progressVersion", "operation", "status", "detail"],
       "not": { "anyOf": [{ "required": ["fromState"] }, { "required": ["toState"] }, { "required": ["externalSystem"] }, { "required": ["identifierType"] }, { "required": ["identifier"] }] }
+    },
+    {
+      "properties": { "eventType": { "const": "ci-check-snapshot" } },
+      "required": ["snapshotVersion", "commitSha", "observedAt", "checks", "workflowRuns"],
+      "not": { "anyOf": [{ "required": ["fromState"] }, { "required": ["toState"] }, { "required": ["externalSystem"] }, { "required": ["identifierType"] }, { "required": ["identifier"] }, { "required": ["detail"] }, { "required": ["operation"] }] }
     }
   ],
   "allOf": [

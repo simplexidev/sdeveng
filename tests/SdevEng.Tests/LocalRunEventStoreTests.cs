@@ -6,6 +6,40 @@ namespace SdevEng.Tests;
 public class LocalRunEventStoreTests
 {
     [Fact]
+    public void CiSnapshotsAppendValidateAndExplainOnlyTheLatestBoundedSummary()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "sdeveng-events-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var runId = Guid.NewGuid();
+            var sha = "0123456789abcdef0123456789abcdef01234567";
+            var observedAt = DateTimeOffset.Parse("2026-09-30T12:00:00Z");
+            var first = LocalRunEventStore.AppendCiCheckSnapshot(directory, runId, sha, observedAt,
+                ["success", "cancelled", "skipped"], [("11", "completed")]);
+            var second = LocalRunEventStore.AppendCiCheckSnapshot(directory, runId, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", observedAt,
+                ["failure"], [("12", "in_progress")]);
+            Assert.Equal(1, first.GetProperty("sequence").GetInt32());
+            Assert.Equal(2, second.GetProperty("sequence").GetInt32());
+            var schema = JsonSchema.FromFile(Path.Combine(AgentTool.FindToolkit(), "schemas/run-event.schema.json"));
+            foreach (var item in LocalRunEventStore.Read(directory, runId)) Assert.True(schema.Evaluate(JsonNode.Parse(item.GetRawText())!).IsValid);
+            var explanation = System.Text.Json.JsonSerializer.SerializeToNode(LocalRunEventStore.Explain(directory, runId), AgentTool.Json)!;
+            var summary = explanation["ciSnapshot"]!;
+            Assert.Equal("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", summary["commitSha"]!.GetValue<string>());
+            Assert.Equal(1, summary["checks"]!["failure"]!.GetValue<int>());
+            Assert.Equal("12", summary["workflowRuns"]![0]!["id"]!.GetValue<string>());
+            Assert.Null(explanation["raw"]);
+            Assert.Throws<ArgumentException>(() => LocalRunEventStore.AppendCiCheckSnapshot(directory, runId, "bad", observedAt, [], []));
+            Assert.Throws<ArgumentException>(() => LocalRunEventStore.AppendCiCheckSnapshot(directory, runId, sha, observedAt, ["future"], []));
+            Assert.Throws<ArgumentException>(() => LocalRunEventStore.AppendCiCheckSnapshot(directory, runId, sha, observedAt,
+                Enumerable.Repeat("success", 101).ToArray(), []));
+            var path = Path.Combine(directory, runId.ToString("D"), "00000000000000000002.json");
+            File.WriteAllText(path, File.ReadAllText(path).Replace("\"snapshotVersion\": 1", "\"snapshotVersion\": 2"));
+            Assert.Throws<InvalidDataException>(() => LocalRunEventStore.Read(directory, runId));
+        }
+        finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
+    }
+
+    [Fact]
     public void ProgressEventsAreVersionedBoundedRedactedAndValidated()
     {
         var directory = Path.Combine(Path.GetTempPath(), "sdeveng-events-" + Guid.NewGuid().ToString("N"));

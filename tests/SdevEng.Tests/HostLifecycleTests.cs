@@ -141,6 +141,8 @@ public sealed class HostLifecycleTests
         var runDirectory = Path.Combine(repo.Root, ".sdeveng", "runs");
         var resumable = Guid.NewGuid();
         var abandonable = Guid.NewGuid();
+        LocalRunEventStore.AppendCiCheckSnapshot(runDirectory, resumable, "0123456789abcdef0123456789abcdef01234567",
+            DateTimeOffset.Parse("2026-09-30T12:00:00Z"), ["cancelled", "skipped"], [("11", "completed")]);
         LocalRunEventStore.AppendTransition(runDirectory, resumable, null, "created");
         LocalRunEventStore.AppendTransition(runDirectory, resumable, "created", "paused");
         LocalRunEventStore.AppendTransition(runDirectory, abandonable, null, "running");
@@ -163,6 +165,13 @@ public sealed class HostLifecycleTests
             var result = await runtime.Execute(Cli.Parse(operation.Split(' ')), toolkit, repo.Root, settings);
             Assert.Equal("ok", result.Status);
             Assert.Equal(0, result.ExitCode);
+            if (operation.StartsWith("run explain ", StringComparison.Ordinal))
+            {
+                var explanation = System.Text.Json.JsonSerializer.SerializeToNode(result.Data, AgentTool.Json)!;
+                Assert.Equal("0123456789abcdef0123456789abcdef01234567", explanation["ciSnapshot"]!["commitSha"]!.GetValue<string>());
+                Assert.Equal(1, explanation["ciSnapshot"]!["checks"]!["cancelled"]!.GetValue<int>());
+                Assert.Equal(1, explanation["ciSnapshot"]!["checks"]!["skipped"]!.GetValue<int>());
+            }
         }
     }
 
