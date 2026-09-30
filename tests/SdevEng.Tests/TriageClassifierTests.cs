@@ -63,6 +63,52 @@ public sealed class TriageClassifierTests
         AgentTool.AgentToolModule.Register(services);
         using var provider = Microsoft.Extensions.DependencyInjection.ServiceCollectionContainerBuilderExtensions.BuildServiceProvider(services);
         Assert.IsType<AbstainingTriageSemanticClassifier>(provider.GetService(typeof(ITriageSemanticClassifier)));
+        using var catalog = Catalog();
+        var decision = TriageClassifier.ClassifyDecision(Facts("chore: tidy"), catalog.RootElement,
+            (ITriageSemanticClassifier)provider.GetService(typeof(ITriageSemanticClassifier))!);
+        Assert.Contains(decision.Selected, family => family.Family == "type");
+        Assert.True(decision.NeedsHumanReview);
+    }
+
+    [Fact]
+    public void CombinerAppliesConfidenceBoundaryAndRoutesLowConfidenceToReview()
+    {
+        using var catalog = Catalog();
+        var decision = TriageClassifier.Combine([], [
+            new("type", "type:bug", 0.80, ["boundary"]),
+            new("area", "area:docs", 0.799, ["too-low"])
+        ], [], catalog.RootElement);
+        Assert.Equal("type:bug", Assert.Single(Assert.Single(decision.Selected, item => item.Family == "type").Labels).Label);
+        Assert.DoesNotContain(decision.Selected, item => item.Family == "area");
+        Assert.Contains("area", decision.UnresolvedFamilies);
+        Assert.True(decision.NeedsHumanReview);
+    }
+
+    [Fact]
+    public void CombinerLeavesExclusiveConflictsUnresolvedAndAllowsMultipleAreas()
+    {
+        using var catalog = Catalog();
+        var decision = TriageClassifier.Combine([
+            new("type", "type:bug", 1, ["one"]), new("type", "type:chore", 1, ["two"]),
+            new("area", "area:docs", 1, ["docs"]), new("area", "area:tooling", 1, ["tools"])
+        ], [], [], catalog.RootElement);
+        Assert.Contains("type", decision.UnresolvedFamilies);
+        Assert.DoesNotContain(decision.Selected, item => item.Family == "type");
+        Assert.Equal(2, Assert.Single(decision.Selected, item => item.Family == "area").Labels.Count);
+        Assert.True(decision.NeedsHumanReview);
+    }
+
+    [Fact]
+    public void CombinerRejectsUnconfiguredAndFamilyMismatchedCandidates()
+    {
+        using var catalog = Catalog();
+        var decision = TriageClassifier.Combine([], [
+            new("type", "type:made-up", 1, ["unknown"]), new("area", "type:bug", 1, ["wrong-family"])
+        ], [], catalog.RootElement);
+        Assert.DoesNotContain(decision.Selected, item => item.Family is "type" or "area");
+        Assert.Contains("type", decision.UnresolvedFamilies);
+        Assert.Contains("area", decision.UnresolvedFamilies);
+        Assert.True(decision.NeedsHumanReview);
     }
 
     [Theory]
