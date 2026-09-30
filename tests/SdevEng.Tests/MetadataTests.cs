@@ -60,13 +60,13 @@ public class MetadataTests
         }
     }
     [Fact]
-    public void LabelCatalogDefinesStatusTypeAreaRiskAndComplexityLabelFamilies()
+    public void LabelCatalogDefinesStatusTypeAreaRiskComplexityScopeAndAutomationLabelFamilies()
     {
         var catalog = JsonNode.Parse(File.ReadAllText(Path.Combine(Root, "config/labels.json")))!;
         var schema = JsonSchema.FromFile(Path.Combine(Root, "schemas/label-catalog.schema.json"));
         Assert.True(schema.Evaluate(catalog, new() { OutputFormat = OutputFormat.List }).IsValid);
         var labels = catalog["labels"]!.AsArray();
-        Assert.Equal(9, labels.Count);
+        Assert.Equal(13, labels.Count);
         var inProgress = labels.Single(label => label!["family"]!.GetValue<string>() == "status");
         Assert.Equal("IN_PROGRESS", inProgress!["name"]!.GetValue<string>());
         Assert.Equal("status", inProgress["family"]!.GetValue<string>());
@@ -75,6 +75,10 @@ public class MetadataTests
         foreach (var family in new[] { "risk", "complexity" })
             foreach (var level in new[] { "low", "medium", "high" })
                 Assert.Contains(labels, label => label!["family"]!.GetValue<string>() == family && label["name"]!.GetValue<string>() == $"{family}:{level}");
+        Assert.Contains(labels, label => label!["family"]!.GetValue<string>() == "scope" && label["name"]!.GetValue<string>() == "scope:single-repo");
+        Assert.Contains(labels, label => label!["family"]!.GetValue<string>() == "scope" && label["name"]!.GetValue<string>() == "scope:cross-repo");
+        Assert.Contains(labels, label => label!["family"]!.GetValue<string>() == "automation" && label["name"]!.GetValue<string>() == "automation:manual");
+        Assert.Contains(labels, label => label!["family"]!.GetValue<string>() == "automation" && label["name"]!.GetValue<string>() == "automation:automated");
         Assert.False(schema.Evaluate(JsonNode.Parse("""{"version":2,"labels":[]}""")!, new() { OutputFormat = OutputFormat.List }).IsValid);
         Assert.False(schema.Evaluate(JsonNode.Parse("""{"version":1,"labels":[{"name":"","family":"status","description":"invalid"}]}""")!, new() { OutputFormat = OutputFormat.List }).IsValid);
     }

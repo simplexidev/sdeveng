@@ -46,6 +46,26 @@
       "name": "complexity:high",
       "family": "complexity",
       "description": "Work spans many components or has substantial coordination needs."
+    },
+    {
+      "name": "scope:single-repo",
+      "family": "scope",
+      "description": "Work is contained within one repository."
+    },
+    {
+      "name": "scope:cross-repo",
+      "family": "scope",
+      "description": "Work spans multiple repositories."
+    },
+    {
+      "name": "automation:manual",
+      "family": "automation",
+      "description": "Work is performed manually without automated execution."
+    },
+    {
+      "name": "automation:automated",
+      "family": "automation",
+      "description": "Work is performed by an automated process."
     }
   ]
 }
