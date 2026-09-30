@@ -238,6 +238,67 @@ public sealed record IssueTriageFacts(
     IReadOnlyList<LinkedIssueReference> LinkedReferences, IReadOnlyList<string> AreaHints,
     IReadOnlyList<string> UnresolvedFamilies, bool Truncated);
 
+public sealed record TriageLabelCandidate(string Family, string Label, double Confidence, IReadOnlyList<string> Evidence);
+public sealed record TriageClassification(IReadOnlyList<TriageLabelCandidate> Candidates, IReadOnlyList<string> UnresolvedFamilies);
+
+/// <summary>Classifies only explicit issue evidence against the configured label catalog.</summary>
+public static class TriageClassifier
+{
+    static readonly Regex TypeToken = new(@"(?<![A-Za-z0-9_-])type:([A-Za-z0-9_-]+)(?![A-Za-z0-9_-])", RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+
+    public static TriageClassification Classify(IssueTriageFacts facts, JsonElement labelCatalog)
+    {
+        ArgumentNullException.ThrowIfNull(facts);
+        if (!labelCatalog.TryGetProperty("labels", out var labels) || labels.ValueKind != JsonValueKind.Array)
+            throw new JsonException("Label catalog must contain a labels array.");
+
+        var configured = labels.EnumerateArray().Select(item =>
+        {
+            var name = item.GetProperty("name").GetString() ?? throw new JsonException("Configured label name is missing.");
+            var family = item.GetProperty("family").GetString() ?? throw new JsonException("Configured label family is missing.");
+            return (Name: name, Family: family);
+        }).ToArray();
+        var candidates = new List<TriageLabelCandidate>();
+        var unresolved = facts.UnresolvedFamilies.Distinct(StringComparer.Ordinal).ToList();
+
+        var typeLabels = configured.Where(x => x.Family == "type" && x.Name.StartsWith("type:", StringComparison.OrdinalIgnoreCase)).ToArray();
+        var typeEvidence = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var label in typeLabels)
+        {
+            var suffix = label.Name["type:".Length..];
+            var prefix = Regex.IsMatch(facts.Title, @"^\s*" + Regex.Escape(suffix) + @"\s*:", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+            var token = TypeToken.Matches(facts.Title + "\n" + facts.Body).Cast<Match>()
+                .Any(match => string.Equals(match.Groups[1].Value, suffix, StringComparison.OrdinalIgnoreCase));
+            if (prefix || token)
+            {
+                var evidence = new List<string>();
+                if (prefix) evidence.Add("title-prefix:" + suffix + ":");
+                if (token) evidence.Add("type-token:" + suffix);
+                typeEvidence[label.Name] = evidence;
+            }
+        }
+        if (typeEvidence.Count == 1)
+        {
+            var pair = typeEvidence.Single();
+            candidates.Add(new("type", pair.Key, 1.0, pair.Value));
+            unresolved.RemoveAll(x => x == "type");
+        }
+
+        var areaLabels = configured.Where(x => x.Family == "area" && x.Name.StartsWith("area:", StringComparison.OrdinalIgnoreCase)).ToArray();
+        foreach (var label in areaLabels)
+        {
+            var suffix = label.Name["area:".Length..];
+            var evidence = facts.AreaHints.Where(hint =>
+                string.Equals(hint, suffix, StringComparison.OrdinalIgnoreCase) ||
+                (hint.StartsWith("area:", StringComparison.OrdinalIgnoreCase) && string.Equals(hint["area:".Length..], suffix, StringComparison.OrdinalIgnoreCase)))
+                .Select(hint => "area-hint:" + hint).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+            if (evidence.Length > 0) candidates.Add(new("area", label.Name, 1.0, evidence));
+        }
+        if (candidates.Any(x => x.Family == "area")) unresolved.RemoveAll(x => x == "area");
+        return new(candidates, unresolved);
+    }
+}
+
 /// <summary>Extracts explicit issue references and the invocation repository from normalized issue text.</summary>
 public static class TriageFactsExtractor
 {
