@@ -528,6 +528,17 @@ public sealed class GitHubIssueReader(IGitHubReadClient client)
     public async Task<GitHubIssue> ReadIssueAsync(string owner, string repository, int number, CancellationToken cancellationToken = default) =>
         ToIssue(await ReadAsync(owner, repository, number, false, cancellationToken));
 
+    public async Task<IReadOnlyList<string>> ReadIssueLabelNamesAsync(string owner, string repository, int number, CancellationToken cancellationToken = default)
+    {
+        var root = await ReadAsync(owner, repository, number, false, cancellationToken);
+        if (!root.TryGetProperty("labels", out var labels) || labels.ValueKind != JsonValueKind.Array)
+            throw new JsonException("GitHub issue response is missing 'labels'.");
+        return labels.EnumerateArray().Select(label =>
+            label.ValueKind == JsonValueKind.Object && label.TryGetProperty("name", out var name) && name.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(name.GetString())
+                ? name.GetString()! : throw new JsonException("GitHub issue response contains an invalid label name."))
+            .Take(100).ToArray();
+    }
+
     public async Task<GitHubPullRequest> ReadPullRequestAsync(string owner, string repository, int number, CancellationToken cancellationToken = default) =>
         ToPullRequest(await ReadAsync(owner, repository, number, true, cancellationToken));
 
@@ -832,7 +843,7 @@ public sealed class GitHubWriteClient(HttpClient http, IGitHubCredentialProvider
 public sealed record GitHubIssueLabelWriteResult(string Status, string TargetRepository, int IssueNumber, IReadOnlyList<string> Labels, string? Reason);
 
 /// <summary>Adds selected configured area, risk, and complexity labels to the canonical origin issue without replacing existing labels.</summary>
-public sealed class GitHubIssueLabelWriter(IGitHubWriteClient client)
+public sealed class GitHubIssueLabelWriter(IGitHubWriteClient client, GitHubIssueReader issueReader)
 {
     public async Task<GitHubIssueLabelWriteResult> AddTriageLabelsAsync(
         string currentOriginRepository, string candidateRepository, int issueNumber, TriageDecision decision,
@@ -846,6 +857,12 @@ public sealed class GitHubIssueLabelWriter(IGitHubWriteClient client)
         var capability = capabilities.Capabilities.SingleOrDefault(item => item.Operation == "issues.labels.write" && item.TargetRepository == currentOriginRepository);
         if (capability?.State != "allowed")
             return Reject("review", currentOriginRepository, issueNumber, "issue label write capability is not allowed");
+        var repositoryParts = currentOriginRepository.Split('/', 2);
+        var owner = repositoryParts[0];
+        var repository = repositoryParts[1];
+        var currentLabels = await issueReader.ReadIssueLabelNamesAsync(owner, repository, issueNumber, cancellationToken);
+        if (currentLabels.Contains("IN_PROGRESS", StringComparer.Ordinal))
+            return Reject("review", currentOriginRepository, issueNumber, "issue is already in progress; triage cannot proceed");
         if (!labelCatalog.TryGetProperty("labels", out var configuredLabels) || configuredLabels.ValueKind != JsonValueKind.Array)
             throw new JsonException("Label catalog must contain a labels array.");
         var configured = configuredLabels.EnumerateArray().Select(item =>
@@ -863,7 +880,12 @@ public sealed class GitHubIssueLabelWriter(IGitHubWriteClient client)
             selectedLabels.AddRange(familyLabels);
         }
         if (selectedLabels.Count == 0)
-            return Reject("review", currentOriginRepository, issueNumber, "no applicable label was selected; human handling is required");
+        {
+            var verifiedLabels = await issueReader.ReadIssueLabelNamesAsync(owner, repository, issueNumber, cancellationToken);
+            return verifiedLabels.Contains("IN_PROGRESS", StringComparer.Ordinal)
+                ? Reject("review", currentOriginRepository, issueNumber, "issue became in progress during triage")
+                : Reject("review", currentOriginRepository, issueNumber, "no applicable label was selected; human handling is required");
+        }
         var labels = selectedLabels.Distinct(StringComparer.Ordinal).ToArray();
         using var content = new StringContent(JsonSerializer.Serialize(new { labels }));
         content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
@@ -873,6 +895,9 @@ public sealed class GitHubIssueLabelWriter(IGitHubWriteClient client)
         {
             if (!response.IsSuccessStatusCode) return Reject("failure", currentOriginRepository, issueNumber, "GitHub rejected issue label addition");
         }
+        var postconditionLabels = await issueReader.ReadIssueLabelNamesAsync(owner, repository, issueNumber, cancellationToken);
+        if (postconditionLabels.Contains("IN_PROGRESS", StringComparer.Ordinal))
+            return Reject("review", currentOriginRepository, issueNumber, "issue became in progress during triage");
         return new("applied", currentOriginRepository, issueNumber, labels, null);
     }
 
