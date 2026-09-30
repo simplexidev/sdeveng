@@ -426,7 +426,7 @@ public sealed class StartWorkCoordinatorTests
             var body = endpoint.AbsolutePath.Contains("/pulls/", StringComparison.Ordinal) ? WriteClient.CreatedBody : null;
             var response = body is not null
                 ? System.Text.Json.JsonSerializer.Serialize(new { number = 17, title = "Issue", state = "open", html_url = "https://github.com/owner/project/pull/17", body, @base = new { @ref = "main" }, head = new { @ref = "factory/issue-42" }, draft = true, merged = false })
-                : $$"""{"number":42,"title":"Issue","state":"open","html_url":"{{IssueUrl}}"}""";
+                : $$"""{"number":42,"title":"Issue","state":"open","html_url":"{{IssueUrl}}","labels":{{(WriteClient.LabelApplied ? "[{\"name\":\"IN_PROGRESS\"}]" : "[]")}}}""";
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(response)
@@ -437,12 +437,14 @@ public sealed class StartWorkCoordinatorTests
     private sealed class FakeWriteClient : IGitHubWriteClient
     {
         public string CreatedBody { get; private set; } = "";
+        public bool LabelApplied { get; private set; }
         public List<(HttpMethod Method, Uri Endpoint, string Body)> Requests { get; } = [];
         public async Task<HttpResponseMessage> SendAsync(HttpMethod method, Uri endpoint, HttpContent? content = null, CancellationToken cancellationToken = default)
         {
             var body = content is null ? "" : await content.ReadAsStringAsync(cancellationToken);
             Requests.Add((method, endpoint, body));
             if (body.Length > 0 && JsonNode.Parse(body)!["body"] is { } updatedBody) CreatedBody = updatedBody.GetValue<string>();
+            if (endpoint.AbsolutePath.EndsWith("/labels", StringComparison.Ordinal)) LabelApplied = true;
             return new HttpResponseMessage(method == HttpMethod.Patch ? HttpStatusCode.OK : HttpStatusCode.Created) { Content = new StringContent("{\"number\":17}") };
         }
     }
