@@ -261,6 +261,7 @@ public sealed class AbstainingTriageSemanticClassifier : ITriageSemanticClassifi
 public static class TriageClassifier
 {
     static readonly Regex TypeToken = new(@"(?<![A-Za-z0-9_-])type:([A-Za-z0-9_-]+)(?![A-Za-z0-9_-])", RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+    static readonly Regex ExplicitTriageToken = new(@"(?<![A-Za-z0-9_-])(?<family>risk|complexity):(?<value>[A-Za-z0-9_-]+)(?![A-Za-z0-9_-])", RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
 
     public static IReadOnlyList<TriageLabelCandidate> BoundSemanticCandidates(IEnumerable<TriageLabelCandidate> candidates, JsonElement labelCatalog)
     {
@@ -326,6 +327,28 @@ public static class TriageClassifier
             if (evidence.Length > 0) candidates.Add(new("area", label.Name, 1.0, evidence));
         }
         if (candidates.Any(x => x.Family == "area")) unresolved.RemoveAll(x => x == "area");
+
+        var declaredTokens = ExplicitTriageToken.Matches(facts.Title + "\n" + facts.Body).Cast<Match>().ToArray();
+        foreach (var family in new[] { "risk", "complexity" })
+        {
+            var familyLabels = configured.Where(label => label.Family == family && label.Name.StartsWith(family + ":", StringComparison.OrdinalIgnoreCase)).ToArray();
+            var matchingLabels = declaredTokens
+                .Where(match => string.Equals(match.Groups["family"].Value, family, StringComparison.OrdinalIgnoreCase))
+                .Select(match => familyLabels.FirstOrDefault(label => string.Equals(label.Name[(family.Length + 1)..], match.Groups["value"].Value, StringComparison.OrdinalIgnoreCase)))
+                .Where(label => label.Name is not null)
+                .DistinctBy(label => label.Name, StringComparer.OrdinalIgnoreCase)
+                .ToArray();
+            if (matchingLabels.Length == 1)
+            {
+                var label = matchingLabels[0];
+                var evidence = declaredTokens
+                    .Where(match => string.Equals(match.Groups["family"].Value, family, StringComparison.OrdinalIgnoreCase) &&
+                        string.Equals(label.Name[(family.Length + 1)..], match.Groups["value"].Value, StringComparison.OrdinalIgnoreCase))
+                    .Select(match => match.Value).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+                candidates.Add(new(family, label.Name, 1.0, evidence));
+                unresolved.RemoveAll(x => x == family);
+            }
+        }
 
         var candidateRepository = facts.CandidateRepository;
         if (!string.IsNullOrWhiteSpace(candidateRepository))
