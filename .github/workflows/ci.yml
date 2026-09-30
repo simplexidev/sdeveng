@@ -27,6 +27,24 @@ jobs:
       - run: dotnet tools/AgentTool.cs validate --json
       - run: dotnet format tests/SdevEng.Tests/SdevEng.Tests.csproj --no-restore --verify-no-changes
       - run: git diff --check
+      - name: Write Step CI result
+        if: always()
+        env:
+          COMMIT_SHA: ${{ github.sha }}
+          CI_STATUS: ${{ job.status }}
+          CI_RUNNER: ${{ matrix.os }}
+        shell: pwsh
+        run: |
+          $status = if ($env:CI_STATUS -eq 'success') { 'success' } elseif ($env:CI_STATUS -eq 'cancelled') { 'cancelled' } else { 'failure' }
+          $result = @{ schemaVersion = 1; commitSha = $env:COMMIT_SHA; status = $status; runner = $env:CI_RUNNER }
+          New-Item -ItemType Directory -Force -Path StepCiResult | Out-Null
+          $result | ConvertTo-Json -Compress | Set-Content -Encoding utf8 StepCiResult/result.json
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: step-ci-result-${{ matrix.os }}
+          path: StepCiResult/result.json
+          retention-days: 7
       - uses: actions/upload-artifact@v7
         if: always()
         with:
