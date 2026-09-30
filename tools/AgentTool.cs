@@ -32,6 +32,16 @@ public interface IGitHubReadClient
     Task<HttpResponseMessage> GetAsync(Uri endpoint, CancellationToken cancellationToken = default);
 }
 
+public interface IGitHubLabelProcess
+{
+    Task<ProcessResult> Run(string executable, IEnumerable<string> arguments, string cwd);
+}
+
+public sealed class GitHubLabelProcess : IGitHubLabelProcess
+{
+    public Task<ProcessResult> Run(string executable, IEnumerable<string> arguments, string cwd) => Processes.Run(executable, arguments, cwd);
+}
+
 /// <summary>Production unauthenticated GitHub API read transport.</summary>
 public sealed class GitHubReadClient(HttpClient http) : IGitHubReadClient
 {
@@ -628,7 +638,7 @@ public static class AgentTool
         git branch-create --branch NAME | push-owned --remote NAME --branch NAME
         git worktree-create --branch NAME --path DIR | worktree-remove-owned --path DIR
         git stale-base --base REF --expected SHA | abandon-owned --branch NAME --path DIR
-        github pr-status | review-comments --pr NUMBER | prepare-pr
+        github pr-status | review-comments --pr NUMBER | prepare-pr | labels [--apply]
         github actions [--run-id NUMBER] [--failed-logs]
         dotnet inspect [--project PATH] | build-plan [--base REF] [--project PATH] [--configuration NAME] [--binlog]
         dotnet test-plan [--base REF] [--project PATH] [--configuration NAME]
@@ -1337,12 +1347,13 @@ public static class AgentTool
         private readonly GitHubReviewCommentReader? _reviewCommentReader;
         private readonly GitHubActionsReader? _actionsReader;
         private readonly GitHubAuthorizationProbe? _authorizationProbe;
-        public GitHubCommandModule(GitHubPrStatusReader? prStatusReader = null, GitHubReviewCommentReader? reviewCommentReader = null, GitHubActionsReader? actionsReader = null, GitHubAuthorizationProbe? authorizationProbe = null)
+        public GitHubCommandModule(GitHubPrStatusReader? prStatusReader = null, GitHubReviewCommentReader? reviewCommentReader = null, GitHubActionsReader? actionsReader = null, GitHubAuthorizationProbe? authorizationProbe = null, IGitHubLabelProcess? labelProcess = null)
         {
             _prStatusReader = prStatusReader;
             _reviewCommentReader = reviewCommentReader;
             _actionsReader = actionsReader;
             _authorizationProbe = authorizationProbe;
+            _labelProcess = labelProcess ?? new GitHubLabelProcess();
         }
         private static (string Owner, string Repository) GitHubRepositoryTarget(string remote)
         {
@@ -1358,7 +1369,7 @@ public static class AgentTool
             if (parts.Length != 2 || string.IsNullOrWhiteSpace(parts[0]) || string.IsNullOrWhiteSpace(parts[1])) throw new InvalidOperationException("Origin is not a GitHub repository.");
             return (parts[0], parts[1].EndsWith(".git", StringComparison.OrdinalIgnoreCase) ? parts[1][..^4] : parts[1]);
         }
-        public bool CanHandle(Cli command) => command.Command is "github prepare-pr" or "github pr-status" or "github review-comments" or "github actions" or "github capabilities";
+        public bool CanHandle(Cli command) => command.Command is "github prepare-pr" or "github pr-status" or "github review-comments" or "github actions" or "github capabilities" or "github labels";
 
         public async Task<Result> Execute(Cli command, string toolkit, string root, Settings settings, CancellationToken cancellationToken)
         {
@@ -1370,6 +1381,39 @@ public static class AgentTool
                 case "github capabilities":
                     var probe = _authorizationProbe ?? throw new InvalidOperationException("GitHub authorization probe is unavailable.");
                     return Result.Ok(await probe.ProbeAsync(root, cancellationToken));
+                case "github labels":
+                    var labelsOrigin = (await Git.Require(root, "remote", "get-url", "origin")).Trim();
+                    var (labelsOwner, labelsRepository) = GitHubRepositoryTarget(labelsOrigin);
+                    var catalogPath = Path.Combine(toolkit, "config", "labels.json");
+                    using (var catalog = JsonDocument.Parse(await File.ReadAllTextAsync(catalogPath, cancellationToken)))
+                    {
+                        var configured = catalog.RootElement.GetProperty("labels").EnumerateArray().Select(item => new
+                        {
+                            name = item.GetProperty("name").GetString() ?? throw new JsonException("Configured label name is missing."),
+                            description = item.GetProperty("description").GetString() ?? ""
+                        }).ToArray();
+                        var api = _labelProcess ?? throw new InvalidOperationException("GitHub label process is unavailable.");
+                        var target = $"{labelsOwner}/{labelsRepository}";
+                        var listed = await api.Run("gh", ["api", "--paginate", "--slurp", $"repos/{target}/labels?per_page=100"], root);
+                        if (listed.ExitCode != 0) throw new InvalidOperationException("Could not list remote GitHub labels.");
+                        using var remoteDocument = JsonDocument.Parse(listed.Output);
+                        if (remoteDocument.RootElement.ValueKind != JsonValueKind.Array) throw new JsonException("GitHub labels response must be an array.");
+                        var pages = remoteDocument.RootElement.EnumerateArray().ToArray();
+                        var remoteLabels = pages.Length > 0 && pages[0].ValueKind == JsonValueKind.Array
+                            ? pages.SelectMany(page => page.EnumerateArray())
+                            : pages.AsEnumerable();
+                        var remoteNames = remoteLabels.Select(label => label.GetProperty("name").GetString() ?? throw new JsonException("Remote label name is missing.")).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                        var missing = configured.Where(label => !remoteNames.Contains(label.name)).ToArray();
+                        var created = new List<string>();
+                        if (command.Flag("apply"))
+                            foreach (var label in missing)
+                            {
+                                var response = await api.Run("gh", ["api", "--method", "POST", $"repos/{target}/labels", "--field", $"name={label.name}", "--field", $"description={label.description}"], root);
+                                if (response.ExitCode != 0) throw new InvalidOperationException($"Could not create missing allowed label '{label.name}'.");
+                                created.Add(label.name);
+                            }
+                        return Result.Ok(new { kind = "github-labels", repository = target, configured = configured.Select(x => x.name), remote = remoteNames.Order(StringComparer.OrdinalIgnoreCase), missing = command.Flag("apply") ? Array.Empty<string>() : missing.Select(x => x.name), created });
+                    }
                 case "github prepare-pr":
                     await Git.EnsureSafe(root, false);
                     var diff = await Processes.Run("git", ["diff", "--check"], root);
@@ -1408,6 +1452,7 @@ public static class AgentTool
                 default: throw new ArgumentException("Unknown command. Use --help.");
             }
         }
+        private readonly IGitHubLabelProcess? _labelProcess;
     }
 
     public sealed class DotnetCommandModule : ICommandModule
@@ -1886,6 +1931,7 @@ public sealed class Cli
             "git stale-base" => ["base", "expected"],
             "git abandon-owned" => ["branch", "path"],
             "github review-comments" => ["pr"],
+            "github labels" => ["apply"],
             "github actions" => ["run-id", "failed-logs"],
             "dotnet verify" => ["base", "project"],
             "dotnet inspect" => ["project"],
