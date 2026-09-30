@@ -1141,7 +1141,7 @@ public sealed class StartWorkGitProcess : IStartWorkGitProcess
 }
 
 /// <summary>Checks the chosen start-work target before recording its durable STARTING state.</summary>
-public sealed class StartWorkCoordinator(GitHubIssueReader issueReader, AgentTool.GitHubAuthorizationProbe authorizationProbe, IStartWorkGitProcess gitProcess)
+public sealed class StartWorkCoordinator(GitHubIssueReader issueReader, AgentTool.GitHubAuthorizationProbe authorizationProbe, IStartWorkGitProcess gitProcess, IGitHubWriteClient writeClient)
 {
     public async Task<string> BootstrapAsync(string repositoryRoot, Guid runId, CancellationToken cancellationToken = default)
     {
@@ -1224,7 +1224,12 @@ public sealed class StartWorkCoordinator(GitHubIssueReader issueReader, AgentToo
             var branch = await Processes.Run("git", ["rev-parse", "--verify", branchRef], root);
             if (branch.ExitCode == 0)
             {
-                if (branch.Output.Trim() != baseSha ||
+                var bootstrapRecorded = events.Any(item => item.GetProperty("eventType").GetString() == "start-work-progress" &&
+                    item.GetProperty("operation").GetString() == "bootstrap-created" && item.GetProperty("status").GetString() == "completed");
+                var validBootstrapBranch = bootstrapRecorded &&
+                    (await Git.Require(root, "rev-list", "--count", baseSha + ".." + branchRef)).Trim() == "1" &&
+                    (await Processes.Run("git", ["merge-base", "--is-ancestor", baseSha, branchRef], root)).ExitCode == 0;
+                if ((branch.Output.Trim() != baseSha && !validBootstrapBranch) ||
                     (await Git.Require(root, "config", "--get", "branch." + request.BranchName + "." + GitOwnershipMarkers.BranchConfigKey)).Trim() != GitOwnershipMarkers.BranchConfigValue)
                     throw new InvalidOperationException("Existing branch is not the owned branch at the verified base.");
             }
@@ -1236,6 +1241,13 @@ public sealed class StartWorkCoordinator(GitHubIssueReader issueReader, AgentToo
                 if (changes.Length != 0) throw new InvalidOperationException("Worktree has unrelated changes.");
                 await Git.Require(root, "branch", request.BranchName, baseSha);
                 await Git.Require(root, "config", "branch." + request.BranchName + "." + GitOwnershipMarkers.BranchConfigKey, GitOwnershipMarkers.BranchConfigValue);
+            }
+            await Git.Require(root, "checkout", request.BranchName);
+            if ((await Git.Require(root, "rev-list", "--count", baseSha + ".." + branchRef)).Trim() == "0")
+            {
+                await BootstrapAsync(root, request.ProductRunId, cancellationToken);
+                branch = await Processes.Run("git", ["rev-parse", "--verify", branchRef], root);
+                if (branch.ExitCode != 0) throw new InvalidOperationException("Bootstrap did not create the owned branch commit.");
             }
             if (!HasIdentifier("git", "branch", request.BranchName)) LocalRunEventStore.AppendBranchIdentifier(directory, request.ProductRunId, request.BranchName);
             if (!Completed("branch-created")) LocalRunEventStore.AppendStartWorkProgress(directory, request.ProductRunId, "branch-created", "completed");
@@ -1257,6 +1269,40 @@ public sealed class StartWorkCoordinator(GitHubIssueReader issueReader, AgentToo
                     if (push.ExitCode != 0) throw new IOException("Branch push failed; the owned local branch remains available: " + Secrets.Redact(push.Output.Trim()));
                 }
                 LocalRunEventStore.AppendStartWorkProgress(directory, request.ProductRunId, "branch-pushed", "completed");
+            }
+            activeOperation = "pr-created";
+            var persistedPr = events.Where(item => item.GetProperty("eventType").GetString() == "external-identifier-recorded" &&
+                item.GetProperty("externalSystem").GetString() == "github" && item.GetProperty("identifierType").GetString() == "pull-request")
+                .Select(item => item.GetProperty("identifier").GetString()).LastOrDefault();
+            if (Completed("pr-created") || persistedPr is not null)
+            {
+                if (persistedPr is null || !int.TryParse(persistedPr, NumberStyles.None, CultureInfo.InvariantCulture, out var existingNumber))
+                    throw new InvalidOperationException("Completed pull request progress has no valid identifier.");
+                var existing = await issueReader.ReadPullRequestAsync(owner, repository, existingNumber, cancellationToken);
+                if (existing.HeadBranch != request.BranchName || existing.BaseBranch != request.BaseRef || !existing.IsDraft ||
+                    existing.Body?.Contains($"<!-- sdeveng-run:{request.ProductRunId:D} -->", StringComparison.Ordinal) != true)
+                    throw new InvalidOperationException("Persisted pull request does not match this run.");
+            }
+            else
+            {
+                var capabilities = await authorizationProbe.ProbeAsync(root, cancellationToken);
+                if (!capabilities.Capabilities.Any(item => item.Operation == "pr-create" && item.TargetRepository == target && item.State == "allowed"))
+                    throw new InvalidOperationException("Pull request creation capability is not allowed.");
+                var issue = await issueReader.ReadIssueAsync(owner, repository, request.SourceIssueNumber, cancellationToken);
+                var title = issue.Title.Trim();
+                if (title.Length > 256) title = title[..256];
+                if (title.Length == 0) throw new InvalidOperationException("Source issue title is empty.");
+                var body = $"<!-- sdeveng-run:{request.ProductRunId:D} -->";
+                using var content = new StringContent(JsonSerializer.Serialize(new { title, head = request.BranchName, @base = request.BaseRef, draft = true, body }));
+                content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
+                using var response = await writeClient.SendAsync(HttpMethod.Post, new Uri($"https://api.github.com/repos/{target}/pulls"), content, cancellationToken);
+                if (!response.IsSuccessStatusCode) throw new HttpRequestException("GitHub rejected draft pull request creation.");
+                using var document = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(cancellationToken), cancellationToken: cancellationToken);
+                var number = document.RootElement.GetProperty("number").GetInt32();
+                if (number <= 0) throw new JsonException("GitHub returned an invalid pull request number.");
+                persistedPr = number.ToString(CultureInfo.InvariantCulture);
+                LocalRunEventStore.AppendPullRequestIdentifier(directory, request.ProductRunId, persistedPr);
+                LocalRunEventStore.AppendStartWorkProgress(directory, request.ProductRunId, "pr-created", "completed", persistedPr);
             }
             return new(request.ProductRunId, target, request.SourceIssueNumber, baseSha, request.BranchName, "STARTING");
         }
