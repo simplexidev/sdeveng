@@ -1177,9 +1177,18 @@ public static class LocalRunEventStore
         if (string.IsNullOrWhiteSpace(excerpt)) throw new ArgumentException("CI failure evidence excerpt must be nonempty.");
         var payload = new
         {
-            schemaVersion = 1, runId = runId.ToString("D"), sequence = 0, occurredAt = DateTimeOffset.UtcNow,
-            eventType = "ci-failure-evidence", evidenceVersion = 1, commitSha = commitSha.ToLowerInvariant(),
-            providerRunId, providerJobId, failureClass, truncated, excerpt
+            schemaVersion = 1,
+            runId = runId.ToString("D"),
+            sequence = 0,
+            occurredAt = DateTimeOffset.UtcNow,
+            eventType = "ci-failure-evidence",
+            evidenceVersion = 1,
+            commitSha = commitSha.ToLowerInvariant(),
+            providerRunId,
+            providerJobId,
+            failureClass,
+            truncated,
+            excerpt
         };
         return AppendSnapshot(directory, runId, payload);
     }
