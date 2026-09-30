@@ -77,6 +77,67 @@ public static class GitHubTransport
 public sealed record GitHubPrStatusCheck(string Name, string? State, string? Bucket, Uri? Link, string? Workflow, JsonElement Raw);
 public sealed record GitHubPrStatus(string? HeadBranch, string? Author, string? ReviewDecision, IReadOnlyList<GitHubPrStatusCheck> Checks, JsonElement Raw);
 
+/// <summary>Deterministic evidence recorded by release-validation execution.</summary>
+public sealed record ReleaseValidationArtifact(string Reference, string Sha256);
+public sealed record ReleaseValidationGate(string GateId, string Status, string? Reason = null, IReadOnlyList<ReleaseValidationArtifact>? Artifacts = null);
+public sealed record ReleaseValidationManifest(int SchemaVersion, string Repository, string CommitSha, string Profile, IReadOnlyList<ReleaseValidationGate> Gates);
+
+/// <summary>Creates, validates, and serializes the versioned release-validation evidence contract.</summary>
+public static class ReleaseValidationEvidence
+{
+    public const int SchemaVersion = 1;
+    static readonly Regex GatePattern = new("^[a-z0-9][a-z0-9._-]{0,63}$", RegexOptions.CultureInvariant);
+    static readonly Regex ShaPattern = new("^(?:[0-9a-f]{40}|[0-9a-f]{64})$", RegexOptions.CultureInvariant);
+    static readonly Regex RepoPattern = new("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$", RegexOptions.CultureInvariant);
+
+    public static ReleaseValidationManifest Create(string repository, string commitSha, string profile, IEnumerable<ReleaseValidationGate> gates)
+    {
+        ArgumentNullException.ThrowIfNull(gates);
+        var ordered = gates.Select(g => g with { Artifacts = (g.Artifacts ?? []).OrderBy(a => a.Reference, StringComparer.Ordinal).ToArray() })
+            .OrderBy(g => g.GateId, StringComparer.Ordinal).ToArray();
+        var manifest = new ReleaseValidationManifest(SchemaVersion, repository, commitSha, profile, ordered);
+        Validate(manifest);
+        return manifest;
+    }
+
+    public static void Validate(ReleaseValidationManifest manifest)
+    {
+        ArgumentNullException.ThrowIfNull(manifest);
+        if (manifest.SchemaVersion != SchemaVersion || !RepoPattern.IsMatch(manifest.Repository ?? "") || !ShaPattern.IsMatch(manifest.CommitSha ?? "") ||
+            string.IsNullOrWhiteSpace(manifest.Profile) || manifest.Profile.Length > 64 || !Regex.IsMatch(manifest.Profile, "^[A-Za-z0-9_.-]+$", RegexOptions.CultureInvariant))
+            throw new ArgumentException("Release validation manifest identity is invalid.", nameof(manifest));
+        if (manifest.Gates is null || manifest.Gates.Count > 200) throw new ArgumentException("Release validation gates are invalid or exceed 200 records.", nameof(manifest));
+        var gateIds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var gate in manifest.Gates)
+        {
+            if (gate is null || !GatePattern.IsMatch(gate.GateId ?? "") || !gateIds.Add(gate.GateId!) || gate.Status is not ("passed" or "failed" or "unsupported" or "not-observed"))
+                throw new ArgumentException("Release validation gate identity or status is invalid or duplicated.", nameof(manifest));
+            if (gate.Status == "passed" ? gate.Reason is not null : string.IsNullOrWhiteSpace(gate.Reason) || gate.Reason.Length > 512)
+                throw new ArgumentException("Non-passed gates require a bounded reason; passed gates must not have one.", nameof(manifest));
+            if (gate.Artifacts is null || gate.Artifacts.Count > 100) throw new ArgumentException("Release validation artifacts are invalid or exceed 100 records per gate.", nameof(manifest));
+            var refs = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var artifact in gate.Artifacts)
+                if (artifact is null || !SafeArtifactReference(artifact.Reference) || !ShaPattern.IsMatch(artifact.Sha256 ?? "") || !refs.Add(artifact.Reference))
+                    throw new ArgumentException("Release validation artifact reference or SHA-256 is invalid or duplicated.", nameof(manifest));
+        }
+    }
+
+    public static byte[] Serialize(ReleaseValidationManifest manifest)
+    {
+        Validate(manifest);
+        if (!manifest.Gates.SequenceEqual(manifest.Gates.OrderBy(g => g.GateId, StringComparer.Ordinal)) || manifest.Gates.Any(g => !g.Artifacts!.SequenceEqual(g.Artifacts!.OrderBy(a => a.Reference, StringComparer.Ordinal))))
+            throw new ArgumentException("Manifest gates and artifact references must be in canonical ordinal order.", nameof(manifest));
+        return JsonSerializer.SerializeToUtf8Bytes(manifest, AgentTool.Json);
+    }
+
+    static bool SafeArtifactReference(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value) || value.Length > 240 || value.StartsWith('/') || value.Contains('\\') || Regex.IsMatch(value, "^[A-Za-z]:") || value.Any(char.IsControl)) return false;
+        if (value.StartsWith("logical:", StringComparison.Ordinal)) return Regex.IsMatch(value[8..], "^[A-Za-z0-9][A-Za-z0-9._:-]{0,199}$", RegexOptions.CultureInvariant);
+        return value.Split('/').All(part => part.Length > 0 && part is not ("." or "..") && Regex.IsMatch(part, "^[A-Za-z0-9_.-]+$", RegexOptions.CultureInvariant));
+    }
+}
+
 /// <summary>Reads the fields used by github pr-status from the GitHub pull request API.</summary>
 public sealed class GitHubPrStatusReader(IGitHubReadClient client)
 {

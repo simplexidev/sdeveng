@@ -1,0 +1,67 @@
+using System.Text.Json.Nodes;
+using Json.Schema;
+
+namespace SdevEng.Tests;
+
+public sealed class ReleaseValidationEvidenceTests
+{
+    const string Commit = "0123456789abcdef0123456789abcdef01234567";
+    static string SchemaPath => Path.Combine(AgentTool.FindToolkit(), "schemas/release-validation-evidence.schema.json");
+
+    [Fact]
+    public void SerializationIsCanonicalAndConformsToSchema()
+    {
+        var first = ReleaseValidationEvidence.Create("simplexidev/sdeveng", Commit, "release", [
+            new("zeta", "passed", Artifacts: [new("reports/z.trx", new string('a', 64)), new("reports/a.trx", new string('b', 64))]),
+            new("alpha", "failed", "tests failed")]);
+        var second = ReleaseValidationEvidence.Create("simplexidev/sdeveng", Commit, "release", [
+            new("alpha", "failed", "tests failed"),
+            new("zeta", "passed", Artifacts: [new("reports/a.trx", new string('b', 64)), new("reports/z.trx", new string('a', 64))])]);
+        var bytes = ReleaseValidationEvidence.Serialize(first);
+        Assert.Equal(bytes, ReleaseValidationEvidence.Serialize(second));
+        var schema = JsonSchema.FromFile(SchemaPath);
+        Assert.True(schema.Evaluate(JsonNode.Parse(bytes), new() { OutputFormat = OutputFormat.List }).IsValid);
+    }
+
+    [Fact]
+    public void CanonicalFixtureMatchesProducerAndValidatesAgainstSchema()
+    {
+        var fixturePath = Path.Combine(AgentTool.FindToolkit(), "tests/fixtures/release-validation/manifest.json");
+        var fixture = File.ReadAllBytes(fixturePath);
+        var manifest = ReleaseValidationEvidence.Create("simplexidev/sdeveng", Commit, "release", [
+            new("tests", "not-observed", "trusted evidence unavailable", [new("logical:test-results", new string('a', 64))]),
+            new("build", "passed")]);
+        Assert.Equal(JsonNode.Parse(fixture)!.ToJsonString(AgentTool.Json), JsonNode.Parse(ReleaseValidationEvidence.Serialize(manifest))!.ToJsonString(AgentTool.Json));
+        var schema = JsonSchema.FromFile(SchemaPath);
+        Assert.True(schema.Evaluate(JsonNode.Parse(fixture), new() { OutputFormat = OutputFormat.List }).IsValid);
+    }
+
+    [Theory]
+    [InlineData("passed")]
+    [InlineData("failed")]
+    [InlineData("unsupported")]
+    [InlineData("not-observed")]
+    public void FourStatusesRemainDistinct(string status)
+    {
+        var reason = status == "passed" ? null : "evidence unavailable or gate failed";
+        var manifest = ReleaseValidationEvidence.Create("simplexidev/sdeveng", Commit, "release", [new("build", status, reason)]);
+        Assert.Equal(status, manifest.Gates.Single().Status);
+        ReleaseValidationEvidence.Validate(manifest);
+    }
+
+    [Fact]
+    public void RejectsDuplicateRecordsInvalidReasonsAndUnsafeArtifactReferences()
+    {
+        Assert.Throws<ArgumentException>(() => ReleaseValidationEvidence.Create("simplexidev/sdeveng", Commit, "release", [new("build", "passed"), new("build", "passed")]));
+        Assert.Throws<ArgumentException>(() => ReleaseValidationEvidence.Create("simplexidev/sdeveng", Commit, "release", [new("build", "unsupported")]));
+        Assert.Throws<ArgumentException>(() => ReleaseValidationEvidence.Create("simplexidev/sdeveng", Commit, "release", [new("build", "passed", Artifacts: [new("../secret", new string('a', 64))])]));
+        Assert.Throws<ArgumentException>(() => ReleaseValidationEvidence.Create("simplexidev/sdeveng", Commit, "release", [new("build", "passed", Artifacts: [new("logs/build.txt", new string('a', 64)), new("logs/build.txt", new string('b', 64))])]));
+    }
+
+    [Fact]
+    public void SerializerRejectsNonCanonicalInputOrdering()
+    {
+        var manifest = new ReleaseValidationManifest(1, "simplexidev/sdeveng", Commit, "release", [new("z", "passed"), new("a", "passed")]);
+        Assert.Throws<ArgumentException>(() => ReleaseValidationEvidence.Serialize(manifest));
+    }
+}

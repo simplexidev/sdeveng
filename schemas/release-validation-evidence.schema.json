@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://simplexidev.github.io/sdeveng/schemas/release-validation-evidence.schema.json",
+  "title": "sdeveng release-validation evidence manifest v1",
+  "description": "Deterministic evidence supplied by release-validation execution; this contract does not define release completeness or promotion eligibility.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "repository", "commitSha", "profile", "gates"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "repository": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$" },
+    "commitSha": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
+    "profile": { "type": "string", "pattern": "^[A-Za-z0-9_.-]{1,64}$" },
+    "gates": { "type": "array", "maxItems": 200, "items": { "$ref": "#/$defs/gate" } }
+  },
+  "$defs": {
+    "gate": {
+      "type": "object", "additionalProperties": false,
+      "required": ["gateId", "status", "artifacts"],
+      "properties": {
+        "gateId": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$" },
+        "status": { "enum": ["passed", "failed", "unsupported", "not-observed"] },
+        "reason": { "type": ["string", "null"], "maxLength": 512 },
+        "artifacts": { "type": "array", "maxItems": 100, "items": { "$ref": "#/$defs/artifact" } }
+      },
+      "allOf": [
+        { "if": { "properties": { "status": { "const": "passed" } }, "required": ["status"] }, "then": { "properties": { "reason": { "type": "null" } } } },
+        { "if": { "properties": { "status": { "enum": ["failed", "unsupported", "not-observed"] } }, "required": ["status"] }, "then": { "required": ["reason"], "properties": { "reason": { "type": "string", "minLength": 1, "maxLength": 512 } } } }
+      ]
+    },
+    "artifact": {
+      "type": "object", "additionalProperties": false, "required": ["reference", "sha256"],
+      "properties": {
+        "reference": { "type": "string", "maxLength": 240, "pattern": "^(logical:[A-Za-z0-9][A-Za-z0-9._:-]{0,199}|[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*)$" },
+        "sha256": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" }
+      }
+    }
+  }
+}

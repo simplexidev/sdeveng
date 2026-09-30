@@ -1,0 +1,25 @@
+{
+  "schemaVersion": 1,
+  "repository": "simplexidev/sdeveng",
+  "commitSha": "0123456789abcdef0123456789abcdef01234567",
+  "profile": "release",
+  "gates": [
+    {
+      "gateId": "build",
+      "status": "passed",
+      "reason": null,
+      "artifacts": []
+    },
+    {
+      "gateId": "tests",
+      "status": "not-observed",
+      "reason": "trusted evidence unavailable",
+      "artifacts": [
+        {
+          "reference": "logical:test-results",
+          "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        }
+      ]
+    }
+  ]
+}
