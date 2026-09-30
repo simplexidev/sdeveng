@@ -2,6 +2,46 @@ namespace SdevEng.Tests;
 
 public sealed class TriageFactsExtractorTests
 {
+    [Fact]
+    public async Task BuildsDeterministicAggregateWithRawHintsAndUnresolvedFamilies()
+    {
+        using var repo = new TemporaryGitRepository();
+        repo.Run("remote", "add", "origin", "https://github.com/acme/widget.git");
+        var issue = new GitHubIssue(5, "  Fix parser  ", "open", new Uri("https://github.com/acme/widget/issues/5"),
+            "See `src/Parser.cs:4` and `Parser.Run()`; area:backend\nacme/other#8", "octocat");
+
+        var first = await TriageFactsExtractor.ExtractIssueAsync(issue, repo.Root);
+        var second = await TriageFactsExtractor.ExtractIssueAsync(issue, repo.Root);
+
+        Assert.Equal(System.Text.Json.JsonSerializer.Serialize(first), System.Text.Json.JsonSerializer.Serialize(second));
+        Assert.Equal("acme/widget", first.CandidateRepository);
+        Assert.Equal("  Fix parser  ", first.Title);
+        Assert.Equal(new[] { "src", "area:backend" }, first.AreaHints);
+        Assert.Equal(new[] { "type", "area", "risk", "complexity", "scope" }, first.UnresolvedFamilies);
+        Assert.Contains(first.Files, file => file.Path == "src/Parser.cs" && file.StartLine == 4);
+        Assert.Contains(first.Symbols, symbol => symbol.Value == "Parser.Run()");
+        Assert.Contains(first.LinkedReferences, reference => reference.Owner == "acme" && reference.Repository == "other" && reference.Number == 8);
+        Assert.DoesNotContain(first.AreaHints, hint => hint.StartsWith("area:", StringComparison.Ordinal) && hint != "area:backend");
+    }
+
+    [Fact]
+    public async Task AggregateBoundsAllFactFamilies()
+    {
+        using var repo = new TemporaryGitRepository();
+        repo.Run("remote", "add", "origin", "https://github.com/acme/widget.git");
+        var issue = new GitHubIssue(5, "`src/A.cs` `lib/B.cs`", "open", new Uri("https://github.com/acme/widget/issues/5"),
+            "`Alpha.Run()` `Beta.Run()` area:one area:two acme/other#8 acme/else#9", null);
+
+        var facts = await TriageFactsExtractor.ExtractIssueAsync(issue, repo.Root, 1);
+
+        Assert.Single(facts.Files);
+        Assert.Single(facts.Symbols);
+        Assert.Single(facts.LinkedReferences);
+        Assert.Single(facts.AreaHints);
+        Assert.True(facts.Truncated);
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => TriageFactsExtractor.ExtractIssueAsync(issue, repo.Root, 0));
+    }
+
     [Theory]
     [InlineData("https://github.com/acme/widget/issues/12", "issue", 12)]
     [InlineData("https://github.com/acme/widget/pull/13", "pull-request", 13)]
