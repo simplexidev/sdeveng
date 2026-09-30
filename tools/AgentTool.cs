@@ -3326,8 +3326,35 @@ public sealed record VerificationResult(int SchemaVersion, string Source, string
     public string? EnvironmentIdentity { get; init; }
 }
 
+public sealed record VerificationEvidencePolicy(bool RequireLocal, bool RequireHosted);
+public sealed record VerificationDecision(string Check, bool CanProgress, bool Disagrees, IReadOnlyList<string> Reasons);
+
 public static class VerificationResults
 {
+    public static VerificationDecision Evaluate(string check, IEnumerable<VerificationResult> evidence, VerificationEvidencePolicy policy)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(check);
+        ArgumentNullException.ThrowIfNull(evidence);
+        ArgumentNullException.ThrowIfNull(policy);
+        var results = evidence.ToArray();
+        if (results.Any(r => r is null || r.SchemaVersion != 1 || r.Check != check ||
+            r.Source is not ("local" or "hosted") || r.Status is not ("passed" or "failed") ||
+            (r.ExitCode == 0) != (r.Status == "passed") || r.ExitCode < 0 || string.IsNullOrWhiteSpace(r.Artifact)) ||
+            results.GroupBy(r => r.Source, StringComparer.Ordinal).Any(g => g.Count() > 1))
+            throw new ArgumentException("Evidence must contain at most one valid result per source for the requested check.", nameof(evidence));
+        var local = results.SingleOrDefault(r => r.Source == "local");
+        var hosted = results.SingleOrDefault(r => r.Source == "hosted");
+        var reasons = new List<string>();
+        if (policy.RequireLocal && local is null) reasons.Add("local-missing");
+        if (policy.RequireHosted && hosted is null) reasons.Add("hosted-missing");
+        if (local?.Status == "failed") reasons.Add("local-failed");
+        if (hosted?.Status == "failed") reasons.Add("hosted-failed");
+        var disagrees = local is not null && hosted is not null && local.Status != hosted.Status;
+        if (disagrees) reasons.Add("local-hosted-disagreement");
+        if (results.Length == 0) reasons.Add("evidence-missing");
+        return new(check, reasons.Count == 0, disagrees, reasons);
+    }
+
     public static VerificationResult FromLocal(string executable, IEnumerable<string> arguments, int exitCode, string artifact)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(executable);
