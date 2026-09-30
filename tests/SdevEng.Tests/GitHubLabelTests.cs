@@ -15,9 +15,9 @@ public sealed class GitHubLabelTests
         var list = System.Text.Json.JsonSerializer.SerializeToElement(listed.Data, AgentTool.Json);
         Assert.Equal("github-labels", list.GetProperty("kind").GetString());
         Assert.True(list.GetProperty("dryRun").GetBoolean());
-        Assert.Equal(13, list.GetProperty("configured").GetArrayLength());
+        Assert.Equal(14, list.GetProperty("configured").GetArrayLength());
         Assert.DoesNotContain(process.Calls, call => call.Contains("POST", StringComparer.Ordinal));
-        Assert.Equal(13, list.GetProperty("missing").GetArrayLength());
+        Assert.Equal(14, list.GetProperty("missing").GetArrayLength());
         Assert.Equal(new[] { "custom:keep" }, list.GetProperty("unmanaged").EnumerateArray().Select(label => label.GetString()));
         Assert.DoesNotContain(process.Calls, call => call.Contains("DELETE", StringComparer.Ordinal));
 
@@ -25,17 +25,17 @@ public sealed class GitHubLabelTests
         var dryRun = await module.Execute(Cli.Parse(["github", "labels", "--dry-run"]), AgentTool.FindToolkit(), repo.Root, new(new(), new(), new(), new()), CancellationToken.None);
         var dryRunResult = System.Text.Json.JsonSerializer.SerializeToElement(dryRun.Data, AgentTool.Json);
         Assert.True(dryRunResult.GetProperty("dryRun").GetBoolean());
-        Assert.Equal(13, dryRunResult.GetProperty("missing").GetArrayLength());
+        Assert.Equal(14, dryRunResult.GetProperty("missing").GetArrayLength());
         Assert.Empty(dryRunResult.GetProperty("created").EnumerateArray());
         Assert.DoesNotContain(process.Calls, call => call.Contains("POST", StringComparer.Ordinal));
 
         process.Calls.Clear();
         var applied = await module.Execute(Cli.Parse(["github", "labels", "--apply"]), AgentTool.FindToolkit(), repo.Root, new(new(), new(), new(), new()), CancellationToken.None);
         var result = System.Text.Json.JsonSerializer.SerializeToElement(applied.Data, AgentTool.Json);
-        Assert.Equal(13, result.GetProperty("created").GetArrayLength());
+        Assert.Equal(14, result.GetProperty("created").GetArrayLength());
         Assert.Equal(new[] { "custom:keep" }, result.GetProperty("unmanaged").EnumerateArray().Select(label => label.GetString()));
         Assert.DoesNotContain(result.GetProperty("missing").EnumerateArray(), _ => true);
-        Assert.Equal(13, process.Calls.Count(call => call.Contains("POST", StringComparer.Ordinal)));
+        Assert.Equal(14, process.Calls.Count(call => call.Contains("POST", StringComparer.Ordinal)));
         Assert.DoesNotContain(process.Calls, call => call.Contains("DELETE", StringComparer.Ordinal));
         Assert.All(process.Calls.Where(call => call.Contains("POST", StringComparer.Ordinal)), call =>
         {

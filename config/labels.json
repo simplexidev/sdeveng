@@ -9,6 +9,12 @@
       "color": "1D76DB"
     },
     {
+      "name": "TRIAGED",
+      "family": "status",
+      "description": "Issue triage is complete and a configured type has been selected.",
+      "color": "0E8A16"
+    },
+    {
       "name": "type:chore",
       "family": "type",
       "description": "Maintenance or operational work that does not add a user-facing capability.",

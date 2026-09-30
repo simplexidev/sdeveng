@@ -806,7 +806,10 @@ public sealed class GitHubWriteClient(HttpClient http, IGitHubCredentialProvider
         var allowed = parts.Length >= 4 && parts[0] == "repos" &&
             parts[1].Length > 0 && parts[2].Length > 0 && parts[3] == "pulls" &&
             (method == HttpMethod.Post && parts.Length == 4 ||
-             method == HttpMethod.Patch && parts.Length == 5 && int.TryParse(parts[4], NumberStyles.None, CultureInfo.InvariantCulture, out var number) && number > 0);
+             method == HttpMethod.Patch && parts.Length == 5 && int.TryParse(parts[4], NumberStyles.None, CultureInfo.InvariantCulture, out var number) && number > 0) ||
+            parts.Length == 6 && parts[0] == "repos" && parts[1].Length > 0 && parts[2].Length > 0 &&
+            parts[3] == "issues" && int.TryParse(parts[4], NumberStyles.None, CultureInfo.InvariantCulture, out var issueNumber) && issueNumber > 0 &&
+            parts[5] == "labels" && method == HttpMethod.Post;
         if (!allowed) throw new InvalidOperationException("GitHub mutation is not allowlisted.");
         string? token;
         try { token = await credentials.GetTokenAsync(cancellationToken); }
@@ -824,6 +827,51 @@ public sealed class GitHubWriteClient(HttpClient http, IGitHubCredentialProvider
             throw new HttpRequestException("GitHub mutation request failed.");
         }
     }
+}
+
+public sealed record GitHubIssueLabelWriteResult(string Status, string TargetRepository, int IssueNumber, IReadOnlyList<string> Labels, string? Reason);
+
+/// <summary>Adds configured triage labels only after a complete, authorized decision for the canonical origin issue.</summary>
+public sealed class GitHubIssueLabelWriter(IGitHubWriteClient client)
+{
+    public async Task<GitHubIssueLabelWriteResult> AddTriageLabelsAsync(
+        string currentOriginRepository, string candidateRepository, int issueNumber, TriageDecision decision,
+        AgentTool.GitHubCapabilities capabilities, JsonElement labelCatalog, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(decision);
+        ArgumentNullException.ThrowIfNull(capabilities);
+        if (issueNumber <= 0) throw new ArgumentOutOfRangeException(nameof(issueNumber));
+        if (!IsRepository(currentOriginRepository) || !StringComparer.Ordinal.Equals(candidateRepository, currentOriginRepository))
+            return Reject("review", candidateRepository, issueNumber, "candidate repository does not match canonical origin");
+        var capability = capabilities.Capabilities.SingleOrDefault(item => item.Operation == "issues.labels.write" && item.TargetRepository == currentOriginRepository);
+        if (capability?.State != "allowed")
+            return Reject("review", currentOriginRepository, issueNumber, "issue label write capability is not allowed");
+        if (decision.NeedsHumanReview || decision.UnresolvedFamilies.Count != 0)
+            return Reject("review", currentOriginRepository, issueNumber, "triage decision needs human review or has unresolved families");
+        if (!labelCatalog.TryGetProperty("labels", out var configuredLabels) || configuredLabels.ValueKind != JsonValueKind.Array)
+            throw new JsonException("Label catalog must contain a labels array.");
+        var configured = configuredLabels.EnumerateArray().Select(item =>
+            (Name: item.GetProperty("name").GetString(), Family: item.GetProperty("family").GetString())).ToArray();
+        var triaged = configured.SingleOrDefault(item => item.Name == "TRIAGED" && item.Family == "status");
+        var selectedTypes = decision.Selected.Where(item => item.Family == "type").SelectMany(item => item.Labels).ToArray();
+        if (triaged.Name is null || selectedTypes.Length != 1 || decision.Selected.Any(family => family.Family == "status") ||
+            selectedTypes[0].Label == "IN_PROGRESS" || !configured.Any(item => item.Name == selectedTypes[0].Label && item.Family == "type"))
+            return Reject("failure", currentOriginRepository, issueNumber, "triage labels are missing, unconfigured, or unsafe");
+        var labels = new[] { "TRIAGED", selectedTypes[0].Label };
+        using var content = new StringContent(JsonSerializer.Serialize(new { labels }));
+        content.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
+        var response = await client.SendAsync(HttpMethod.Post,
+            new Uri($"https://api.github.com/repos/{currentOriginRepository}/issues/{issueNumber.ToString(CultureInfo.InvariantCulture)}/labels"), content, cancellationToken);
+        using (response)
+        {
+            if (!response.IsSuccessStatusCode) return Reject("failure", currentOriginRepository, issueNumber, "GitHub rejected issue label addition");
+        }
+        return new("applied", currentOriginRepository, issueNumber, labels, null);
+    }
+
+    static bool IsRepository(string? value) => value is not null && Regex.IsMatch(value, @"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$", RegexOptions.CultureInvariant);
+    static GitHubIssueLabelWriteResult Reject(string status, string? repository, int issue, string reason) =>
+        new(status, repository ?? string.Empty, issue, Array.Empty<string>(), reason);
 }
 
 public static class LocalRunEventStore
@@ -1172,6 +1220,7 @@ public static class AgentTool
             services.AddSingleton<IGitHubCredentialProvider, GitHubCredentialProvider>();
             services.AddTransient<GitHubWriteClient>();
             services.AddTransient<IGitHubWriteClient>(provider => provider.GetRequiredService<GitHubWriteClient>());
+            services.AddTransient<GitHubIssueLabelWriter>();
             services.AddTransient<GitHubCommitReader>();
             services.AddTransient<GitHubRepositoryMetadataReader>();
             services.AddTransient<GitHubIssueReader>();
