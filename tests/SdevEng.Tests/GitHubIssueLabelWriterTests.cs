@@ -69,6 +69,64 @@ public sealed class GitHubIssueLabelWriterTests
         Assert.Null(transport.Endpoint);
     }
 
+    [Fact]
+    public async Task AddsOnlySelectedConfiguredRiskAndComplexityLabels()
+    {
+        using var catalog = JsonDocument.Parse("""{"labels":[{"name":"risk:high","family":"risk"},{"name":"complexity:low","family":"complexity"},{"name":"type:bug","family":"type"},{"name":"area:docs","family":"area"}]}""");
+        var decision = new TriageDecision([
+            new("risk", [new("risk:high", 1, ["evidence"])]),
+            new("complexity", [new("complexity:low", 1, ["evidence"])]),
+            new("type", [new("type:bug", 1, ["must-not-apply"])]),
+            new("area", [new("area:docs", 1, ["must-not-apply"])])
+        ], [], false);
+        var transport = new FakeWriteClient();
+        var result = await new GitHubIssueLabelWriter(transport).AddTriageLabelsAsync("acme/widget", "acme/widget", 42, decision, Allowed(), catalog.RootElement);
+        Assert.Equal("applied", result.Status);
+        Assert.Equal(new[] { "area:docs", "risk:high", "complexity:low" }, result.Labels);
+        Assert.Equal(new[] { "area:docs", "risk:high", "complexity:low" }, JsonDocument.Parse(transport.Body!).RootElement.GetProperty("labels").EnumerateArray().Select(x => x.GetString()));
+    }
+
+    [Theory]
+    [InlineData("risk")]
+    [InlineData("complexity")]
+    public async Task UnresolvedFamilyIsUntouchedWhileOtherResolvedFamilyApplies(string unresolvedFamily)
+    {
+        using var catalog = JsonDocument.Parse("""{"labels":[{"name":"risk:high","family":"risk"},{"name":"complexity:low","family":"complexity"}]}""");
+        var selected = unresolvedFamily == "risk" ? "complexity" : "risk";
+        var label = selected == "risk" ? "risk:high" : "complexity:low";
+        var decision = new TriageDecision([new(selected, [new(label, 1, ["explicit"])])], [unresolvedFamily], true);
+        var transport = new FakeWriteClient();
+        var result = await new GitHubIssueLabelWriter(transport).AddTriageLabelsAsync("acme/widget", "acme/widget", 42, decision, Allowed(), catalog.RootElement);
+        Assert.Equal("applied", result.Status);
+        Assert.Equal(new[] { label }, result.Labels);
+    }
+
+    [Theory]
+    [InlineData("risk", "risk:low", "risk:high")]
+    [InlineData("complexity", "complexity:low", "complexity:high")]
+    public async Task RejectsMultipleSelectionsInExclusiveFamilies(string family, string first, string second)
+    {
+        using var catalog = JsonDocument.Parse($"{{\"labels\":[{{\"name\":\"{first}\",\"family\":\"{family}\"}},{{\"name\":\"{second}\",\"family\":\"{family}\"}}]}}");
+        var decision = new TriageDecision([new(family, [new(first, 1, []), new(second, 1, [])])], [], false);
+        var transport = new FakeWriteClient();
+        var result = await new GitHubIssueLabelWriter(transport).AddTriageLabelsAsync("acme/widget", "acme/widget", 42, decision, Allowed(), catalog.RootElement);
+        Assert.Equal("failure", result.Status);
+        Assert.Null(transport.Endpoint);
+    }
+
+    [Theory]
+    [InlineData("risk", "risk:unconfigured")]
+    [InlineData("complexity", "complexity:unconfigured")]
+    public async Task RejectsUnconfiguredSelectedFamilyLabels(string family, string label)
+    {
+        using var catalog = JsonDocument.Parse("""{"labels":[{"name":"risk:high","family":"risk"},{"name":"complexity:low","family":"complexity"}]}""");
+        var decision = new TriageDecision([new(family, [new(label, 1, [])])], [], false);
+        var transport = new FakeWriteClient();
+        var result = await new GitHubIssueLabelWriter(transport).AddTriageLabelsAsync("acme/widget", "acme/widget", 42, decision, Allowed(), catalog.RootElement);
+        Assert.Equal("failure", result.Status);
+        Assert.Null(transport.Endpoint);
+    }
+
     static JsonDocument Catalog() => JsonDocument.Parse(File.ReadAllText(Path.Combine(AgentTool.FindToolkit(), "config/labels.json")));
     static TriageDecision Resolved() => new([new("area", [new("area:tooling", 1, ["explicit"])])], [], false);
     static AgentTool.GitHubCapabilities Allowed(string state = "allowed") => new("github-capabilities", [new("issues.labels.write", "acme/widget", state, "fake", "test")]);
