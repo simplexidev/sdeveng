@@ -41,6 +41,25 @@ public sealed class GitHubWriteBoundaryTests
         Assert.Equal(0, sent);
     }
 
+    [Theory]
+    [InlineData("PUT", "/repos/owner/repo/branches/main/protection")]
+    [InlineData("PATCH", "/repos/owner/repo/branches/main/protection")]
+    [InlineData("DELETE", "/repos/owner/repo/branches/main/protection")]
+    [InlineData("DELETE", "/repos/owner/repo/branches/main/protection/required_status_checks")]
+    [InlineData("DELETE", "/repos/owner/repo/branches/main/protection/enforce_admins")]
+    [InlineData("DELETE", "/repos/owner/repo/branches/main/protection/required_pull_request_reviews")]
+    public async Task BlocksBranchProtectionWeakeningBeforeSending(string verb, string path)
+    {
+        var sent = 0;
+        using var http = new HttpClient(new RecordingHandler(() => sent++));
+        var client = new GitHubWriteClient(http);
+        using var content = new StringContent("{}");
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() => client.SendAsync(
+            new HttpMethod(verb), new Uri("https://api.github.com" + path), content));
+        Assert.Equal(0, sent);
+    }
+
     sealed class RecordingHandler(Action record) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
