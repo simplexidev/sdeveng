@@ -11,6 +11,21 @@ namespace SdevEng;
 
 public static class Repository
 {
+    public static async Task<object> Describe(string root, OutputSettings limits)
+    {
+        var repositoryRoot = await Git.RepositoryRoot(root);
+        var tracked = await Git.TrackedWithIgnoreRules(repositoryRoot);
+        return new
+        {
+            schemaVersion = 1,
+            kind = "repository-description",
+            root = repositoryRoot,
+            trackedFiles = tracked.Take(limits.MaxItems),
+            trackedFileCount = tracked.Length,
+            trackedFilesTruncated = tracked.Length > limits.MaxItems
+        };
+    }
+
     public static async Task<object> Summary(string root, string? baseRef, OutputSettings limits)
     {
         var state = await Git.State(root);
