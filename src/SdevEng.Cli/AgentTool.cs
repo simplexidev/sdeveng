@@ -1004,7 +1004,7 @@ public static class AgentTool
         install | update [--home DIR] [--codex-home DIR] [--dry-run] [--bin]
         uninstall [--home DIR] [--codex-home DIR] [--dry-run]
         doctor
-        repo changed-files [--base REF] | summary [--base REF] | locate --query TEXT | health | hygiene
+        repo describe | changed-files [--base REF] | summary [--base REF] | locate --query TEXT | health | hygiene
         repo affected-projects [--base REF] | ownership --file PATH
         git state | summary [--base REF] | conflict-forecast --base REF | prepare-commit
         git stage-owned --paths-file FILE | commit-owned --paths-file FILE --message TEXT
@@ -1532,7 +1532,7 @@ public static class AgentTool
 
     public sealed class RepoCommandModule : ICommandModule
     {
-        public bool CanHandle(Cli command) => command.Command is "repo changed-files" or "repo summary" or "repo locate" or "repo affected-projects" or "repo ownership" or "repo health" or "repo hygiene";
+        public bool CanHandle(Cli command) => command.Command is "repo describe" or "repo changed-files" or "repo summary" or "repo locate" or "repo affected-projects" or "repo ownership" or "repo health" or "repo hygiene";
 
         public async Task<Result> Execute(Cli command, string toolkit, string root, Settings settings, CancellationToken cancellationToken)
         {
@@ -1540,6 +1540,7 @@ public static class AgentTool
             command.ValidateCommand(command.Command);
             switch (command.Command)
             {
+                case "repo describe": return Result.Ok(await Repository.Describe(root, settings.Output));
                 case "repo changed-files": return Result.Ok(await Git.Changed(root, command.Get("base")));
                 case "repo summary": return Result.Ok(await Repository.Summary(root, command.Get("base"), settings.Output));
                 case "repo locate":

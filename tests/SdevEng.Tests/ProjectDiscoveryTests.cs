@@ -11,4 +11,17 @@ public class ProjectDiscoveryTests
     [Fact] public async Task NoChangesMeansNoBuilds() { using var repo = new TemporaryGitRepository(); repo.Write("A.csproj", Project); Assert.Empty((await Projects.Affected(repo.Root, [])).Projects); }
     [Fact] public async Task DurableResultsDoNotSelectBuilds() { using var repo = new TemporaryGitRepository(); repo.Write("A.csproj", Project); Assert.Empty((await Projects.Affected(repo.Root, [".agent-results/reports/audit.md"])).Projects); }
     [Fact] public async Task LocateSkipsHistoricalResults() { using var repo = new TemporaryGitRepository(); repo.Write(".agent-results/reports/audit.md", "historical"); repo.Write("docs/audit.md", "current"); var result = await CommandTestRuntime.Execute(Cli.Parse(["repo", "locate", "--query", "audit"]), AgentTool.FindToolkit(), repo.Root, new(new(), new(), new(), new())); var json = System.Text.Json.JsonSerializer.Serialize(result.Data, AgentTool.Json); Assert.Contains("docs/audit.md", json, StringComparison.Ordinal); Assert.DoesNotContain(".agent-results", json, StringComparison.Ordinal); }
+    [Fact]
+    public async Task DescribeDiscoversRootAndListsTrackedFilesWithIgnoreRules()
+    {
+        using var repo = new TemporaryGitRepository();
+        repo.Write("src/Tracked.cs", "class Tracked {}"); repo.Commit();
+        repo.Write("obj/Generated.cs", "class Generated {}"); repo.Write("untracked.cs", "class Untracked {}");
+        var result = await CommandTestRuntime.Execute(Cli.Parse(["repo", "describe"]), AgentTool.FindToolkit(), Path.Combine(repo.Root, "src"), new(new(), new(), new(), new()));
+        var json = System.Text.Json.JsonSerializer.SerializeToNode(result.Data, AgentTool.Json)!;
+        Assert.Equal(Path.GetFullPath(repo.Root), json["root"]!.GetValue<string>());
+        Assert.Contains("src/Tracked.cs", json["trackedFiles"]!.AsArray().Select(x => x!.GetValue<string>()));
+        Assert.DoesNotContain("obj/Generated.cs", json["trackedFiles"]!.ToJsonString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("untracked.cs", json["trackedFiles"]!.ToJsonString(), StringComparison.Ordinal);
+    }
 }
