@@ -1,3 +1,5 @@
+using Json.Schema;
+
 namespace SdevEng.Tests;
 
 public class ProjectDiscoveryTests
@@ -15,13 +17,24 @@ public class ProjectDiscoveryTests
     public async Task DescribeDiscoversRootAndListsTrackedFilesWithIgnoreRules()
     {
         using var repo = new TemporaryGitRepository();
-        repo.Write("src/Tracked.cs", "class Tracked {}"); repo.Commit();
+        repo.Write("src/Tracked.cs", "class Tracked {}");
+        repo.Write("src/App.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>");
+        repo.Write("tests/Tests.fsproj", "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><IsTestProject>true</IsTestProject><TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>");
+        repo.Write("lib/Library.vbproj", "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>");
+        repo.Commit();
         repo.Write("obj/Generated.cs", "class Generated {}"); repo.Write("untracked.cs", "class Untracked {}");
         var result = await CommandTestRuntime.Execute(Cli.Parse(["repo", "describe"]), AgentTool.FindToolkit(), Path.Combine(repo.Root, "src"), new(new(), new(), new(), new()));
         var json = System.Text.Json.JsonSerializer.SerializeToNode(result.Data, AgentTool.Json)!;
+        var schema = JsonSchema.FromFile(Path.Combine(AgentTool.FindToolkit(), "schemas/repository-description.schema.json"));
+        Assert.True(schema.Evaluate(json, new() { OutputFormat = OutputFormat.List }).IsValid);
         Assert.Equal(Path.GetFullPath(repo.Root), json["root"]!.GetValue<string>());
         Assert.Contains("src/Tracked.cs", json["trackedFiles"]!.AsArray().Select(x => x!.GetValue<string>()));
         Assert.DoesNotContain("obj/Generated.cs", json["trackedFiles"]!.ToJsonString(), StringComparison.Ordinal);
         Assert.DoesNotContain("untracked.cs", json["trackedFiles"]!.ToJsonString(), StringComparison.Ordinal);
+        Assert.Equal(3, json["projectCount"]!.GetValue<int>());
+        var projects = json["projects"]!.AsArray().ToDictionary(x => x!["path"]!.GetValue<string>());
+        Assert.Equal(("C#", "application"), (projects["src/App.csproj"]!["language"]!.GetValue<string>(), projects["src/App.csproj"]!["kind"]!.GetValue<string>()));
+        Assert.Equal(("F#", "test"), (projects["tests/Tests.fsproj"]!["language"]!.GetValue<string>(), projects["tests/Tests.fsproj"]!["kind"]!.GetValue<string>()));
+        Assert.Equal(("Visual Basic", "library"), (projects["lib/Library.vbproj"]!["language"]!.GetValue<string>(), projects["lib/Library.vbproj"]!["kind"]!.GetValue<string>()));
     }
 }

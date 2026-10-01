@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "repository-description",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "kind", "root", "projects", "projectCount", "projectsTruncated", "trackedFiles", "trackedFileCount", "trackedFilesTruncated"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "repository-description" },
+    "root": { "type": "string", "minLength": 1 },
+    "projects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "language", "kind"],
+        "properties": {
+          "path": { "type": "string", "minLength": 1 },
+          "language": { "enum": ["C#", "F#", "Visual Basic"] },
+          "kind": { "enum": ["application", "library", "test", "unknown"] }
+        }
+      }
+    },
+    "projectCount": { "type": "integer", "minimum": 0 },
+    "projectsTruncated": { "type": "boolean" },
+    "trackedFiles": { "type": "array", "items": { "type": "string" } },
+    "trackedFileCount": { "type": "integer", "minimum": 0 },
+    "trackedFilesTruncated": { "type": "boolean" }
+  }
+}

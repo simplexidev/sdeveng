@@ -15,15 +15,42 @@ public static class Repository
     {
         var repositoryRoot = await Git.RepositoryRoot(root);
         var tracked = await Git.TrackedWithIgnoreRules(repositoryRoot);
+        var projects = Projects.Discover(repositoryRoot)
+            .Select(path => new
+            {
+                path = Path.GetRelativePath(repositoryRoot, path).Replace('\\', '/'),
+                language = Path.GetExtension(path) switch { ".fsproj" => "F#", ".vbproj" => "Visual Basic", _ => "C#" },
+                kind = DescribeProjectKind(path)
+            }).ToArray();
         return new
         {
             schemaVersion = 1,
             kind = "repository-description",
             root = repositoryRoot,
+            projects = projects.Take(limits.MaxItems),
+            projectCount = projects.Length,
+            projectsTruncated = projects.Length > limits.MaxItems,
             trackedFiles = tracked.Take(limits.MaxItems),
             trackedFileCount = tracked.Length,
             trackedFilesTruncated = tracked.Length > limits.MaxItems
         };
+    }
+
+    private static string DescribeProjectKind(string project)
+    {
+        try
+        {
+            var document = System.Xml.Linq.XDocument.Load(project);
+            var properties = document.Descendants().Where(element => element.Parent?.Name.LocalName == "PropertyGroup")
+                .ToDictionary(element => element.Name.LocalName, element => element.Value, StringComparer.OrdinalIgnoreCase);
+            if (string.Equals(properties.GetValueOrDefault("IsTestProject"), "true", StringComparison.OrdinalIgnoreCase)) return "test";
+            if (string.Equals(properties.GetValueOrDefault("OutputType"), "Exe", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(properties.GetValueOrDefault("OutputType"), "WinExe", StringComparison.OrdinalIgnoreCase)) return "application";
+            return "library";
+        }
+        catch (System.Xml.XmlException) { return "unknown"; }
+        catch (IOException) { return "unknown"; }
+        catch (UnauthorizedAccessException) { return "unknown"; }
     }
 
     public static async Task<object> Summary(string root, string? baseRef, OutputSettings limits)
