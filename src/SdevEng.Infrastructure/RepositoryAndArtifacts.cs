@@ -373,6 +373,7 @@ public static class DotnetFacts
             schemaVersion = 1,
             kind = "dotnet-inspection",
             environment = new { sdk = sdkVersion.ExitCode == 0 ? sdkVersion.Output.Trim() : null, installedSdks = Lines(sdks), installedRuntimes = Lines(runtimes), processArchitecture = RuntimeInformation.ProcessArchitecture.ToString(), osArchitecture = RuntimeInformation.OSArchitecture.ToString(), runtime = RuntimeInformation.FrameworkDescription, globalJson },
+            solutions = Projects.Solutions(root).Select(solution => Rel(root, solution)),
             projects = rows,
             graph = new { nodes = projects.Select(project => Rel(root, project)), edges }
         };

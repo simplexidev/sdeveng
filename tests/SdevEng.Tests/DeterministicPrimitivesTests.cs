@@ -32,8 +32,9 @@ public class DeterministicPrimitivesTests
     [Fact]
     public async Task InspectionNormalizesProjectGraphToRepositoryPaths()
     {
-        using var repo = new TemporaryGitRepository(); repo.Write("src/A.csproj", Project);
+        using var repo = new TemporaryGitRepository(); repo.Write("src/A.csproj", Project); repo.Write("App.slnx", "<Solution />"); repo.Write("obj/Generated.sln", "ignored");
         var node = JsonSerializer.SerializeToNode(await DotnetFacts.Inspect(repo.Root, null), AgentTool.Json)!;
+        Assert.Equal(new[] { "App.slnx" }, node["solutions"]!.AsArray().Select(solution => solution!.GetValue<string>()));
         Assert.Equal("src/A.csproj", node["projects"]![0]!["path"]!.GetValue<string>());
         Assert.Equal("net10.0", node["projects"]![0]!["targetFrameworks"]![0]!.GetValue<string>());
         Assert.NotNull(node["environment"]!["sdk"]);
