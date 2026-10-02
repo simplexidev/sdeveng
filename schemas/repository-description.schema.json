@@ -42,10 +42,11 @@
     "graph": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["nodes", "edges"],
+      "required": ["nodes", "edges", "validation"],
       "properties": {
         "nodes": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
-        "edges": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["from", "to"], "properties": { "from": { "type": "string", "minLength": 1 }, "to": { "type": "string", "minLength": 1 } } } }
+        "edges": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["from", "to"], "properties": { "from": { "type": "string", "minLength": 1 }, "to": { "type": "string", "minLength": 1 } } } },
+        "validation": { "type": "object", "additionalProperties": false, "required": ["isValid", "cycles", "unresolvedEdges"], "properties": { "isValid": { "type": "boolean" }, "cycles": { "type": "array", "items": { "type": "string", "minLength": 1 } }, "unresolvedEdges": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["from", "to"], "properties": { "from": { "type": "string", "minLength": 1 }, "to": { "type": "string", "minLength": 1 } } } } } }
       }
     },
     "trackedFiles": { "type": "array", "items": { "type": "string" } },
