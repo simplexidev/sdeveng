@@ -114,8 +114,8 @@ jobs:
           REPOSITORY: ${{ github.repository }}
           PULL_REQUEST_ID: ${{ github.event.pull_request.number || '' }}
           BUILD_OUTCOME: ${{ steps.build.outcome }}
-          TEST_OUTCOME: ${{ steps.tests.outcome }}
-          CONTRACT_OUTCOME: ${{ steps.contracts.outcome }}
+          TESTS_OUTCOME: ${{ steps.tests.outcome }}
+          CONTRACTS_OUTCOME: ${{ steps.contracts.outcome }}
           FORMAT_OUTCOME: ${{ steps.format.outcome }}
           PACKAGE_OUTCOME: ${{ steps.package.outcome }}
         run: |
