@@ -18,6 +18,9 @@ public class ProjectDiscoveryTests
     {
         using var repo = new TemporaryGitRepository();
         repo.Write("src/Tracked.cs", "class Tracked {}");
+        repo.Write("global.json", "{\"sdk\":{\"version\":\"10.0.100\"}}");
+        repo.Write("Directory.Build.props", "<Project />");
+        repo.Write("src/local.json", "{}");
         repo.Write("src/App.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>");
         repo.Write("tests/Tests.fsproj", "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><IsTestProject>true</IsTestProject><TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>");
         repo.Write("lib/Library.vbproj", "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>");
@@ -29,6 +32,10 @@ public class ProjectDiscoveryTests
         Assert.True(schema.Evaluate(json, new() { OutputFormat = OutputFormat.List }).IsValid);
         Assert.Equal(Path.GetFullPath(repo.Root), json["root"]!.GetValue<string>());
         Assert.Contains("src/Tracked.cs", json["trackedFiles"]!.AsArray().Select(x => x!.GetValue<string>()));
+        Assert.Equal(new[] { "Directory.Build.props", "global.json" }, json["repositoryConfigurationFiles"]!.AsArray().Select(x => x!.GetValue<string>()));
+        Assert.Equal(64, json["catalogFingerprint"]!.GetValue<string>().Length);
+        var repeated = await CommandTestRuntime.Execute(Cli.Parse(["repo", "describe"]), AgentTool.FindToolkit(), repo.Root, new(new(), new(), new(), new()));
+        Assert.Equal(json["catalogFingerprint"]!.GetValue<string>(), System.Text.Json.JsonSerializer.SerializeToNode(repeated.Data, AgentTool.Json)!["catalogFingerprint"]!.GetValue<string>());
         Assert.DoesNotContain("obj/Generated.cs", json["trackedFiles"]!.ToJsonString(), StringComparison.Ordinal);
         Assert.DoesNotContain("untracked.cs", json["trackedFiles"]!.ToJsonString(), StringComparison.Ordinal);
         Assert.Equal(3, json["projectCount"]!.GetValue<int>());
