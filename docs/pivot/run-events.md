@@ -42,7 +42,7 @@ recorded before branch creation completion.
 Record an external identifier before any later action depends on it.
 GitHub issue and pull request identifiers use `externalSystem: "github"` with
 `identifierType: "issue"` and `"pull-request"`, respectively.
-Step commits use `externalSystem: "git"` with `identifierType: "step-commit"`;
+Commit evidence uses `externalSystem: "git"` with `identifierType: "commit"`. Legacy `step-commit` events remain readable;
 CI runs use `externalSystem: "github-actions"` with `identifierType: "ci-run"`.
 `StartWorkCoordinator` records the canonical origin repository (`git:repository`)
 and source issue (`github:issue`) on an existing `created` product run after

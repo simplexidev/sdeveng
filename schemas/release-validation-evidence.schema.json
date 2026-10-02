@@ -11,6 +11,7 @@
     "repository": { "type": "string", "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$" },
     "commitSha": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
     "profile": { "type": "string", "pattern": "^[A-Za-z0-9_.-]{1,64}$" },
+    "tag": { "type": ["string", "null"], "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+(?:-[A-Za-z0-9.-]+)?$" },
     "gates": { "type": "array", "maxItems": 200, "items": { "$ref": "#/$defs/gate" } }
   },
   "$defs": {

@@ -51,7 +51,8 @@ public class MetadataTests
     public void CiWorkflowCancelsOnlyRunsForTheSameCommit()
     {
         var workflow = File.ReadAllText(Path.Combine(Root, ".github/workflows/ci.yml"));
-        Assert.Matches("(?m)^concurrency:\\s*\\n\\s+group: ci-\\$\\{\\{ github\\.sha \\}\\}\\s*\\n\\s+cancel-in-progress: true\\s*$", workflow);
+        Assert.Contains("cancel-in-progress: false", workflow);
+        Assert.Contains("commit-ci-evidence-", workflow);
     }
     [Fact]
     public void AllJsonTomlAndYamlParse()
@@ -236,7 +237,7 @@ public class MetadataTests
             var cli = SdevEng.Cli.Parse(command.Split(' '));
             Assert.Single(modules, module => module.CanHandle(cli));
         });
-        var source = File.ReadAllText(Path.Combine(Root, "tools/AgentTool.cs"));
+        var source = string.Join("\n", Directory.GetFiles(Path.Combine(Root, "src"), "*.cs", SearchOption.AllDirectories).Select(File.ReadAllText));
         Assert.Contains("command == \"version\"", source, StringComparison.Ordinal);
         Assert.All(kinds.Distinct(StringComparer.Ordinal), kind => Assert.Contains($"kind = \"{kind}\"", source, StringComparison.Ordinal));
     }
@@ -459,39 +460,42 @@ public class MetadataTests
     public void ReleaseChecksumsUseDownloadableAssetNames()
     {
         var workflow = File.ReadAllText(Path.Combine(Root, ".github/workflows/release.yml"));
-        Assert.Contains("(cd artifacts && sha256sum sdeveng.zip > SHA256SUMS)", workflow);
-        Assert.DoesNotContain("sha256sum artifacts/sdeveng.zip > artifacts/SHA256SUMS", workflow);
+        Assert.Contains("$hash  sdeveng.zip", workflow);
+        Assert.Contains("artifacts/SHA256SUMS", workflow);
     }
 
     [Fact]
-    public void WorkUnitPrHeadAndReleaseCheckSetsAreDefined()
+    public void CiAndReleaseWorkflowsInvokeTheCompletedGateSets()
     {
-        var workflow = File.ReadAllText(Path.Combine(Root, ".github/workflows/ci.yml"));
-        var gates = File.ReadAllText(Path.Combine(Root, "docs/pivot/validation-gates.md"));
-        Assert.Contains("branches: ['**']", workflow);
-        Assert.Contains("continue-on-error: ${{ github.event_name == 'push' }}", workflow);
-        Assert.Contains("pull_request:", workflow);
-        Assert.Contains("## Blocking final PR-head checks", gates);
-        Assert.Contains("The hosted CI pull-request run enforces this set", gates);
-        Assert.Contains("## Release checks", gates);
-        Assert.Contains("dotnet test tests/SdevEng.Tests/SdevEng.Tests.csproj", gates);
-        Assert.Contains("dotnet tools/AgentTool.cs validate --json", gates);
-        Assert.Contains("dotnet format tests/SdevEng.Tests/SdevEng.Tests.csproj --no-restore --verify-no-changes", gates);
-        Assert.Contains("git diff --check", gates);
-        Assert.Contains("dotnet tools/AgentTool.cs eval --json", gates);
-        Assert.Contains("dotnet tools/AgentTool.cs release --output artifacts/sdeveng.zip --json", gates);
-        Assert.Contains("test \"$RELEASE_TAG\" = \"v$(jq -r .version config/toolkit.json)\"", gates);
-        Assert.Contains("sha256sum sdeveng.zip > SHA256SUMS", gates);
+        var ci = File.ReadAllText(Path.Combine(Root, ".github/workflows/ci.yml"));
+        var release = File.ReadAllText(Path.Combine(Root, ".github/workflows/release.yml"));
+        Assert.Contains("repo affected-projects --base $base --json", ci);
+        Assert.Contains("dotnet build $project --configuration Release", ci);
+        Assert.Contains("dotnet test $project --configuration Release --collect:", ci);
+        Assert.Contains("dotnet format SdevEng.slnx --no-restore --verify-no-changes", ci);
+        Assert.Contains("commit-ci-evidence-", ci);
+        Assert.Contains("continue-on-error: ${{ github.event_name == 'push' }}", ci);
+        Assert.Contains("git rev-parse HEAD", ci);
+        Assert.Contains("matrix:", release);
+        Assert.Contains("os: [ubuntu-latest, windows-latest]", release);
+        Assert.Contains("dotnet build SdevEng.slnx --configuration Release", release);
+        Assert.Contains("dotnet tools/AgentTool.cs release evidence", release);
+        Assert.Contains("needs: validate", release);
+        Assert.Contains("--draft --verify-tag", release);
     }
 
     [Fact]
-    public void CiPublishesStageEvidenceBundleForEveryMatrixRunner()
+    public void CommitCiEvidenceSchemaBindsNormalizedChecksToFullSha()
     {
-        var workflow = File.ReadAllText(Path.Combine(Root, ".github/workflows/ci.yml"));
-        Assert.Contains("name: stage-evidence-${{ matrix.os }}", workflow);
-        Assert.Contains("StepCiResult/result.json\n            TestResults", workflow);
-        Assert.Contains("retention-days: 7", workflow);
+        var schema = JsonSchema.FromFile(Path.Combine(Root, "schemas/commit-ci-result.schema.json"));
+        var result = JsonNode.Parse("""
+            {"schemaVersion":2,"repository":"simplexidev/sdeveng","commitSha":"0123456789abcdef0123456789abcdef01234567","validationTier":"final-pr","runner":"ubuntu-latest","providerRunId":"42","attemptOrdinal":1,"pullRequestId":"60","checks":[{"schemaVersion":2,"source":"hosted","check":"build","status":"passed","exitCode":0,"artifact":"github-actions:42/build","environmentIdentity":"github:ubuntu-latest:42"}],"notObserved":[]}
+            """)!;
+        Assert.True(schema.Evaluate(result).IsValid);
+        result["commitSha"] = "0123456789abcdef";
+        Assert.False(schema.Evaluate(result).IsValid);
     }
+
 }
 
 public class RepositoryIntegrityTests

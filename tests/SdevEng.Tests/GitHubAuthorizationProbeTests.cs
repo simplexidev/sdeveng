@@ -28,7 +28,7 @@ public sealed class GitHubAuthorizationProbeTests
         Assert.Equal("unknown", result.Capabilities[2].State);
         Assert.Equal("denied", result.Capabilities[3].State);
         Assert.Equal("unknown", result.Capabilities[4].State);
-        Assert.DoesNotContain(process.Calls, call => call.Arguments.Any(argument => argument.Contains("POST", StringComparison.OrdinalIgnoreCase)));
+        Assert.DoesNotContain(process.Calls, call => call.StartsWith("write:", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -41,7 +41,7 @@ public sealed class GitHubAuthorizationProbeTests
         Assert.Equal("allowed", result.Capabilities[1].State);
         Assert.Equal("allowed", result.Capabilities[3].State);
         Assert.Equal("allowed", result.Capabilities[4].State);
-        Assert.Contains(process.Calls, call => call.Executable == "git" && call.Arguments.SequenceEqual(new[] { "push", "--dry-run", "--porcelain", "origin", "HEAD:refs/heads/roadmap/sdeveng-capability-probe-abcdef123456" }));
+        Assert.Contains("dry-run:refs/heads/roadmap/sdeveng-capability-probe-abcdef123456", process.Calls);
     }
 
     [Fact]
@@ -106,29 +106,26 @@ public sealed class GitHubAuthorizationProbeTests
 
     private sealed class BareRemoteProcess : AgentTool.IGitHubAuthorizationProcess
     {
-        public async Task<ProcessResult> Run(string executable, IEnumerable<string> arguments, string cwd)
-        {
-            var args = arguments.ToArray();
-            if (executable == "git" && args.SequenceEqual(new[] { "remote", "get-url", "--all", "origin" }))
-                return new(0, "https://github.com/acme/widget.git");
-            if (executable == "git") return await Processes.Run(executable, args, cwd);
-            if (args.SequenceEqual(new[] { "auth", "status" })) return new(0, "Token scopes: repo");
-            if (args.SequenceEqual(new[] { "api", "--method", "GET", "repos/acme/widget/issues?state=all&per_page=1" })) return new(0, "[]");
-            if (args.SequenceEqual(new[] { "api", "--method", "GET", "repos/acme/widget" })) return new(0, "{\"permissions\":{\"push\":true}}");
-            if (args.SequenceEqual(new[] { "api", "--method", "GET", "repos/acme/widget/actions/runs?per_page=1" })) return new(0, "[]");
-            throw new InvalidOperationException("Unexpected authorization probe process invocation.");
-        }
+        public Task<ProcessResult> ReadOrigin(string root) => Task.FromResult(new ProcessResult(0, "https://github.com/acme/widget.git"));
+        public Task<ProcessResult> ReadShortHead(string root) => GitHubAuthorizationTransport.ReadShortHead(root);
+        public Task<ProcessResult> DryRunPush(string root, string branchRef) => GitHubAuthorizationTransport.DryRunPush(root, branchRef);
+        public Task<ProcessResult> AuthStatus(string root) => Task.FromResult(new ProcessResult(0, "Token scopes: repo"));
+        public Task<ProcessResult> ReadIssues(string root, string repository) => Task.FromResult(new ProcessResult(0, "[]"));
+        public Task<ProcessResult> ReadRepository(string root, string repository) => Task.FromResult(new ProcessResult(0, "{\"permissions\":{\"push\":true}}"));
+        public Task<ProcessResult> ReadWorkflowRuns(string root, string repository) => Task.FromResult(new ProcessResult(0, "[]"));
     }
 
     private sealed class FakeProcess(params ProcessResult[] results) : AgentTool.IGitHubAuthorizationProcess
     {
         private readonly Queue<ProcessResult> _results = new(results);
-        public List<(string Executable, string[] Arguments)> Calls { get; } = [];
-        public Task<ProcessResult> Run(string executable, IEnumerable<string> arguments, string cwd)
-        {
-            var args = arguments.ToArray();
-            Calls.Add((executable, args));
-            return Task.FromResult(_results.Dequeue());
-        }
+        public List<string> Calls { get; } = [];
+        private Task<ProcessResult> Next(string operation) { Calls.Add(operation); return Task.FromResult(_results.Dequeue()); }
+        public Task<ProcessResult> ReadOrigin(string root) => Next("origin");
+        public Task<ProcessResult> ReadShortHead(string root) => Next("head");
+        public Task<ProcessResult> DryRunPush(string root, string branchRef) => Next("dry-run:" + branchRef);
+        public Task<ProcessResult> AuthStatus(string root) => Next("auth");
+        public Task<ProcessResult> ReadIssues(string root, string repository) => Next("issues:" + repository);
+        public Task<ProcessResult> ReadRepository(string root, string repository) => Next("repository:" + repository);
+        public Task<ProcessResult> ReadWorkflowRuns(string root, string repository) => Next("workflow-runs:" + repository);
     }
 }

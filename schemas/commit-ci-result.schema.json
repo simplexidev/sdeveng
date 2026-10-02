@@ -1,0 +1,135 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://simplexidev.github.io/sdeveng/schemas/commit-ci-result.schema.json",
+  "title": "sdeveng commit CI result v2",
+  "description": "Exact-commit advisory or final PR evidence with normalized observed checks.",
+  "type": "object",
+  "additionalProperties": false,
+  "dependentRequired": {
+    "startedAt": ["completedAt", "durationMilliseconds"],
+    "completedAt": ["startedAt", "durationMilliseconds"],
+    "durationMilliseconds": ["startedAt", "completedAt"],
+    "pullRequestId": ["validationTier"]
+  },
+  "required": [
+    "schemaVersion",
+    "repository",
+    "commitSha",
+    "validationTier",
+    "runner",
+    "providerRunId",
+    "attemptOrdinal",
+    "checks",
+    "notObserved"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 2
+    },
+    "repository": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+    },
+    "commitSha": {
+      "type": "string",
+      "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+    },
+    "validationTier": {
+      "enum": [
+        "advisory-commit",
+        "final-pr"
+      ]
+    },
+    "runner": {
+      "type": "string",
+      "minLength": 1
+    },
+    "providerRunId": { "type": "string", "pattern": "^[1-9][0-9]*$" },
+    "attemptOrdinal": { "type": "integer", "minimum": 1 },
+    "pullRequestId": { "type": "string", "pattern": "^[1-9][0-9]*$" },
+    "startedAt": { "type": "string", "format": "date-time" },
+    "completedAt": { "type": "string", "format": "date-time" },
+    "durationMilliseconds": { "type": "integer", "minimum": 0 },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schemaVersion",
+          "source",
+          "check",
+          "status",
+          "exitCode",
+          "artifact"
+        ],
+        "properties": {
+          "schemaVersion": {
+            "const": 2
+          },
+          "source": {
+            "enum": [
+              "local",
+              "hosted"
+            ]
+          },
+          "check": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "status": {
+            "enum": ["passed", "failed", "cancelled", "timed-out"]
+          },
+          "exitCode": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "artifact": {
+            "type": "string",
+            "minLength": 1
+          },
+          "environmentIdentity": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "exitCode": {
+                  "const": 0
+                }
+              },
+              "required": [
+                "exitCode"
+              ]
+            },
+            "then": {
+              "properties": {
+                "status": {
+                  "const": "passed"
+                }
+              }
+            },
+            "else": {
+              "properties": {
+                "status": {
+                  "enum": ["failed", "cancelled", "timed-out"]
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "notObserved": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  }
+}

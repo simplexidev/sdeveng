@@ -44,11 +44,11 @@ public class VerificationResultsTests
         var artifact = Path.Combine(Path.GetTempPath(), "verification.log");
         var result = VerificationResults.FromLocal("dotnet", ["test", "project.csproj"], exitCode, artifact);
         Assert.Equal("local", result.Source);
-        Assert.Equal("dotnet test project.csproj", result.Check);
+        Assert.Equal("tests", result.Check);
         Assert.Equal(status, result.Status);
         Assert.Equal(artifact, result.Artifact);
         Assert.Equal(Environment.MachineName, result.EnvironmentIdentity);
-        var schema = JsonSchema.FromFile(Path.Combine(AgentTool.FindToolkit(), "schemas/verification-result.schema.json"));
+        var schema = JsonSchema.FromFile(Path.Combine(AgentTool.FindToolkit(), "schemas/verification-result-v2.schema.json"));
         Assert.True(schema.Evaluate(JsonSerializer.SerializeToNode(result, AgentTool.Json)).IsValid);
         var invalid = JsonSerializer.SerializeToNode(result, AgentTool.Json)!;
         invalid["status"] = status == "passed" ? "failed" : "passed";
@@ -58,8 +58,8 @@ public class VerificationResultsTests
     [Theory]
     [InlineData("success", "passed", 0)]
     [InlineData("failure", "failed", 1)]
-    [InlineData("timed_out", "failed", 1)]
-    [InlineData("cancelled", "failed", 1)]
+    [InlineData("timed_out", "timed-out", 1)]
+    [InlineData("cancelled", "cancelled", 1)]
     [InlineData("action_required", "failed", 1)]
     public void HostedCheckMapsToVerificationContract(string conclusion, string status, int exitCode)
     {
@@ -72,7 +72,7 @@ public class VerificationResultsTests
         Assert.Equal(exitCode, result.ExitCode);
         Assert.Equal(url.AbsoluteUri, result.Artifact);
         Assert.Equal($"github:o/r@{sha}", result.EnvironmentIdentity);
-        var schema = JsonSchema.FromFile(Path.Combine(AgentTool.FindToolkit(), "schemas/verification-result.schema.json"));
+        var schema = JsonSchema.FromFile(Path.Combine(AgentTool.FindToolkit(), "schemas/verification-result-v2.schema.json"));
         Assert.True(schema.Evaluate(JsonSerializer.SerializeToNode(result, AgentTool.Json)).IsValid);
     }
 
@@ -94,6 +94,20 @@ public class VerificationResultsTests
     }
 
     [Fact]
+    public void TimeoutAndCancellationRemainDistinctAtTheProgressionGate()
+    {
+        var local = VerificationResults.FromLocal("dotnet", ["test"], 124, Path.Combine(Path.GetTempPath(), "timeout.log"));
+        var hosted = VerificationResults.FromGitHubCheck(
+            new GitHubCheck(12, "tests", "completed", "cancelled", new Uri("https://github.com/o/r/runs/12")),
+            "o", "r", "0123456789012345678901234567890123456789");
+        var decision = VerificationResults.Evaluate("tests", [local, hosted], new(true, true));
+        Assert.False(decision.CanProgress);
+        Assert.True(decision.Disagrees);
+        Assert.Contains("local-timed-out", decision.Reasons);
+        Assert.Contains("hosted-cancelled", decision.Reasons);
+    }
+
+    [Fact]
     public async Task LocalCommandProducesVerificationAlongsideExistingReport()
     {
         var directory = Path.Combine(Path.GetTempPath(), "sdeveng-verification-" + Guid.NewGuid().ToString("N"));
@@ -105,7 +119,7 @@ public class VerificationResultsTests
             Assert.NotNull(report.Verification);
             Assert.Equal("passed", report.Verification.Status);
             Assert.Equal(report.Artifact, report.Verification.Artifact);
-            var schema = JsonSchema.FromFile(Path.Combine(AgentTool.FindToolkit(), "schemas/verification-result.schema.json"));
+            var schema = JsonSchema.FromFile(Path.Combine(AgentTool.FindToolkit(), "schemas/verification-result-v2.schema.json"));
             Assert.True(schema.Evaluate(JsonSerializer.SerializeToNode(report.Verification, AgentTool.Json)).IsValid);
         }
         finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }

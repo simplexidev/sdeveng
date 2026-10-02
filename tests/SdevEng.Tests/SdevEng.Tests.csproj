@@ -1,11 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <IsTestProject>true</IsTestProject>
+    <OutputType>Library</OutputType>
     <IsPackable>false</IsPackable>
     <GenerateProgramFile>false</GenerateProgramFile>
     <EnableDefaultCompileItems>true</EnableDefaultCompileItems>
-    <!-- C# 14 accepts the linked file-app shebang/directives without duplicating source. -->
-    <Features>FileBasedProgram</Features>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Hosting" />
@@ -17,6 +16,8 @@
     <PackageReference Include="JsonSchema.Net" PrivateAssets="all" />
     <Using Include="Xunit" />
     <Using Include="SdevEng" />
-    <Compile Include="../../tools/AgentTool.cs" Link="AgentTool.cs" />
+    <ProjectReference Include="../../src/SdevEng.Core/SdevEng.Core.csproj" />
+    <ProjectReference Include="../../src/SdevEng.Infrastructure/SdevEng.Infrastructure.csproj" />
+    <ProjectReference Include="../../src/SdevEng.Cli/SdevEng.Cli.csproj" />
   </ItemGroup>
 </Project>

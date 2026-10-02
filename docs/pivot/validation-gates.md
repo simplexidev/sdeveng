@@ -1,60 +1,39 @@
 # Validation gate sets
 
-A WorkUnit is one focused implementation commit. Before pushing it, run this
-synchronous local gate from the repository root and wait for every command to
-finish successfully:
+A product Run may record validation evidence for an exact commit. The current
+runtime does not create WorkUnits. A focused local change should pass:
 
 ```sh
-dotnet test tests/SdevEng.Tests/SdevEng.Tests.csproj
+dotnet build SdevEng.slnx --configuration Release
+dotnet test SdevEng.slnx --configuration Release
 dotnet tools/AgentTool.cs validate --json
-dotnet format tests/SdevEng.Tests/SdevEng.Tests.csproj --no-restore --verify-no-changes
+dotnet format SdevEng.slnx --no-restore --verify-no-changes
 git diff --check
 ```
-
-The test command compiles the product and test project and runs the automated
-tests. Validation checks repository-owned contracts and configuration. Format
-and diff checks reject whitespace or formatting defects. A failed command blocks
-the push until the WorkUnit is repaired and the complete gate passes again.
 
 ## Hosted advisory checks
 
-The `CI` workflow runs the same test, validation, format, and diff checks on
-each pushed branch. Results from intermediate WorkUnit pushes are advisory:
-they do not block the push or change the synchronous local gate result. The
-workflow's Ubuntu and Windows test matrix provides hosted platform coverage;
-it is supporting evidence and does not replace the synchronous local gate.
-Pull request runs are blocking, and the final PR-head set below must pass
-before merge.
+Each pushed commit gets its own Ubuntu and Windows CI run. The workflow selects
+affected projects from the evaluated project graph, builds them in Release mode,
+runs affected tests with coverage, validates product contracts and formatting,
+and uploads exact-commit evidence. Intermediate push failures are advisory.
 
 ## Blocking final PR-head checks
 
-The final head of every pull request must pass the complete PR-head set:
-
-```sh
-dotnet test tests/SdevEng.Tests/SdevEng.Tests.csproj
-dotnet tools/AgentTool.cs validate --json
-dotnet format tests/SdevEng.Tests/SdevEng.Tests.csproj --no-restore --verify-no-changes
-git diff --check
-```
-
-The hosted CI pull-request run enforces this set. Push-triggered CI remains
-advisory and does not establish final PR-head readiness; rerun or inspect the
-blocking pull-request checks on the current head before merge.
+The same matrix checks the exact pull-request head and additionally validates a
+source package containing the solution and production projects. Pull-request
+failures block progression. Evidence records actual observed checks and lists
+skipped checks separately; no skipped check is presented as passed.
+The workflow then applies `config/verification-evidence-policy.json` to that
+normalized exact-head evidence. Missing or failed required checks reject the PR
+gate. An optional local bundle can be compared with the same commit and check
+identities through `verification decide`; disagreements appear in the decision.
 
 ## Release checks
 
-The tag-triggered release workflow runs this blocking release set before
-creating a draft release:
-
-```sh
-dotnet test tests/SdevEng.Tests/SdevEng.Tests.csproj
-dotnet tools/AgentTool.cs validate --json
-test "$RELEASE_TAG" = "v$(jq -r .version config/toolkit.json)"
-dotnet tools/AgentTool.cs eval --json
-dotnet tools/AgentTool.cs release --output artifacts/sdeveng.zip --json
-(cd artifacts && sha256sum sdeveng.zip > SHA256SUMS)
-```
-
-The workflow then creates a draft GitHub release with the archive and checksum
-for human review. These release checks are separate from the per-WorkUnit and
-final PR-head sets.
+A tag-triggered Ubuntu and Windows matrix builds the full solution in Release
+mode, runs every test project with coverage, validates contracts and formatting,
+checks the source package, and compares repeat Release build output. Both
+platform observations must match the repository, commit, and tag and pass before
+the workflow publishes the release-validation manifest. Only then does it
+create a draft release for human review.

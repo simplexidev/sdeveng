@@ -13,3 +13,7 @@ artifacts/
 !.env.example
 *.key
 *.pem
+
+# .NET file-based launcher cache when the SDK uses a repository-local data path
+tools/dotnet/
+/dotnet/

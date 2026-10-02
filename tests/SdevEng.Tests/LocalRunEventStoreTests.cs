@@ -6,6 +6,24 @@ namespace SdevEng.Tests;
 public class LocalRunEventStoreTests
 {
     [Fact]
+    public void NewCommitIdentifiersAreCanonicalWhileLegacyEventsRemainReadable()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "sdeveng-events-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var runId = Guid.NewGuid();
+            var sha = new string('a', 40);
+            var canonical = LocalRunEventStore.AppendCommitIdentifier(directory, runId, sha);
+            Assert.Equal("commit", canonical.GetProperty("identifierType").GetString());
+            Assert.Throws<ArgumentException>(() => LocalRunEventStore.AppendExternalIdentifier(directory, runId, "git", "step-commit", sha));
+            var path = Directory.GetFiles(Path.Combine(directory, runId.ToString("D")), "*.json").Single();
+            File.WriteAllText(path, File.ReadAllText(path).Replace("\"identifierType\":\"commit\"", "\"identifierType\":\"step-commit\"", StringComparison.Ordinal));
+            Assert.Equal("step-commit", LocalRunEventStore.Read(directory, runId).Single().GetProperty("identifierType").GetString());
+        }
+        finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
+    }
+
+    [Fact]
     public void FailureEvidenceIsRedactedBoundedVersionedAndExplainOffersOnlyExplicitExpansion()
     {
         var directory = Path.Combine(Path.GetTempPath(), "sdeveng-events-" + Guid.NewGuid().ToString("N"));
@@ -295,7 +313,7 @@ public class LocalRunEventStoreTests
         try
         {
             var runId = Guid.NewGuid();
-            LocalRunEventStore.AppendStepCommitIdentifier(directory, runId, "0123456789abcdef0123456789abcdef01234567");
+            LocalRunEventStore.AppendCommitIdentifier(directory, runId, "0123456789abcdef0123456789abcdef01234567");
             LocalRunEventStore.AppendCiRunIdentifier(directory, runId, "123456789");
 
             var events = LocalRunEventStore.Read(directory, runId);
@@ -303,7 +321,7 @@ public class LocalRunEventStoreTests
             Assert.Equal(2, events.Count);
             foreach (var item in events) Assert.True(schema.Evaluate(JsonNode.Parse(item.GetRawText())!).IsValid);
             Assert.Equal(new[] { "git", "github-actions" }, events.Select(item => item.GetProperty("externalSystem").GetString()));
-            Assert.Equal(new[] { "step-commit", "ci-run" }, events.Select(item => item.GetProperty("identifierType").GetString()));
+            Assert.Equal(new[] { "commit", "ci-run" }, events.Select(item => item.GetProperty("identifierType").GetString()));
             Assert.Equal(new[] { "0123456789abcdef0123456789abcdef01234567", "123456789" }, events.Select(item => item.GetProperty("identifier").GetString()));
         }
         finally { if (Directory.Exists(directory)) Directory.Delete(directory, true); }

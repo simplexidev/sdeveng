@@ -1,0 +1,9 @@
+{
+  "$schema": "../schemas/verification-evidence-policy.schema.json",
+  "schemaVersion": 1,
+  "finalPr": {
+    "requiredChecks": ["build", "tests", "contracts", "format", "package"],
+    "requireLocal": false,
+    "requireHosted": true
+  }
+}

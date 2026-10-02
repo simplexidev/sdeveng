@@ -11,7 +11,7 @@ public sealed class CiObservationServiceTests
         using var directory = new TemporaryDirectory();
         var runId = Guid.NewGuid();
         const string sha = "0123456789abcdef0123456789abcdef01234567";
-        LocalRunEventStore.AppendStepCommitIdentifier(directory.Path, runId, sha);
+        LocalRunEventStore.AppendCommitIdentifier(directory.Path, runId, sha);
         var transport = new StubReadClient(""""
             {"check_runs":[
             {"id":1,"name":"queued","status":"queued","conclusion":null,"html_url":"https://github.com/o/r/runs/1"},
@@ -72,7 +72,7 @@ public sealed class CiObservationServiceTests
         using var directory = new TemporaryDirectory();
         var runId = Guid.NewGuid();
         const string sha = "0123456789abcdef0123456789abcdef01234567";
-        LocalRunEventStore.AppendStepCommitIdentifier(directory.Path, runId, sha);
+        LocalRunEventStore.AppendCommitIdentifier(directory.Path, runId, sha);
         LocalRunEventStore.AppendCiCheckSnapshot(directory.Path, runId, sha, DateTimeOffset.UtcNow, [], [("10", "cancelled"), ("12", "failure")]);
         var run = $$"""{"id":12,"name":"CI","status":"completed","conclusion":"failure","event":"push","head_sha":"{{sha}}","html_url":"https://github.com/o/r/actions/runs/12"}""";
         var transport = new StubReadClient(run, """{"jobs":[{"id":4,"name":"build","conclusion":"action_required","steps":[{"name":"deploy","number":1,"conclusion":"failure"}]}]}""", "log");

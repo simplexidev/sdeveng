@@ -25,11 +25,12 @@ Triage applies classification labels but does not mark an Issue as started.
 `IN_PROGRESS` begins only after the owned branch is pushed, the draft PR exists,
 startup metadata is persisted, and the in-progress label is applied.
 
-## Stage and safety contract
+## Roadmap and product safety contract
 
-A Stage is normally one human-reviewed PR. A Step is normally one focused
-implementation commit. A tracking-only empty kickoff commit may precede Step
-implementation. Every distinct Step commit must receive CI validation.
+The external roadmap runner organizes its own delivery into Phases, Stages,
+and Steps. These are bootstrap control terms, not product run identities.
+Product CI evidence is bound to each distinct commit SHA; a newer push does
+not erase the earlier commit's advisory evidence.
 
 The factory may prepare PRs and releases, but must never merge its own PRs,
 self-approve, enable auto-merge, or weaken repository protection. Human review

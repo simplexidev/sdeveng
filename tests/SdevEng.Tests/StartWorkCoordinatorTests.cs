@@ -377,33 +377,31 @@ public sealed class StartWorkCoordinatorTests
 
     private sealed class BootstrapProcess(bool fail) : IStartWorkGitProcess
     {
-        public Task<ProcessResult> Run(string executable, IEnumerable<string> arguments, string cwd)
-        {
-            var args = arguments.ToArray();
-            return fail && args.Contains("--allow-empty")
-                ? Task.FromResult(new ProcessResult(1, "injected empty commit failure"))
-                : Processes.Run(executable, args, cwd);
-        }
+        private readonly StartWorkGitProcess inner = new();
+        public Task<ProcessResult> TryEmptyBootstrapCommit(string root) => fail
+            ? Task.FromResult(new ProcessResult(1, "injected empty commit failure"))
+            : inner.TryEmptyBootstrapCommit(root);
+        public Task<ProcessResult> StageBootstrapMarker(string root, string relativePath) => inner.StageBootstrapMarker(root, relativePath);
+        public Task<ProcessResult> CommitBootstrapMarker(string root, string relativePath) => inner.CommitBootstrapMarker(root, relativePath);
+        public Task<ProcessResult> StageBootstrapRemoval(string root, string relativePath) => inner.StageBootstrapRemoval(root, relativePath);
+        public Task<ProcessResult> CommitBootstrapRemoval(string root, string relativePath) => inner.CommitBootstrapRemoval(root, relativePath);
     }
 
     private sealed class CapabilityProcess(string capability) : AgentTool.IGitHubAuthorizationProcess
     {
-        public Task<ProcessResult> Run(string executable, IEnumerable<string> arguments, string cwd)
+        public Task<ProcessResult> ReadOrigin(string root) => Task.FromResult(new ProcessResult(0, "https://github.com/owner/project.git"));
+        public Task<ProcessResult> AuthStatus(string root) => Task.FromResult(new ProcessResult(0, "Token scopes: repo"));
+        public Task<ProcessResult> ReadIssues(string root, string repository) => Task.FromResult(new ProcessResult(0, "{}"));
+        public Task<ProcessResult> ReadRepository(string root, string repository) => Task.FromResult(new ProcessResult(0,
+            capability == "pr-unknown" ? "{\"permissions\":{\"push\":false}}" : "{\"permissions\":{\"push\":true}}"));
+        public Task<ProcessResult> ReadShortHead(string root) => Task.FromResult(new ProcessResult(0, "abcdef123456"));
+        public Task<ProcessResult> DryRunPush(string root, string branchRef) => Task.FromResult(capability switch
         {
-            var args = arguments.ToArray();
-            var result = args.SequenceEqual(["remote", "get-url", "--all", "origin"]) ? new ProcessResult(0, "https://github.com/owner/project.git")
-                : args.SequenceEqual(["auth", "status"]) ? new ProcessResult(0, "Token scopes: repo")
-                : args.SequenceEqual(["rev-parse", "--short=12", "HEAD"]) ? new ProcessResult(0, "abcdef123456")
-                : args.Contains("--dry-run") ? capability switch
-                {
-                    "allowed" or "pr-unknown" => new ProcessResult(0, ""),
-                    "denied" => new ProcessResult(1, "remote: error: protected branch"),
-                    _ => new ProcessResult(1, "timeout")
-                }
-                : args.SequenceEqual(["api", "--method", "GET", "repos/owner/project"]) ? new ProcessResult(0, capability == "pr-unknown" ? "{\"permissions\":{\"push\":false}}" : "{\"permissions\":{\"push\":true}}")
-                : new ProcessResult(0, "{}");
-            return Task.FromResult(result);
-        }
+            "allowed" or "pr-unknown" => new ProcessResult(0, ""),
+            "denied" => new ProcessResult(1, "remote: error: protected branch"),
+            _ => new ProcessResult(1, "timeout")
+        });
+        public Task<ProcessResult> ReadWorkflowRuns(string root, string repository) => Task.FromResult(new ProcessResult(0, "{}"));
     }
 
     private static void AssertOnlyCreated(TemporaryGitRepository repo, StartWorkRequest request)

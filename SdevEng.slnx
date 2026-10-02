@@ -1,0 +1,12 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/SdevEng.Cli/SdevEng.Cli.csproj" />
+    <Project Path="src/SdevEng.Core/SdevEng.Core.csproj" />
+    <Project Path="src/SdevEng.Infrastructure/SdevEng.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/SdevEng.Core.Tests/SdevEng.Core.Tests.csproj" />
+    <Project Path="tests/SdevEng.Infrastructure.Tests/SdevEng.Infrastructure.Tests.csproj" />
+    <Project Path="tests/SdevEng.Tests/SdevEng.Tests.csproj" />
+  </Folder>
+</Solution>

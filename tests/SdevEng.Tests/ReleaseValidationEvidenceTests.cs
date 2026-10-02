@@ -91,6 +91,27 @@ public sealed class ReleaseValidationPublisherTests
         Assert.True(schema.Evaluate(JsonNode.Parse(firstBytes), new() { OutputFormat = OutputFormat.List }).IsValid);
     }
 
+    [Fact]
+    public async Task PublishesOnlyEvidenceBoundToCurrentCommitAndTag()
+    {
+        using var repo = new TemporaryGitRepository();
+        repo.Run("remote", "add", "origin", "https://github.com/simplexidev/sdeveng.git");
+        var sha = repo.Run("rev-parse", "HEAD").Trim();
+        var supplied = ReleaseValidationEvidence.Create("simplexidev/sdeveng", sha, "release",
+            [new("build-linux", "passed"), new("tests-linux", "passed")]) with
+        { Tag = "v3.0.0" };
+        File.WriteAllBytes(Path.Combine(repo.Root, "observed.json"), ReleaseValidationEvidence.Serialize(supplied));
+
+        var result = await ReleaseValidationPublisher.PublishAsync(repo.Root, "release", "artifacts/evidence.json",
+            evidenceFile: "observed.json", expectedTag: "v3.0.0");
+        Assert.All(result.Manifest.Gates, gate => Assert.Equal("passed", gate.Status));
+        Assert.Equal("v3.0.0", result.Manifest.Tag);
+
+        await Assert.ThrowsAsync<ArgumentException>(() => ReleaseValidationPublisher.PublishAsync(
+            repo.Root, "release", "artifacts/rejected.json", evidenceFile: "observed.json", expectedTag: "v3.0.1"));
+        Assert.False(File.Exists(Path.Combine(repo.Root, "artifacts/rejected.json")));
+    }
+
     [Theory]
     [InlineData("../outside.json")]
     [InlineData("/tmp/outside.json")]

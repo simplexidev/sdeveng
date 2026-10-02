@@ -22,8 +22,9 @@ sdeveng version
 ```
 
 The installer links the canonical `sdeveng` command without overwriting user
-configuration and retains `codex-agent-tool` as a v2 migration alias. The runtime
-never commits, pushes, merges, or creates remote repositories. Run `sdeveng help`
+configuration and retains `codex-agent-tool` as a v2 migration alias. The runtime can create owned branches and commits, push an exact owned branch, create draft PRs,
+apply allowlisted labels, and request bounded CI reruns after capability and ownership checks.
+It does not force-push, rewrite history, merge PRs, or create arbitrary remote repositories. Run `sdeveng help`
 for the bounded command surface and pass `--json` for the documented
 [versioned result contract](docs/cli-contract.md).
 
@@ -34,7 +35,8 @@ Runtime skills never depend on the documentation repository.
 
 ## Repository map
 
-- `tools/AgentTool.cs` — the single-file .NET 10 implementation behind `sdeveng`.
+- `SdevEng.slnx` and `src/SdevEng.{Core,Infrastructure,Cli}/` — the .NET 10 product runtime.
+- `tools/AgentTool.cs` — the direct-invocation compatibility launcher.
 - `plugins/sdeveng/` — the unified plugin, skills, and runtime references.
 - `templates/project/` — the project integration template.
 - `agents/` and `global/` — native-agent and installed instruction definitions.

@@ -12,7 +12,7 @@
     "reasons": {
       "type": "array",
       "uniqueItems": true,
-      "items": { "enum": ["local-missing", "hosted-missing", "local-failed", "hosted-failed", "local-hosted-disagreement", "evidence-missing"] }
+      "items": { "enum": ["local-missing", "hosted-missing", "local-failed", "hosted-failed", "local-cancelled", "hosted-cancelled", "local-timed-out", "hosted-timed-out", "local-hosted-disagreement", "evidence-missing"] }
     }
   },
   "allOf": [

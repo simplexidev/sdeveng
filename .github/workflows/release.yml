@@ -5,27 +5,181 @@ on:
 permissions:
   contents: read
 jobs:
-  release:
+  validate:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+      - name: Verify release identity
+        id: identity
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          if ((git rev-parse HEAD).Trim() -ne $env:COMMIT_SHA) { throw 'Release checkout is not the expected commit.' }
+          $version = (Get-Content config/toolkit.json -Raw | ConvertFrom-Json).version
+          if ($env:RELEASE_TAG -ne "v$version") { throw 'Release tag does not match product version.' }
+      - name: Build complete solution in Release mode
+        id: build
+        shell: pwsh
+        run: |
+          dotnet build SdevEng.slnx --configuration Release
+          if ($LASTEXITCODE -ne 0) { throw 'Release build failed.' }
+      - name: Run complete test suite and collect coverage
+        id: tests
+        shell: pwsh
+        run: |
+          foreach ($project in @('tests/SdevEng.Core.Tests/SdevEng.Core.Tests.csproj', 'tests/SdevEng.Infrastructure.Tests/SdevEng.Infrastructure.Tests.csproj', 'tests/SdevEng.Tests/SdevEng.Tests.csproj')) {
+            $name = [IO.Path]::GetFileNameWithoutExtension($project)
+            dotnet test $project --configuration Release --collect:"Code Coverage" --logger trx --results-directory "TestResults/$name"
+            if ($LASTEXITCODE -ne 0) { throw "Release tests failed: $project" }
+            if (-not (Get-ChildItem "TestResults/$name" -Recurse -Filter '*.coverage' -ErrorAction SilentlyContinue)) { throw "Coverage missing: $project" }
+          }
+      - name: Validate product contracts and formatting
+        id: contracts
+        shell: pwsh
+        run: |
+          dotnet tools/AgentTool.cs validate --json
+          if ($LASTEXITCODE -ne 0) { throw 'Contract validation failed.' }
+          dotnet format SdevEng.slnx --no-restore --verify-no-changes
+          if ($LASTEXITCODE -ne 0) { throw 'Format validation failed.' }
+          git diff --check
+          if ($LASTEXITCODE -ne 0) { throw 'Diff validation failed.' }
+      - name: Validate source package
+        id: package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path artifacts | Out-Null
+          dotnet tools/AgentTool.cs release --output artifacts/sdeveng.zip --json
+          if ($LASTEXITCODE -ne 0) { throw 'Source package creation failed.' }
+          $archive = [IO.Compression.ZipFile]::OpenRead((Resolve-Path artifacts/sdeveng.zip))
+          try {
+            $names = @($archive.Entries | ForEach-Object { $_.FullName })
+            foreach ($required in @('tools/AgentTool.cs','SdevEng.slnx','src/SdevEng.Cli/SdevEng.Cli.csproj','src/SdevEng.Core/SdevEng.Core.csproj','src/SdevEng.Infrastructure/SdevEng.Infrastructure.csproj')) {
+              if ($names -notcontains $required) { throw "Source package is missing $required" }
+            }
+          } finally { $archive.Dispose() }
+      - name: Check repeatable Release build output
+        id: reproducibility
+        shell: pwsh
+        run: |
+          $project = 'src/SdevEng.Cli/SdevEng.Cli.csproj'
+          $binary = 'src/SdevEng.Cli/bin/Release/net10.0/SdevEng.Cli.dll'
+          $first = (Get-FileHash $binary -Algorithm SHA256).Hash
+          dotnet clean $project --configuration Release
+          if ($LASTEXITCODE -ne 0) { throw 'Clean for reproducibility check failed.' }
+          dotnet build $project --configuration Release
+          if ($LASTEXITCODE -ne 0) { throw 'Repeat build failed.' }
+          $second = (Get-FileHash $binary -Algorithm SHA256).Hash
+          if ($first -ne $second) { throw 'Repeat build output differs.' }
+      - name: Record observed release gates
+        if: always()
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+          COMMIT_SHA: ${{ github.sha }}
+          REPOSITORY: ${{ github.repository }}
+          RUNNER_NAME: ${{ matrix.os }}
+          IDENTITY_OUTCOME: ${{ steps.identity.outcome }}
+          BUILD_OUTCOME: ${{ steps.build.outcome }}
+          TEST_OUTCOME: ${{ steps.tests.outcome }}
+          CONTRACT_OUTCOME: ${{ steps.contracts.outcome }}
+          PACKAGE_OUTCOME: ${{ steps.package.outcome }}
+          REPRODUCIBILITY_OUTCOME: ${{ steps.reproducibility.outcome }}
+        run: |
+          New-Item -ItemType Directory -Force -Path ReleaseObservation | Out-Null
+          $gates = @()
+          foreach ($gate in @('identity','build','test','contract','package','reproducibility')) {
+            $outcome = [Environment]::GetEnvironmentVariable(($gate + '_OUTCOME').ToUpperInvariant())
+            $status = if ($outcome -eq 'success') { 'passed' } elseif ($outcome -eq 'failure') { 'failed' } else { 'not-observed' }
+            $reason = if ($status -eq 'passed') { $null } else { "workflow step outcome: $outcome" }
+            $gates += @{ gateId = "$gate-$env:RUNNER_NAME"; status = $status; reason = $reason; artifacts = @() }
+          }
+          $observation = @{ schemaVersion = 1; repository = $env:REPOSITORY; commitSha = $env:COMMIT_SHA; tag = $env:RELEASE_TAG; runner = $env:RUNNER_NAME; gates = $gates }
+          $observation | ConvertTo-Json -Depth 8 | Set-Content -Encoding utf8 "ReleaseObservation/$env:RUNNER_NAME.json"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: release-validation-${{ matrix.os }}-${{ github.sha }}
+          path: |
+            ReleaseObservation
+            TestResults
+            artifacts/sdeveng.zip
+          retention-days: 14
+  publish-draft:
+    needs: validate
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
-      - run: dotnet test tests/SdevEng.Tests/SdevEng.Tests.csproj
-      - run: dotnet tools/AgentTool.cs validate --json
-      - name: Verify tag matches packaged identity
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: release-validation-*
+          path: downloaded-evidence
+      - name: Aggregate exact-tag validation evidence
+        shell: pwsh
         env:
           RELEASE_TAG: ${{ github.ref_name }}
-        run: test "$RELEASE_TAG" = "v$(jq -r .version config/toolkit.json)"
-      - run: dotnet tools/AgentTool.cs eval --json
-      - run: dotnet tools/AgentTool.cs release --output artifacts/sdeveng.zip --json
-      - run: (cd artifacts && sha256sum sdeveng.zip > SHA256SUMS)
+          COMMIT_SHA: ${{ github.sha }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          $files = @(Get-ChildItem downloaded-evidence -Recurse -Filter '*.json' | Where-Object { $_.DirectoryName -match 'ReleaseObservation' })
+          if ($files.Count -ne 2) { throw 'Expected release observations from both supported platforms.' }
+          $observations = @($files | ForEach-Object { Get-Content $_.FullName -Raw | ConvertFrom-Json })
+          $runners = @($observations.runner | Sort-Object -Unique)
+          if ($runners.Count -ne 2 -or $runners -notcontains 'ubuntu-latest' -or $runners -notcontains 'windows-latest') { throw 'Release platform evidence is incomplete.' }
+          $gates = @()
+          foreach ($observation in $observations) {
+            if ($observation.repository -ne $env:REPOSITORY -or $observation.commitSha -ne $env:COMMIT_SHA -or $observation.tag -ne $env:RELEASE_TAG) { throw 'Release observation identity mismatch.' }
+            foreach ($gate in $observation.gates) {
+              if ($gate.status -ne 'passed') { throw "Unpassed release gate: $($gate.gateId)" }
+              $gates += $gate
+            }
+          }
+          New-Item -ItemType Directory -Force -Path artifacts | Out-Null
+          @{ schemaVersion = 1; repository = $env:REPOSITORY; commitSha = $env:COMMIT_SHA; profile = 'release'; tag = $env:RELEASE_TAG; gates = $gates } |
+            ConvertTo-Json -Depth 8 | Set-Content -Encoding utf8 artifacts/observed-gates.json
+          dotnet tools/AgentTool.cs release evidence --profile release --output artifacts/release-validation.json --evidence-file artifacts/observed-gates.json --tag $env:RELEASE_TAG --json
+          if ($LASTEXITCODE -ne 0) { throw 'Release evidence validation failed.' }
+      - name: Validate evaluation and final package
+        shell: pwsh
+        run: |
+          dotnet tools/AgentTool.cs eval --json
+          if ($LASTEXITCODE -ne 0) { throw 'Release evaluation failed.' }
+          dotnet tools/AgentTool.cs release --output artifacts/sdeveng.zip --json
+          if ($LASTEXITCODE -ne 0) { throw 'Final source package failed.' }
+          $hash = (Get-FileHash artifacts/sdeveng.zip -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  sdeveng.zip" | Set-Content -Encoding utf8 artifacts/SHA256SUMS
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-validation-evidence-${{ github.sha }}
+          path: |
+            artifacts/release-validation.json
+            artifacts/observed-gates.json
+            artifacts/SHA256SUMS
+          if-no-files-found: error
       - name: Create draft for human review
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.ref_name }}
-        run: gh release create "$RELEASE_TAG" artifacts/sdeveng.zip artifacts/SHA256SUMS --draft --verify-tag --generate-notes
+        shell: pwsh
+        run: |
+          gh release create $env:RELEASE_TAG artifacts/sdeveng.zip artifacts/SHA256SUMS artifacts/release-validation.json --draft --verify-tag --generate-notes
+          if ($LASTEXITCODE -ne 0) { throw 'Draft release creation failed.' }

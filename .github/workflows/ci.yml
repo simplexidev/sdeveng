@@ -6,57 +6,154 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: ci-${{ github.sha }}
-  cancel-in-progress: true
+  group: ci-${{ github.run_id }}-${{ github.run_attempt }}
+  cancel-in-progress: false
 jobs:
-  test:
+  validate:
+    # Intermediate pushes retain evidence for every commit; the PR head is blocking.
     continue-on-error: ${{ github.event_name == 'push' }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
       - uses: actions/setup-dotnet@v6
         with:
           global-json-file: global.json
-      - run: dotnet tools/AgentTool.cs help
-      - run: dotnet build src/SdevEng.Cli/SdevEng.Cli.csproj --configuration Release
-      - run: dotnet test tests/SdevEng.Tests/SdevEng.Tests.csproj --logger trx --results-directory TestResults
-      - run: dotnet tools/AgentTool.cs validate --json
-      - run: dotnet format tests/SdevEng.Tests/SdevEng.Tests.csproj --no-restore --verify-no-changes
-      - run: git diff --check
-      - name: Write Step CI result
-        if: always()
-        env:
-          COMMIT_SHA: ${{ github.sha }}
-          CI_STATUS: ${{ job.status }}
-          CI_RUNNER: ${{ matrix.os }}
+      - name: Record observation start
         shell: pwsh
         run: |
-          $status = if ($env:CI_STATUS -eq 'success') { 'success' } elseif ($env:CI_STATUS -eq 'cancelled') { 'cancelled' } else { 'failure' }
-          $result = @{ schemaVersion = 1; commitSha = $env:COMMIT_SHA; status = $status; runner = $env:CI_RUNNER }
-          New-Item -ItemType Directory -Force -Path StepCiResult | Out-Null
-          $result | ConvertTo-Json -Compress | Set-Content -Encoding utf8 StepCiResult/result.json
+          New-Item -ItemType Directory -Force -Path CiEvidence | Out-Null
+          (Get-Date).ToUniversalTime().ToString('o') | Set-Content -Encoding utf8 CiEvidence/started-at.txt
+      - name: Resolve affected project graph
+        id: affected
+        shell: pwsh
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          if ((git rev-parse HEAD).Trim() -ne $env:EXPECTED_HEAD) { throw 'Checkout is not the expected PR or push head.' }
+          $base = $env:BASE_SHA
+          git cat-file -e "$base^{commit}" 2>$null
+          if ($LASTEXITCODE -ne 0) { $base = 'HEAD~1' }
+          $raw = dotnet tools/AgentTool.cs repo affected-projects --base $base --json
+          if ($LASTEXITCODE -ne 0) { throw 'Affected-project discovery failed.' }
+          $result = $raw | ConvertFrom-Json
+          if ($result.status -ne 'ok') { throw 'Affected-project discovery returned a non-success result.' }
+          New-Item -ItemType Directory -Force -Path CiEvidence | Out-Null
+          @($result.data.projects) | ConvertTo-Json -AsArray | Set-Content -Encoding utf8 CiEvidence/affected-projects.json
+      - name: Build affected projects
+        id: build
+        shell: pwsh
+        run: |
+          $projects = @(Get-Content CiEvidence/affected-projects.json -Raw | ConvertFrom-Json)
+          foreach ($project in $projects) {
+            dotnet build $project --configuration Release
+            if ($LASTEXITCODE -ne 0) { throw "Build failed: $project" }
+          }
+      - name: Test affected projects with coverage
+        id: tests
+        shell: pwsh
+        run: |
+          $projects = @(Get-Content CiEvidence/affected-projects.json -Raw | ConvertFrom-Json)
+          $testProjects = @($projects | Where-Object { $_ -match '[/\\]tests[/\\].+\.csproj$' })
+          foreach ($project in $testProjects) {
+            $name = [IO.Path]::GetFileNameWithoutExtension($project)
+            dotnet test $project --configuration Release --collect:"Code Coverage" --logger trx --results-directory "TestResults/$name"
+            if ($LASTEXITCODE -ne 0) { throw "Tests failed: $project" }
+            if (-not (Get-ChildItem "TestResults/$name" -Recurse -Filter '*.coverage' -ErrorAction SilentlyContinue)) {
+              throw "Coverage was not collected: $project"
+            }
+          }
+      - name: Validate schemas and product contracts
+        id: contracts
+        shell: pwsh
+        run: |
+          dotnet tools/AgentTool.cs validate --json
+          if ($LASTEXITCODE -ne 0) { throw 'Product contract validation failed.' }
+      - name: Verify formatting and diff
+        id: format
+        shell: pwsh
+        run: |
+          dotnet restore SdevEng.slnx
+          if ($LASTEXITCODE -ne 0) { throw 'Solution restore for formatting failed.' }
+          dotnet format SdevEng.slnx --no-restore --verify-no-changes
+          if ($LASTEXITCODE -ne 0) { throw 'Formatting check failed.' }
+          git diff --check
+          if ($LASTEXITCODE -ne 0) { throw 'Diff check failed.' }
+      - name: Validate final PR package
+        id: package
+        if: github.event_name == 'pull_request'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path artifacts | Out-Null
+          dotnet tools/AgentTool.cs release --output artifacts/sdeveng.zip --json
+          if ($LASTEXITCODE -ne 0) { throw 'Release package creation failed.' }
+          $archive = [IO.Compression.ZipFile]::OpenRead((Resolve-Path artifacts/sdeveng.zip))
+          try {
+            if ($archive.Entries.Count -eq 0) { throw 'Release package is empty.' }
+            foreach ($entry in $archive.Entries) {
+              if ($entry.FullName.StartsWith('/') -or $entry.FullName.Split('/') -contains '..') { throw 'Unsafe package entry.' }
+            }
+          } finally { $archive.Dispose() }
+      - name: Write exact-commit CI evidence
+        if: always()
+        shell: pwsh
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          VALIDATION_TIER: ${{ github.event_name == 'pull_request' && 'final-pr' || 'advisory-commit' }}
+          RUNNER_NAME: ${{ matrix.os }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          REPOSITORY: ${{ github.repository }}
+          PULL_REQUEST_ID: ${{ github.event.pull_request.number || '' }}
+          BUILD_OUTCOME: ${{ steps.build.outcome }}
+          TEST_OUTCOME: ${{ steps.tests.outcome }}
+          CONTRACT_OUTCOME: ${{ steps.contracts.outcome }}
+          FORMAT_OUTCOME: ${{ steps.format.outcome }}
+          PACKAGE_OUTCOME: ${{ steps.package.outcome }}
+        run: |
+          New-Item -ItemType Directory -Force -Path CiEvidence | Out-Null
+          $head = (git rev-parse HEAD).Trim()
+          if ($head -ne $env:EXPECTED_HEAD) { throw 'Evidence head does not match checkout.' }
+          $completed = (Get-Date).ToUniversalTime()
+          $started = $(if (Test-Path CiEvidence/started-at.txt) { [DateTime]::Parse((Get-Content CiEvidence/started-at.txt -Raw).Trim()).ToUniversalTime() } else { $null })
+          $checks = @()
+          foreach ($gate in @('build', 'tests', 'contracts', 'format', 'package')) {
+            $outcome = [Environment]::GetEnvironmentVariable(($gate + '_OUTCOME').ToUpperInvariant())
+            if ($outcome -in @('success', 'failure', 'cancelled')) {
+              $passed = $outcome -eq 'success'
+              $checks += @{ schemaVersion = 2; source = 'hosted'; check = $gate; status = $(if ($passed) { 'passed' } elseif ($outcome -eq 'cancelled') { 'cancelled' } else { 'failed' }); exitCode = $(if ($passed) { 0 } elseif ($outcome -eq 'cancelled') { 130 } else { 1 }); artifact = "github-actions:$env:RUN_ID/$gate"; environmentIdentity = "github:$env:RUNNER_NAME:$env:RUN_ID" }
+            }
+          }
+          $result = @{ schemaVersion = 2; repository = $env:REPOSITORY; commitSha = $head; validationTier = $env:VALIDATION_TIER; runner = $env:RUNNER_NAME; providerRunId = $env:RUN_ID; attemptOrdinal = [int]$env:RUN_ATTEMPT; checks = $checks; notObserved = @(@('build','tests','contracts','format','package') | Where-Object { [Environment]::GetEnvironmentVariable(($_ + '_OUTCOME').ToUpperInvariant()) -eq 'skipped' }) }
+          if ($env:PULL_REQUEST_ID) { $result.pullRequestId = $env:PULL_REQUEST_ID }
+          if ($null -ne $started) {
+            $result.startedAt = $started.ToString('o')
+            $result.completedAt = $completed.ToString('o')
+            $result.durationMilliseconds = [long]($completed - $started).TotalMilliseconds
+          }
+          $result | ConvertTo-Json -Depth 8 | Set-Content -Encoding utf8 CiEvidence/result.json
+      - name: Apply final PR evidence policy
+        if: github.event_name == 'pull_request' && always()
+        shell: pwsh
+        env:
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          dotnet tools/AgentTool.cs verification decide --hosted-file CiEvidence/result.json --commit $env:EXPECTED_HEAD --json
+          if ($LASTEXITCODE -ne 0) { throw 'Final PR evidence policy rejected the exact head.' }
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: step-ci-result-${{ matrix.os }}
-          path: StepCiResult/result.json
-          retention-days: 7
-      - uses: actions/upload-artifact@v7
-        if: always()
-        with:
-          name: tests-${{ matrix.os }}
-          path: TestResults
-          retention-days: 7
-      - uses: actions/upload-artifact@v7
-        if: always()
-        with:
-          name: stage-evidence-${{ matrix.os }}
+          name: commit-ci-evidence-${{ matrix.os }}-${{ github.event.pull_request.head.sha || github.sha }}
           path: |
-            StepCiResult/result.json
+            CiEvidence
             TestResults
+            artifacts/sdeveng.zip
           retention-days: 7

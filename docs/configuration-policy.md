@@ -40,3 +40,19 @@ limits follow `schemas/context-budget-policy.schema.json`, and required continuo
 integration checks follow `schemas/ci-policy.schema.json`, and data handling rules
 follow `schemas/privacy-policy.schema.json`. These policies do not add settings to
 `toolkit-config`.
+
+
+## Implemented files and overrides
+
+Each optional machine, user, or repository directory may contain `jev.json`,
+`output-limits.json`, `repo-health.json`, or `toolkit.json`. The required
+`config/` files in the toolkit checkout provide the built-in layer. Properties
+from a higher layer replace matching properties from lower layers; absent files
+leave the prior values intact. Invalid supplied JSON fails with the source path.
+
+`JEV_MODE`, `TYPESAFE_API_URL`, `JEV_MODEL`, and
+`JEV_TIMEOUT_SECONDS` override file values. The same names may be passed with
+`--set NAME=VALUE` for one invocation. `config explain` lists loaded files
+and shows the effective noncredential settings. `TYPESAFE_API_KEY` is read
+only from the protected process environment and is never included in settings
+or the explanation.

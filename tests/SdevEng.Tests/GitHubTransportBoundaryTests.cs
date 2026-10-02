@@ -5,7 +5,7 @@ public sealed class GitHubTransportBoundaryTests
     [Fact]
     public void ProductionGitHubTransportIsOwnedByTypedAbstractionsAndDoctorProbe()
     {
-        var source = File.ReadAllText(Path.Combine(AgentTool.FindToolkit(), "tools/AgentTool.cs"));
+        var source = string.Join("\n", Directory.GetFiles(Path.Combine(AgentTool.FindToolkit(), "src"), "*.cs", SearchOption.AllDirectories).Select(File.ReadAllText));
 
         // API endpoint construction belongs to the typed provider/readers. A product command
         // that adds an endpoint must go through one of these abstractions.
@@ -29,6 +29,7 @@ public sealed class GitHubTransportBoundaryTests
             .Append("GitHubIssueLabelWriter")
             .Append("GitHubActionsJobRerunWriter")
             .Append("GitHubActionsFailedJobsRerunWriter")
+            .Append("GitHubLabelCatalog")
             .Append("StartWorkCoordinator")));
 
         // HTTP calls aimed at GitHub belong to the typed readers and guarded write path.
@@ -38,7 +39,7 @@ public sealed class GitHubTransportBoundaryTests
             .Where(match => EnclosingType(source, match.Index).StartsWith("GitHub", StringComparison.Ordinal))
             .ToArray();
         Assert.Equal(
-            new[] { "GitHubActionsFailedJobsRerunWriter", "GitHubActionsJobRerunWriter", "GitHubIssueLabelWriter", "GitHubIssueLabelWriter", "GitHubIssueLabelWriter", "GitHubReadClient", "GitHubTransport", "GitHubWriteClient" },
+            new[] { "GitHubActionsFailedJobsRerunWriter", "GitHubActionsJobRerunWriter", "GitHubIssueLabelWriter", "GitHubIssueLabelWriter", "GitHubIssueLabelWriter", "GitHubLabelCatalog", "GitHubReadClient", "GitHubTransport", "GitHubWriteClient" },
             rawHttpCalls.Select(match => EnclosingType(source, match.Index)).OrderBy(name => name, StringComparer.Ordinal));
 
         // The doctor auth probe is explicitly outside typed product reads. No product
@@ -47,9 +48,8 @@ public sealed class GitHubTransportBoundaryTests
         var ghCalls = Regex.Matches(source, @"(?:Processes|process)\.Run\(\s*""gh""\s*,\s*\[(?<args>[^\]]*)\]")
             .Cast<Match>()
             .ToArray();
-        Assert.Equal(6, ghCalls.Length);
-        Assert.Single(ghCalls, match => EnclosingType(source, match.Index) == "DoctorCommandModule");
-        Assert.All(ghCalls.Where(match => EnclosingType(source, match.Index) == "GitHubAuthorizationProbe"), match =>
+        Assert.Equal(5, ghCalls.Length);
+        Assert.All(ghCalls.Where(match => EnclosingType(source, match.Index) == "GitHubAuthorizationTransport"), match =>
         {
             var args = match.Groups["args"].Value;
             Assert.True(args.Contains("auth", StringComparison.Ordinal) && args.Contains("status", StringComparison.Ordinal) ||
@@ -60,7 +60,7 @@ public sealed class GitHubTransportBoundaryTests
         });
         Assert.Single(ghCalls, match => EnclosingType(source, match.Index) == "GitHubCredentialProvider" &&
             match.Groups["args"].Value.Contains("\"auth\", \"token\"", StringComparison.Ordinal));
-        Assert.All(ghCalls, match => Assert.Contains(EnclosingType(source, match.Index), new[] { "DoctorCommandModule", "GitHubAuthorizationProbe", "GitHubCredentialProvider" }));
+        Assert.All(ghCalls, match => Assert.Contains(EnclosingType(source, match.Index), new[] { "GitHubAuthorizationTransport", "GitHubCredentialProvider" }));
     }
 
     static string EnclosingType(string source, int position)

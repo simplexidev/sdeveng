@@ -1,7 +1,9 @@
 # Toolkit development
 
-All production executable logic belongs in `tools/AgentTool.cs`, the single-file .NET 10
-implementation behind the public `sdeveng` command and legacy `codex-agent-tool` alias.
+Production logic belongs in the .NET 10 solution: deterministic contracts in `src/SdevEng.Core`,
+external adapters in `src/SdevEng.Infrastructure`, and the host and command modules in
+`src/SdevEng.Cli`. `tools/AgentTool.cs` is the direct-invocation compatibility launcher
+behind the public `sdeveng` command and legacy `codex-agent-tool` alias.
 Keep commands composable and output bounded. Use BCL APIs unless a dependency has a
 written correctness/interoperability justification. Tests may use established test and parser libraries.
 Do not introduce helper scripts in other languages. Skills must have narrow triggers,

@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://simplexidev.github.io/sdeveng/schemas/verification-result-v2.schema.json",
+  "title": "sdeveng verification result v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "source", "check", "status", "exitCode", "artifact", "environmentIdentity"],
+  "properties": {
+    "schemaVersion": { "const": 2 },
+    "source": { "enum": ["local", "hosted"] },
+    "check": { "type": "string", "minLength": 1, "maxLength": 512 },
+    "status": { "enum": ["passed", "failed", "cancelled", "timed-out"] },
+    "exitCode": { "type": "integer", "minimum": 0 },
+    "artifact": { "type": "string", "minLength": 1 },
+    "environmentIdentity": { "type": "string", "minLength": 1 }
+  },
+  "allOf": [
+    { "if": { "properties": { "exitCode": { "const": 0 } }, "required": ["exitCode"] },
+      "then": { "properties": { "status": { "const": "passed" } } },
+      "else": { "properties": { "status": { "enum": ["failed", "cancelled", "timed-out"] } } } }
+  ]
+}

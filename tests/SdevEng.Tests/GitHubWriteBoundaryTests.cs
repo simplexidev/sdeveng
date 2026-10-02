@@ -1,4 +1,3 @@
-using System.Text.RegularExpressions;
 using System.Net;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -14,9 +13,11 @@ public sealed class GitHubWriteBoundaryTests
         await client.SendAsync(HttpMethod.Patch, new Uri("https://api.github.com/repos/owner/repo/pulls/12"));
         await client.SendAsync(HttpMethod.Post, new Uri("https://api.github.com/repos/owner/repo/issues/12/labels"), new StringContent("{\"labels\":[\"TRIAGED\"]}"));
         await client.SendAsync(HttpMethod.Delete, new Uri("https://api.github.com/repos/owner/repo/issues/12/labels/READY"));
+        await client.SendAsync(HttpMethod.Post, new Uri("https://api.github.com/repos/owner/repo/labels"));
+        await client.SendAsync(HttpMethod.Patch, new Uri("https://api.github.com/repos/owner/repo/labels/type%3Achore"));
         await new GitHubActionsJobRerunWriter(client).RerunAsync("owner/repo", "91");
         await new GitHubActionsFailedJobsRerunWriter(client).RerunAsync("owner/repo", "81");
-        Assert.Equal(6, sent);
+        Assert.Equal(8, sent);
 
         foreach (var (method, path) in new[]
         {
@@ -29,11 +30,12 @@ public sealed class GitHubWriteBoundaryTests
             await Assert.ThrowsAsync<InvalidOperationException>(() => client.SendAsync(method, new Uri("https://api.github.com" + path)));
         await Assert.ThrowsAsync<InvalidOperationException>(() => client.SendAsync(HttpMethod.Put, new Uri("https://api.github.com/repos/owner/repo/issues/12/labels")));
         await Assert.ThrowsAsync<InvalidOperationException>(() => client.SendAsync(HttpMethod.Delete, new Uri("https://api.github.com/repos/owner/repo/issues/12/labels/TRIAGED")));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => client.SendAsync(HttpMethod.Delete, new Uri("https://api.github.com/repos/owner/repo/labels/type%3Achore")));
         await Assert.ThrowsAsync<InvalidOperationException>(() => client.SendAsync(HttpMethod.Post, new Uri("https://api.github.com/repos/owner/repo/issues/0/labels")));
         await Assert.ThrowsAsync<InvalidOperationException>(() => client.SendAsync(HttpMethod.Post, new Uri("https://api.github.com/repos/owner/repo/actions/jobs/91/rerun/extra")));
         await Assert.ThrowsAsync<InvalidOperationException>(() => client.SendAsync(HttpMethod.Post, new Uri("https://api.github.com/repos/owner/repo/actions/runs/81/rerun")));
         await Assert.ThrowsAsync<ArgumentException>(() => new GitHubActionsJobRerunWriter(client).RerunAsync("owner/repo", "0"));
-        Assert.Equal(6, sent);
+        Assert.Equal(8, sent);
     }
 
     [Fact]
@@ -135,9 +137,10 @@ public sealed class GitHubWriteBoundaryTests
     [Fact]
     public void ProductionWritesUseOnlyGuardedBoundary()
     {
-        var source = File.ReadAllText(Path.Combine(AgentTool.FindToolkit(), "tools/AgentTool.cs"));
+        var source = string.Join("\n", Directory.GetFiles(Path.Combine(AgentTool.FindToolkit(), "src"), "*.cs", SearchOption.AllDirectories).Select(File.ReadAllText));
 
-        Assert.Equal(8, Regex.Matches(source, @"\bIGitHubWriteClient\b").Count);
+        Assert.Contains("public sealed class GitHubLabelCatalog", source);
+        Assert.Contains("IGitHubWriteClient writer", source);
         Assert.Contains("public sealed class GitHubWriteClient(HttpClient http, IGitHubCredentialProvider credentials) : IGitHubWriteClient", source);
         Assert.Contains("Processes.Run(\"gh\", [\"auth\", \"status\"]", source);
         Assert.DoesNotContain("Processes.Run(\"gh\", [\"pr\", \"", source);
