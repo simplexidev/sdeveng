@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://simplexidev.github.io/sdeveng/schemas/lexical-index.schema.json",
+  "title": "lexical-index",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "kind", "root", "files", "fileCount", "filesTruncated"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "lexical-index" },
+    "root": { "type": "string", "minLength": 1 },
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "name", "text"],
+        "properties": {
+          "path": { "type": "string", "minLength": 1 },
+          "name": { "type": "string", "minLength": 1 },
+          "text": { "type": "string" }
+        }
+      }
+    },
+    "fileCount": { "type": "integer", "minimum": 0 },
+    "filesTruncated": { "type": "boolean" }
+  }
+}
