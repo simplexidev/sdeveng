@@ -18,13 +18,28 @@ public static class Repository
         var repositoryConfigurationFiles = tracked.Where(path => path.Split('/', 2)[0] is "AGENTS.md" or "Directory.Build.props" or "Directory.Build.targets" or "global.json" or "NuGet.Config" or "nuget.config" or "package.json" or "pnpm-workspace.yaml" or "pyproject.toml" or "Cargo.toml" or "go.mod" or "Makefile" or "justfile" or ".sdeveng")
             .ToArray();
         var fingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\n', tracked)))).ToLowerInvariant();
-        var projects = Projects.Discover(repositoryRoot)
-            .Select(path => new
+        var projects = new List<object>();
+        foreach (var path in Projects.Discover(repositoryRoot))
+        {
+            var evaluation = await Projects.Evaluate(repositoryRoot, path);
+            var properties = evaluation["Properties"]!;
+            var items = evaluation["Items"];
+            var references = items?["ProjectReference"]?.AsArray().Select(item => item?["FullPath"]?.GetValue<string>()).OfType<string>()
+                .Select(reference => Path.GetRelativePath(repositoryRoot, reference).Replace('\\', '/')).Order(StringComparer.Ordinal).ToArray() ?? [];
+            var packages = items?["PackageReference"]?.AsArray().Select(item => new { id = item?["Identity"]?.GetValue<string>(), version = item?["Version"]?.GetValue<string>() ?? item?["Metadata"]?["Version"]?.GetValue<string>() })
+                .OrderBy(item => item.id, StringComparer.Ordinal).ToArray() ?? [];
+            var isTest = string.Equals(properties["IsTestProject"]?.GetValue<string>(), "true", StringComparison.OrdinalIgnoreCase);
+            var outputType = properties["OutputType"]?.GetValue<string>();
+            var kind = isTest ? "test" : outputType is "Exe" or "WinExe" ? "application" : "library";
+            projects.Add(new
             {
                 path = Path.GetRelativePath(repositoryRoot, path).Replace('\\', '/'),
                 language = Path.GetExtension(path) switch { ".fsproj" => "F#", ".vbproj" => "Visual Basic", _ => "C#" },
-                kind = DescribeProjectKind(path)
-            }).ToArray();
+                kind,
+                projectReferences = references,
+                packageReferences = packages
+            });
+        }
         return new
         {
             schemaVersion = 1,
@@ -35,29 +50,12 @@ public static class Repository
             repositoryConfigurationFilesTruncated = repositoryConfigurationFiles.Length > limits.MaxItems,
             catalogFingerprint = fingerprint,
             projects = projects.Take(limits.MaxItems),
-            projectCount = projects.Length,
-            projectsTruncated = projects.Length > limits.MaxItems,
+            projectCount = projects.Count,
+            projectsTruncated = projects.Count > limits.MaxItems,
             trackedFiles = tracked.Take(limits.MaxItems),
             trackedFileCount = tracked.Length,
             trackedFilesTruncated = tracked.Length > limits.MaxItems
         };
-    }
-
-    private static string DescribeProjectKind(string project)
-    {
-        try
-        {
-            var document = System.Xml.Linq.XDocument.Load(project);
-            var properties = document.Descendants().Where(element => element.Parent?.Name.LocalName == "PropertyGroup")
-                .ToDictionary(element => element.Name.LocalName, element => element.Value, StringComparer.OrdinalIgnoreCase);
-            if (string.Equals(properties.GetValueOrDefault("IsTestProject"), "true", StringComparison.OrdinalIgnoreCase)) return "test";
-            if (string.Equals(properties.GetValueOrDefault("OutputType"), "Exe", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(properties.GetValueOrDefault("OutputType"), "WinExe", StringComparison.OrdinalIgnoreCase)) return "application";
-            return "library";
-        }
-        catch (System.Xml.XmlException) { return "unknown"; }
-        catch (IOException) { return "unknown"; }
-        catch (UnauthorizedAccessException) { return "unknown"; }
     }
 
     public static async Task<object> Summary(string root, string? baseRef, OutputSettings limits)
