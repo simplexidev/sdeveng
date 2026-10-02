@@ -3,7 +3,7 @@
   "title": "repository-description",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "kind", "root", "repositoryConfigurationFiles", "repositoryConfigurationFileCount", "repositoryConfigurationFilesTruncated", "catalogFingerprint", "projects", "projectCount", "projectsTruncated", "trackedFiles", "trackedFileCount", "trackedFilesTruncated"],
+  "required": ["schemaVersion", "kind", "root", "repositoryConfigurationFiles", "repositoryConfigurationFileCount", "repositoryConfigurationFilesTruncated", "catalogFingerprint", "projects", "projectCount", "projectsTruncated", "graph", "trackedFiles", "trackedFileCount", "trackedFilesTruncated"],
   "properties": {
     "schemaVersion": { "const": 1 },
     "kind": { "const": "repository-description" },
@@ -39,6 +39,15 @@
     },
     "projectCount": { "type": "integer", "minimum": 0 },
     "projectsTruncated": { "type": "boolean" },
+    "graph": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["nodes", "edges"],
+      "properties": {
+        "nodes": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+        "edges": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["from", "to"], "properties": { "from": { "type": "string", "minLength": 1 }, "to": { "type": "string", "minLength": 1 } } } }
+      }
+    },
     "trackedFiles": { "type": "array", "items": { "type": "string" } },
     "trackedFileCount": { "type": "integer", "minimum": 0 },
     "trackedFilesTruncated": { "type": "boolean" }
