@@ -1544,8 +1544,9 @@ public static class AgentTool
                 case "repo changed-files": return Result.Ok(await Git.Changed(root, command.Get("base")));
                 case "repo summary": return Result.Ok(await Repository.Summary(root, command.Get("base"), settings.Output));
                 case "repo locate":
-                    var files = (await Git.Files(root)).Where(x => !SafeFiles.IsDiscoveryExcluded(x)).ToArray();
-                    return Result.Ok(new { matches = files.Where(x => x.Contains(command.Require("query"), StringComparison.OrdinalIgnoreCase)).Take(settings.Output.MaxItems), total = files.Count(x => x.Contains(command.Require("query"), StringComparison.OrdinalIgnoreCase)), scope = "Git tracked + untracked, nonignored path names excluding the managed result store; use rg for symbols." });
+                    var catalog = await Repository.FileCatalog(root);
+                    var matches = catalog.Find(command.Require("query"));
+                    return Result.Ok(new { matches = matches.Take(settings.Output.MaxItems).Select(file => file.Path), total = matches.Length, scope = "Git tracked + untracked, nonignored path names excluding the managed result store; use rg for symbols." });
                 case "repo affected-projects": return Result.Ok(await Projects.Affected(root, await Git.Changed(root, command.Get("base"))));
                 case "repo ownership": return Result.Ok(await Projects.Ownership(root, command.Require("file")));
                 case "repo health":

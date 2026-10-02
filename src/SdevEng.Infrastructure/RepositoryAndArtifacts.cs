@@ -11,6 +11,12 @@ namespace SdevEng;
 
 public static class Repository
 {
+    public static async Task<RepositoryFileCatalog> FileCatalog(string root)
+    {
+        var files = (await Git.Files(root)).Where(path => !SafeFiles.IsDiscoveryExcluded(path));
+        return RepositoryFileCatalog.Create(files);
+    }
+
     public static async Task<object> Describe(string root, OutputSettings limits)
     {
         var repositoryRoot = await Git.RepositoryRoot(root);
