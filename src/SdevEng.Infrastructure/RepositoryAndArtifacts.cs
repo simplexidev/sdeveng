@@ -13,8 +13,24 @@ public static class Repository
 {
     public static async Task<RepositoryFileCatalog> FileCatalog(string root)
     {
-        var files = (await Git.Files(root)).Where(path => !SafeFiles.IsDiscoveryExcluded(path));
-        return RepositoryFileCatalog.Create(files);
+        var repositoryRoot = Path.GetFullPath(root);
+        var files = (await Git.Files(repositoryRoot)).Where(path => !SafeFiles.IsDiscoveryExcluded(path)).ToArray();
+        var terms = new Dictionary<string, string[]>(StringComparer.Ordinal);
+        foreach (var path in files)
+        {
+            var fullPath = Path.GetFullPath(Path.Combine(repositoryRoot, path));
+            if (!fullPath.StartsWith(repositoryRoot + Path.DirectorySeparatorChar, StringComparison.Ordinal) || !File.Exists(fullPath)) continue;
+            var info = new FileInfo(fullPath);
+            if (info.Length is 0 or > 65536 || (info.Attributes & FileAttributes.ReparsePoint) != 0) continue;
+            var bytes = await File.ReadAllBytesAsync(fullPath);
+            if (bytes.Contains((byte)0)) continue;
+            string text;
+            try { text = new UTF8Encoding(false, true).GetString(bytes); }
+            catch (DecoderFallbackException) { continue; }
+            terms[path] = Regex.Matches(text, @"[\p{L}\p{N}_-]{2,}", RegexOptions.CultureInvariant)
+                .Select(match => match.Value.ToLowerInvariant()).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).Take(256).ToArray();
+        }
+        return RepositoryFileCatalog.Create(files, terms);
     }
 
     public static async Task<object> Describe(string root, OutputSettings limits)

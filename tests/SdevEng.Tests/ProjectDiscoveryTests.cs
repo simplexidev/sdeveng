@@ -15,14 +15,16 @@ public class ProjectDiscoveryTests
     [Fact] public async Task DurableResultsDoNotSelectBuilds() { using var repo = new TemporaryGitRepository(); repo.Write("A.csproj", Project); Assert.Empty((await Projects.Affected(repo.Root, [".agent-results/reports/audit.md"])).Projects); }
     [Fact] public async Task LocateSkipsHistoricalResults() { using var repo = new TemporaryGitRepository(); repo.Write(".agent-results/reports/audit.md", "historical"); repo.Write("docs/audit.md", "current"); var result = await CommandTestRuntime.Execute(Cli.Parse(["repo", "locate", "--query", "audit"]), AgentTool.FindToolkit(), repo.Root, new(new(), new(), new(), new())); var json = System.Text.Json.JsonSerializer.Serialize(result.Data, AgentTool.Json); Assert.Contains("docs/audit.md", json, StringComparison.Ordinal); Assert.DoesNotContain(".agent-results", json, StringComparison.Ordinal); }
     [Fact]
-    public async Task FileCatalogIndexesSortedPathsAndNamesWithoutReadingContents()
+    public async Task FileCatalogIndexesSortedPathsNamesAndBoundedTextTerms()
     {
         using var repo = new TemporaryGitRepository();
         repo.Write("z/Needle.cs", "secret body text"); repo.Write("a/other.txt", "Needle in body");
         var catalog = await Repository.FileCatalog(repo.Root);
         Assert.Equal(new[] { ".gitignore", "a/other.txt", "z/Needle.cs" }, catalog.Files.Select(file => file.Path));
         Assert.Equal(new[] { ".gitignore", "other.txt", "Needle.cs" }, catalog.Files.Select(file => file.Name));
-        Assert.Equal(new[] { "z/Needle.cs" }, catalog.Find("needle").Select(file => file.Path));
+        Assert.Equal(1, catalog.IndexVersion);
+        Assert.Equal(new[] { "a/other.txt", "z/Needle.cs" }, catalog.Find("needle").Select(file => file.Path));
+        Assert.Equal(new[] { "a/other.txt", "z/Needle.cs" }, catalog.Find("body").Select(file => file.Path));
     }
     [Fact]
     public async Task DescribeDiscoversRootAndListsTrackedFilesWithIgnoreRules()
