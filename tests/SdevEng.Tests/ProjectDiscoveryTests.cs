@@ -21,7 +21,7 @@ public class ProjectDiscoveryTests
         repo.Write("global.json", "{\"sdk\":{\"version\":\"10.0.100\"}}");
         repo.Write("Directory.Build.props", "<Project />");
         repo.Write("src/local.json", "{}");
-        repo.Write("src/App.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>");
+        repo.Write("src/App.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net10.0</TargetFramework></PropertyGroup><ItemGroup><ProjectReference Include=\"../lib/Library.vbproj\" /><PackageReference Include=\"Example.Package\" Version=\"2.3.4\" /></ItemGroup></Project>");
         repo.Write("tests/Tests.fsproj", "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><IsTestProject>true</IsTestProject><TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>");
         repo.Write("lib/Library.vbproj", "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>");
         repo.Commit();
@@ -43,5 +43,7 @@ public class ProjectDiscoveryTests
         Assert.Equal(("C#", "application"), (projects["src/App.csproj"]!["language"]!.GetValue<string>(), projects["src/App.csproj"]!["kind"]!.GetValue<string>()));
         Assert.Equal(("F#", "test"), (projects["tests/Tests.fsproj"]!["language"]!.GetValue<string>(), projects["tests/Tests.fsproj"]!["kind"]!.GetValue<string>()));
         Assert.Equal(("Visual Basic", "library"), (projects["lib/Library.vbproj"]!["language"]!.GetValue<string>(), projects["lib/Library.vbproj"]!["kind"]!.GetValue<string>()));
+        Assert.Equal(new[] { "lib/Library.vbproj" }, projects["src/App.csproj"]!["projectReferences"]!.AsArray().Select(x => x!.GetValue<string>()));
+        Assert.Equal(("Example.Package", "2.3.4"), (projects["src/App.csproj"]!["packageReferences"]![0]!["id"]!.GetValue<string>(), projects["src/App.csproj"]!["packageReferences"]![0]!["version"]!.GetValue<string>()));
     }
 }
