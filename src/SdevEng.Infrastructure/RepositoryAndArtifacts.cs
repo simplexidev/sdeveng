@@ -28,6 +28,10 @@ public static class Repository
                 .Select(reference => Path.GetRelativePath(repositoryRoot, reference).Replace('\\', '/')).Order(StringComparer.Ordinal).ToArray() ?? [];
             var packages = items?["PackageReference"]?.AsArray().Select(item => new { id = item?["Identity"]?.GetValue<string>(), version = item?["Version"]?.GetValue<string>() ?? item?["Metadata"]?["Version"]?.GetValue<string>() })
                 .OrderBy(item => item.id, StringComparer.Ordinal).ToArray() ?? [];
+            var targetFrameworks = (properties["TargetFrameworks"]?.GetValue<string>() is { Length: > 0 } multi ? multi : properties["TargetFramework"]?.GetValue<string>() ?? "")
+                .Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Order(StringComparer.Ordinal).ToArray();
+            var ownedFiles = items?["Compile"]?.AsArray().Select(item => item?["FullPath"]?.GetValue<string>()).OfType<string>()
+                .Select(file => Path.GetRelativePath(repositoryRoot, file).Replace('\\', '/')).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray() ?? [];
             var isTest = string.Equals(properties["IsTestProject"]?.GetValue<string>(), "true", StringComparison.OrdinalIgnoreCase);
             var outputType = properties["OutputType"]?.GetValue<string>();
             var kind = isTest ? "test" : outputType is "Exe" or "WinExe" ? "application" : "library";
@@ -36,6 +40,8 @@ public static class Repository
                 path = Path.GetRelativePath(repositoryRoot, path).Replace('\\', '/'),
                 language = Path.GetExtension(path) switch { ".fsproj" => "F#", ".vbproj" => "Visual Basic", _ => "C#" },
                 kind,
+                targetFrameworks,
+                ownedFiles,
                 projectReferences = references,
                 packageReferences = packages
             });

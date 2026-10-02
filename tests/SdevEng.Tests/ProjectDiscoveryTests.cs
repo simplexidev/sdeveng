@@ -45,5 +45,7 @@ public class ProjectDiscoveryTests
         Assert.Equal(("Visual Basic", "library"), (projects["lib/Library.vbproj"]!["language"]!.GetValue<string>(), projects["lib/Library.vbproj"]!["kind"]!.GetValue<string>()));
         Assert.Equal(new[] { "lib/Library.vbproj" }, projects["src/App.csproj"]!["projectReferences"]!.AsArray().Select(x => x!.GetValue<string>()));
         Assert.Equal(("Example.Package", "2.3.4"), (projects["src/App.csproj"]!["packageReferences"]![0]!["id"]!.GetValue<string>(), projects["src/App.csproj"]!["packageReferences"]![0]!["version"]!.GetValue<string>()));
+        Assert.Equal(new[] { "net10.0" }, projects["src/App.csproj"]!["targetFrameworks"]!.AsArray().Select(x => x!.GetValue<string>()));
+        Assert.Contains("src/Tracked.cs", projects["src/App.csproj"]!["ownedFiles"]!.AsArray().Select(x => x!.GetValue<string>()));
     }
 }
