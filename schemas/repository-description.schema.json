@@ -17,11 +17,13 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["path", "language", "kind", "projectReferences", "packageReferences"],
+        "required": ["path", "language", "kind", "targetFrameworks", "ownedFiles", "projectReferences", "packageReferences"],
         "properties": {
           "path": { "type": "string", "minLength": 1 },
           "language": { "enum": ["C#", "F#", "Visual Basic"] },
           "kind": { "enum": ["application", "library", "test"] },
+          "targetFrameworks": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+          "ownedFiles": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
           "projectReferences": { "type": "array", "items": { "type": "string", "minLength": 1 } },
           "packageReferences": {
             "type": "array",
