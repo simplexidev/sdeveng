@@ -8,6 +8,19 @@ public sealed record RepositoryFileCatalog(int IndexVersion, RepositoryFileEntry
 {
     public const int CurrentIndexVersion = 1;
 
+    /// <summary>Checks that entries retain the canonical ordering and bounded term contract.</summary>
+    public bool HasValidIntegrity() => IndexVersion == CurrentIndexVersion
+        && Files is not null
+        && Files.All(file => file is not null
+            && !string.IsNullOrEmpty(file.Path)
+            && file.Path == file.Path.Replace('\\', '/')
+            && !file.Path.StartsWith("/", StringComparison.Ordinal)
+            && file.Name == System.IO.Path.GetFileName(file.Path)
+            && file.Terms is not null
+            && file.Terms.Length <= 256
+            && file.Terms.SequenceEqual(file.Terms.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal)))
+        && Files.Select(file => file.Path).SequenceEqual(Files.Select(file => file.Path).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal));
+
     public static RepositoryFileCatalog Create(IEnumerable<string> paths, IReadOnlyDictionary<string, string[]>? terms = null) => new(CurrentIndexVersion, paths
         .Distinct(StringComparer.Ordinal)
         .Order(StringComparer.Ordinal)
