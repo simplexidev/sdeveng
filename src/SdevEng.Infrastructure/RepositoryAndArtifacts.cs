@@ -15,6 +15,9 @@ public static class Repository
     {
         var repositoryRoot = await Git.RepositoryRoot(root);
         var tracked = await Git.TrackedWithIgnoreRules(repositoryRoot);
+        var repositoryConfigurationFiles = tracked.Where(path => path.Split('/', 2)[0] is "AGENTS.md" or "Directory.Build.props" or "Directory.Build.targets" or "global.json" or "NuGet.Config" or "nuget.config" or "package.json" or "pnpm-workspace.yaml" or "pyproject.toml" or "Cargo.toml" or "go.mod" or "Makefile" or "justfile" or ".sdeveng")
+            .ToArray();
+        var fingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\n', tracked)))).ToLowerInvariant();
         var projects = Projects.Discover(repositoryRoot)
             .Select(path => new
             {
@@ -27,6 +30,10 @@ public static class Repository
             schemaVersion = 1,
             kind = "repository-description",
             root = repositoryRoot,
+            repositoryConfigurationFiles = repositoryConfigurationFiles.Take(limits.MaxItems),
+            repositoryConfigurationFileCount = repositoryConfigurationFiles.Length,
+            repositoryConfigurationFilesTruncated = repositoryConfigurationFiles.Length > limits.MaxItems,
+            catalogFingerprint = fingerprint,
             projects = projects.Take(limits.MaxItems),
             projectCount = projects.Length,
             projectsTruncated = projects.Length > limits.MaxItems,
