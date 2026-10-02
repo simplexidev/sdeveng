@@ -1545,8 +1545,9 @@ public static class AgentTool
                 case "repo summary": return Result.Ok(await Repository.Summary(root, command.Get("base"), settings.Output));
                 case "repo locate":
                     var catalog = await Repository.FileCatalog(root);
+                    if (!catalog.HasValidIntegrity()) throw new InvalidDataException("Repository file catalog failed its integrity check.");
                     var matches = catalog.Find(command.Require("query"));
-                    return Result.Ok(new { indexVersion = catalog.IndexVersion, matches = matches.Take(settings.Output.MaxItems).Select(file => file.Path), total = matches.Length, scope = "Git tracked + untracked, nonignored paths, names, and bounded text terms excluding the managed result store; use rg for symbols." });
+                    return Result.Ok(new { indexVersion = catalog.IndexVersion, indexIntegrity = "valid", matches = matches.Take(settings.Output.MaxItems).Select(file => file.Path), total = matches.Length, scope = "Git tracked + untracked, nonignored paths, names, and bounded text terms excluding the managed result store; use rg for symbols." });
                 case "repo affected-projects": return Result.Ok(await Projects.Affected(root, await Git.Changed(root, command.Get("base"))));
                 case "repo ownership": return Result.Ok(await Projects.Ownership(root, command.Require("file")));
                 case "repo health":
