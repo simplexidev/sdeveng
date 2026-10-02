@@ -58,13 +58,19 @@ public static class Repository
             repositoryConfigurationFilesTruncated = repositoryConfigurationFiles.Length > limits.MaxItems,
             catalogFingerprint = fingerprint,
             projects = projects.Take(limits.MaxItems),
-            graph = new ProjectDependencyGraph(Projects.Discover(repositoryRoot).Select(path => Path.GetRelativePath(repositoryRoot, path).Replace('\\', '/')).Order(StringComparer.Ordinal).ToArray(), graphEdges.OrderBy(edge => edge.From, StringComparer.Ordinal).ThenBy(edge => edge.To, StringComparer.Ordinal).ToArray()),
+            graph = DescribeGraph(Projects.Discover(repositoryRoot), repositoryRoot, graphEdges),
             projectCount = projects.Count,
             projectsTruncated = projects.Count > limits.MaxItems,
             trackedFiles = tracked.Take(limits.MaxItems),
             trackedFileCount = tracked.Length,
             trackedFilesTruncated = tracked.Length > limits.MaxItems
         };
+    }
+
+    private static object DescribeGraph(string[] projects, string root, List<ProjectDependencyEdge> edges)
+    {
+        var graph = new ProjectDependencyGraph(projects.Select(path => Path.GetRelativePath(root, path).Replace('\\', '/')).Order(StringComparer.Ordinal).ToArray(), edges.OrderBy(edge => edge.From, StringComparer.Ordinal).ThenBy(edge => edge.To, StringComparer.Ordinal).ToArray());
+        return new { graph.Nodes, graph.Edges, validation = graph.Validate() };
     }
 
     public static async Task<object> Summary(string root, string? baseRef, OutputSettings limits)
@@ -299,7 +305,7 @@ public static class Projects
         {
             var items = (await Evaluate(root, project))["Items"];
             var dependencies = items?["ProjectReference"]?.AsArray().Select(item => item?["FullPath"]?.GetValue<string>()).OfType<string>() ?? [];
-            edges.AddRange(dependencies.Where(File.Exists).Select(dependency => new ProjectDependencyEdge(project, Path.GetFullPath(dependency))));
+            edges.AddRange(dependencies.Select(dependency => new ProjectDependencyEdge(project, Path.GetFullPath(dependency))));
         }
         return new(projects, edges.OrderBy(edge => edge.From, StringComparer.Ordinal).ThenBy(edge => edge.To, StringComparer.Ordinal).ToArray());
     }
