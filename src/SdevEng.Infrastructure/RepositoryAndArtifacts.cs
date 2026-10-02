@@ -19,6 +19,7 @@ public static class Repository
             .ToArray();
         var fingerprint = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\n', tracked)))).ToLowerInvariant();
         var projects = new List<object>();
+        var graphEdges = new List<ProjectDependencyEdge>();
         foreach (var path in Projects.Discover(repositoryRoot))
         {
             var evaluation = await Projects.Evaluate(repositoryRoot, path);
@@ -26,6 +27,7 @@ public static class Repository
             var items = evaluation["Items"];
             var references = items?["ProjectReference"]?.AsArray().Select(item => item?["FullPath"]?.GetValue<string>()).OfType<string>()
                 .Select(reference => Path.GetRelativePath(repositoryRoot, reference).Replace('\\', '/')).Order(StringComparer.Ordinal).ToArray() ?? [];
+            graphEdges.AddRange(references.Select(reference => new ProjectDependencyEdge(Path.GetRelativePath(repositoryRoot, path).Replace('\\', '/'), reference)));
             var packages = items?["PackageReference"]?.AsArray().Select(item => new { id = item?["Identity"]?.GetValue<string>(), version = item?["Version"]?.GetValue<string>() ?? item?["Metadata"]?["Version"]?.GetValue<string>() })
                 .OrderBy(item => item.id, StringComparer.Ordinal).ToArray() ?? [];
             var targetFrameworks = (properties["TargetFrameworks"]?.GetValue<string>() is { Length: > 0 } multi ? multi : properties["TargetFramework"]?.GetValue<string>() ?? "")
@@ -56,6 +58,7 @@ public static class Repository
             repositoryConfigurationFilesTruncated = repositoryConfigurationFiles.Length > limits.MaxItems,
             catalogFingerprint = fingerprint,
             projects = projects.Take(limits.MaxItems),
+            graph = new ProjectDependencyGraph(Projects.Discover(repositoryRoot).Select(path => Path.GetRelativePath(repositoryRoot, path).Replace('\\', '/')).Order(StringComparer.Ordinal).ToArray(), graphEdges.OrderBy(edge => edge.From, StringComparer.Ordinal).ThenBy(edge => edge.To, StringComparer.Ordinal).ToArray()),
             projectCount = projects.Count,
             projectsTruncated = projects.Count > limits.MaxItems,
             trackedFiles = tracked.Take(limits.MaxItems),
@@ -287,6 +290,32 @@ public static class Projects
         if (result.ExitCode != 0) throw new InvalidOperationException($"MSBuild evaluation failed for {Path.GetFileName(project)}; graph cannot safely be narrowed.");
         return JsonNode.Parse(result.Output) ?? throw new InvalidOperationException("Empty MSBuild response.");
     }
+    public static async Task<ProjectDependencyGraph> DependencyGraph(string root)
+    {
+        root = Path.GetFullPath(root);
+        var projects = Discover(root);
+        var edges = new List<ProjectDependencyEdge>();
+        foreach (var project in projects)
+        {
+            var items = (await Evaluate(root, project))["Items"];
+            var dependencies = items?["ProjectReference"]?.AsArray().Select(item => item?["FullPath"]?.GetValue<string>()).OfType<string>() ?? [];
+            edges.AddRange(dependencies.Where(File.Exists).Select(dependency => new ProjectDependencyEdge(project, Path.GetFullPath(dependency))));
+        }
+        return new(projects, edges.OrderBy(edge => edge.From, StringComparer.Ordinal).ThenBy(edge => edge.To, StringComparer.Ordinal).ToArray());
+    }
+    public static string[] Dependents(ProjectDependencyGraph graph, string project)
+    {
+        var target = Path.GetFullPath(project);
+        var selected = new HashSet<string>([target], StringComparer.Ordinal);
+        bool added;
+        do
+        {
+            added = false;
+            foreach (var edge in graph.Edges) if (selected.Contains(edge.To)) added |= selected.Add(edge.From);
+        } while (added);
+        selected.Remove(target);
+        return selected.Order(StringComparer.Ordinal).ToArray();
+    }
     public static async Task<bool> IsTest(string root, string project) => (await Evaluate(root, project))["Properties"]?["IsTestProject"]?.GetValue<string>().Equals("true", StringComparison.OrdinalIgnoreCase) == true;
     public static async Task<Affected> Affected(string root, string[] changed)
     {
@@ -296,7 +325,8 @@ public static class Projects
         if (changed.Length == 0) return new([], "No build-relevant changed files.");
         var broad = changed.Any(x => x.EndsWith(".props", StringComparison.OrdinalIgnoreCase) || x.EndsWith(".targets", StringComparison.OrdinalIgnoreCase) || x.EndsWith(".sln", StringComparison.OrdinalIgnoreCase) || x.EndsWith(".slnx", StringComparison.OrdinalIgnoreCase) || Path.GetFileName(x) is "global.json" or "NuGet.Config" or "nuget.config" || x.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase));
         if (broad) return new(projects, "Shared build, solution or project metadata changed; conservative full graph.");
-        var selected = new HashSet<string>(StringComparer.Ordinal); var references = new Dictionary<string, string[]>(StringComparer.Ordinal);
+        var selected = new HashSet<string>(StringComparer.Ordinal);
+        var graph = await DependencyGraph(root);
         var paths = changed.Select(x => Path.GetFullPath(x, root)).ToHashSet(StringComparer.Ordinal);
         foreach (var project in projects)
         {
@@ -304,14 +334,12 @@ public static class Projects
             if (!string.IsNullOrEmpty(evaluation["Properties"]?["TargetFrameworks"]?.GetValue<string>())) return new(projects, "Multi-targeted graph; conservative full graph (conditional inner builds may differ).");
             var items = evaluation["Items"];
             var compiles = items?["Compile"]?.AsArray().Select(x => x?["FullPath"]?.GetValue<string>()).OfType<string>().ToArray() ?? [];
-            references[project] = items?["ProjectReference"]?.AsArray().Select(x => x?["FullPath"]?.GetValue<string>()).OfType<string>().ToArray() ?? [];
             if (compiles.Any(paths.Contains) || paths.Any(p => p.StartsWith(Path.GetDirectoryName(project)! + Path.DirectorySeparatorChar, StringComparison.Ordinal))) selected.Add(project);
         }
         // Removed linked files and custom build inputs cannot always be inferred from evaluated Compile items.
         if (paths.Any(p => !projects.Any(project => p.StartsWith(Path.GetDirectoryName(project)! + Path.DirectorySeparatorChar, StringComparison.Ordinal))))
             return new(projects, "Change outside project directories; conservative full graph for custom or removed linked inputs.");
-        bool added;
-        do { added = false; foreach (var p in projects) if (references[p].Any(selected.Contains)) added |= selected.Add(p); } while (added);
+        foreach (var owner in selected.ToArray()) selected.UnionWith(Dependents(graph, owner));
         return new(selected.Order(StringComparer.Ordinal).ToArray(), "Evaluated Compile/ProjectReference graph including transitive dependents.");
     }
     public static async Task<bool> HasApiChecks(string root, string path)
@@ -326,19 +354,8 @@ public static class Projects
     public static async Task<string[]> DependentTests(string root, string project)
     {
         var target = Path.GetFullPath(project);
-        var projects = Discover(root); var references = new Dictionary<string, string[]>(StringComparer.Ordinal); var tests = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var candidate in projects)
-        {
-            var evaluation = await Evaluate(root, candidate);
-            references[candidate] = evaluation["Items"]?["ProjectReference"]?.AsArray().Select(x => Path.GetFullPath(x?["FullPath"]?.GetValue<string>() ?? "", root)).Where(File.Exists).ToArray() ?? [];
-        }
-        bool DependsOn(string candidate, string wanted, HashSet<string> visiting)
-        {
-            if (!visiting.Add(candidate)) return false;
-            return references[candidate].Any(reference => string.Equals(reference, wanted, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)
-                || references.ContainsKey(reference) && DependsOn(reference, wanted, visiting));
-        }
-        foreach (var candidate in projects) if (await IsTest(root, candidate) && DependsOn(candidate, target, [])) tests.Add(candidate);
+        var projects = Discover(root); var graph = await DependencyGraph(root); var tests = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var candidate in Dependents(graph, target)) if (await IsTest(root, candidate)) tests.Add(candidate);
         return tests.Order(StringComparer.Ordinal).ToArray();
     }
     public static async Task<object> Ownership(string root, string file)
@@ -362,10 +379,7 @@ public static class Projects
     }
     public static async Task<string[]> Dependents(string root, string project)
     {
-        var projects = Discover(root); var selected = new HashSet<string>(StringComparer.Ordinal) { Path.GetFullPath(project) }; var references = new Dictionary<string, string[]>(StringComparer.Ordinal);
-        foreach (var candidate in projects) references[candidate] = (await Evaluate(root, candidate))["Items"]?["ProjectReference"]?.AsArray().Select(x => Path.GetFullPath(x?["FullPath"]?.GetValue<string>() ?? "", root)).Where(File.Exists).ToArray() ?? [];
-        bool added; do { added = false; foreach (var candidate in projects) if (references[candidate].Any(selected.Contains)) added |= selected.Add(candidate); } while (added);
-        selected.Remove(Path.GetFullPath(project)); return selected.Order(StringComparer.Ordinal).ToArray();
+        return Dependents(await DependencyGraph(root), project);
     }
     public static async Task<List<object>> Health(string root, HealthSettings policy)
     {
