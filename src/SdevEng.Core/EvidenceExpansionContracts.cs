@@ -24,6 +24,14 @@ public sealed record EvidenceExpansionValidation(EvidenceExpansionRejection Reje
     public bool IsValid => Rejection == EvidenceExpansionRejection.None;
 }
 
+/// <summary>Current indexed source metadata required to resolve one expansion.</summary>
+public sealed record EvidenceExpansionItem(string Id, string LocationKey, string SourceRevision);
+
+public enum EvidenceExpansionStatus { Expanded, Omitted, BudgetExceeded, Rejected }
+
+/// <summary>One bounded excerpt; token measurement is unavailable because no exact tokenizer is bound.</summary>
+public sealed record EvidenceExpansionResult(EvidenceExpansionStatus Status, string? EvidenceId, string? Excerpt, int? StartLine, int? EndLine, int Utf8Bytes, bool TokenMeasurementAvailable, EvidenceExpansionRejection Rejection = EvidenceExpansionRejection.None);
+
 /// <summary>Validates expansion requests against the current pack index without loading excerpts.</summary>
 public static class EvidenceExpansionRequestValidator
 {

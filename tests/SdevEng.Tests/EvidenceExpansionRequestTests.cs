@@ -1,5 +1,7 @@
 using System.Text.Json.Nodes;
 using Json.Schema;
+using System.Security.Cryptography;
+using System.Text;
 
 namespace SdevEng.Tests;
 
@@ -48,4 +50,38 @@ public sealed class EvidenceExpansionRequestTests
 
     private static EvidenceExpansionValidation Validate(EvidenceExpansionRequest request, int remainingLines = 3) =>
         EvidenceExpansionRequestValidator.Validate(request, "pack-1", "rev-1", [EvidenceId], remainingLines);
+
+    [Fact]
+    public void ExpansionHonorsBoundsUnicodeTraversalAndSourceRevision()
+    {
+        using var repo = new TemporaryGitRepository();
+        var lines = Enumerable.Repeat(new string('a', 81), 199).Append(new string('界', 22)).ToArray();
+        var content = string.Join('\n', lines);
+        var path = Path.Combine(repo.Root, "excerpt.txt");
+        File.WriteAllText(path, content, new UTF8Encoding(false));
+        var revision = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(content)));
+        var item = new EvidenceExpansionItem(EvidenceId, "repo:excerpt.txt", revision);
+        var request = new EvidenceExpansionRequest("pack-1", "rev-1", EvidenceId, "run-1", "reviewer", 1, 200);
+
+        var exact = RepositoryEvidenceExpander.Expand(repo.Root, request, "pack-1", "rev-1", [item], 200);
+        Assert.Equal(EvidenceExpansionStatus.Expanded, exact.Status);
+        Assert.Equal(16_384, exact.Utf8Bytes);
+        Assert.False(exact.TokenMeasurementAvailable);
+        Assert.Equal(0, RepositoryEvidenceExpander.Expand(repo.Root, request, "pack-1", "rev-1", [item], 199).Utf8Bytes);
+
+        File.WriteAllText(path, content + "a", new UTF8Encoding(false));
+        var overRevision = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(content + "a")));
+        var over = RepositoryEvidenceExpander.Expand(repo.Root, request, "pack-1", "rev-1", [item with { SourceRevision = overRevision }], 200);
+        Assert.Equal(EvidenceExpansionStatus.BudgetExceeded, over.Status);
+
+        var traversal = RepositoryEvidenceExpander.Expand(repo.Root, request,
+            "pack-1", "rev-1", [item with { LocationKey = "repo:../secret" }], 200);
+        Assert.Equal(EvidenceExpansionStatus.Omitted, traversal.Status);
+        var outsideRoot = RepositoryEvidenceExpander.Expand(repo.Root, request,
+            "pack-1", "rev-1", [item with { LocationKey = "repo:/tmp/secret" }], 200);
+        Assert.Equal(EvidenceExpansionStatus.Omitted, outsideRoot.Status);
+        var stale = RepositoryEvidenceExpander.Expand(repo.Root, request,
+            "pack-1", "rev-1", [item with { SourceRevision = "stale" }], 200);
+        Assert.Equal(EvidenceExpansionStatus.Omitted, stale.Status);
+    }
 }
