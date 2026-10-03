@@ -219,6 +219,8 @@ public class MetadataTests
     public void SdevengContractsAreVersionedUniqueAndMatchTheCliSurface()
     {
         var manifest = JsonNode.Parse(File.ReadAllText(Path.Combine(Root, "config/agent-tool-contracts.json")))!;
+        var contractSchema = JsonSchema.FromFile(Path.Combine(Root, "schemas/agent-tool-contracts.schema.json"));
+        Assert.True(contractSchema.Evaluate(manifest, new() { OutputFormat = OutputFormat.List }).IsValid);
         Assert.Equal("sdeveng", manifest["cli"]!.GetValue<string>());
         Assert.Equal(AgentTool.CliVersion, manifest["cliVersion"]!.GetValue<string>());
         Assert.Equal(AgentTool.ResultSchemaVersion, manifest["resultSchemaVersion"]!.GetValue<int>());
@@ -240,6 +242,26 @@ public class MetadataTests
         var source = string.Join("\n", Directory.GetFiles(Path.Combine(Root, "src"), "*.cs", SearchOption.AllDirectories).Select(File.ReadAllText));
         Assert.Contains("command == \"version\"", source, StringComparison.Ordinal);
         Assert.All(kinds.Distinct(StringComparer.Ordinal), kind => Assert.Contains($"kind = \"{kind}\"", source, StringComparison.Ordinal));
+        var descriptors = manifest["toolDescriptors"]!.AsArray();
+        Assert.Equal(descriptors.Count, descriptors.Select(item => item!["name"]!.GetValue<string>()).Distinct(StringComparer.Ordinal).Count());
+        Assert.All(descriptors, descriptor =>
+        {
+            Assert.True(descriptor!["readOnly"]!.GetValue<bool>());
+            var command = descriptor["command"]!.GetValue<string>();
+            Assert.Contains(contracts, contract => contract!["command"]!.GetValue<string>() == command && contract["kind"]!.GetValue<string>() == descriptor["kind"]!.GetValue<string>());
+            Assert.Single(modules, module => module.CanHandle(Cli.Parse(command.Split(' '))));
+        });
+        Assert.Single(modules, module => module.CanHandle(Cli.Parse(["tools", "list"])));
+    }
+
+    [Fact]
+    public async Task ToolDiscoveryReturnsConfiguredReadOnlyDescriptors()
+    {
+        var result = await CommandTestRuntime.Execute(Cli.Parse(["tools", "list"]), AgentTool.FindToolkit(), Root, new(new(), new(), new(), new()));
+        var json = JsonNode.Parse(JsonSerializer.Serialize(result.Data, AgentTool.Json))!;
+        Assert.Equal("tool-descriptors", json["kind"]!.GetValue<string>());
+        Assert.Equal(5, json["tools"]!.AsArray().Count);
+        Assert.All(json["tools"]!.AsArray(), tool => Assert.True(tool!["readOnly"]!.GetValue<bool>()));
     }
     [Fact]
     public void CliResultEnvelopesConformToThePublishedSchema()

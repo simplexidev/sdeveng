@@ -6,6 +6,9 @@ public record Result(string Status, object? Data, int ExitCode = 0)
     public static Result Review(string reason) => new("REVIEW", new { reason, fallback = "Codex" });
 }
 
+/// <summary>A discoverable worker tool that delegates to a canonical CLI fact command.</summary>
+public sealed record ToolDescriptor(string Name, string Description, string Command, string Kind, int SchemaVersion, bool ReadOnly, System.Text.Json.JsonElement InputSchema);
+
 public record ProcessReport(int ProcessExitCode, object Summary, string Artifact)
 {
     public VerificationResult? Verification { get; init; }

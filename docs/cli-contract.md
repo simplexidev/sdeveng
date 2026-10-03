@@ -12,6 +12,10 @@ top-level `schemaVersion` versions the envelope; `command`, `status`, `exitCode`
 their versions are listed in `config/agent-tool-contracts.json`. Human/default output
 is not a parsing contract.
 
+`sdeveng tools list --json` returns versioned, read-only worker tool descriptors from
+that same manifest. Each descriptor names its canonical CLI command, result kind and
+input JSON Schema; invoke the listed command through the existing CLI path.
+
 Exit codes are stable: `0` means success, `1` means the command completed and found a
 negative outcome such as findings or a failed check, `2` means invalid invocation or
 invalid input, `3` means a configured required dependency was unavailable, and `70`
