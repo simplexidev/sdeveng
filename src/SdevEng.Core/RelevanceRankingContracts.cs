@@ -17,8 +17,10 @@ public record RelevanceRankingInput
         if (Candidates.Length > CandidateLimit) throw new ArgumentException($"At most {CandidateLimit} ranking candidates are allowed.");
         if (Candidates.Any(candidate => string.IsNullOrWhiteSpace(candidate.Id) || string.IsNullOrWhiteSpace(candidate.Text)))
             throw new ArgumentException("Every ranking candidate requires a non-empty id and text.");
-        if (Candidates.Select(candidate => candidate.Id).Distinct(StringComparer.Ordinal).Count() != Candidates.Length)
-            throw new ArgumentException("Ranking candidate ids must be unique.");
+        if (Candidates.Any(candidate => candidate.MustInclude && candidate.Category is null))
+            throw new ArgumentException("Must-include candidates require a deterministic rationale category.");
+        if (Candidates.Any(candidate => candidate.Category is RelevanceRankingCategory.SemanticRanked or RelevanceRankingCategory.SemanticAbstained))
+            throw new ArgumentException("Input candidates cannot declare a semantic ranking outcome.");
     }
 }
 
@@ -27,7 +29,12 @@ public record RelevanceRankingCandidate
 {
     public string Id { get; init; } = "";
     public string Text { get; init; } = "";
+    public bool MustInclude { get; init; }
+    public RelevanceRankingCategory? Category { get; init; }
 }
+
+public enum RelevanceRankingCategory { DeterministicReference, OwningProject, DirectDependency, CandidateTest, SemanticRanked, SemanticAbstained }
+public sealed record RelevanceRankingSelection(string Id, string Text, bool MustInclude, RelevanceRankingCategory Category);
 
 /// <summary>Provides semantic relevance scores for an already bounded candidate set.</summary>
 public interface IRelevanceRankingProvider
@@ -74,12 +81,26 @@ public static class RelevanceRankingOrder
         IReadOnlyList<RelevanceRankingScore>? scores,
         RelevanceRankingPolicy? policy = null)
     {
+        return ApplySelections(input, scores, policy).Select(selection => new RelevanceRankingCandidate
+        { Id = selection.Id, Text = selection.Text, MustInclude = selection.MustInclude, Category = selection.Category }).ToArray();
+    }
+
+    public static IReadOnlyList<RelevanceRankingSelection> ApplySelections(
+        RelevanceRankingInput input,
+        IReadOnlyList<RelevanceRankingScore>? scores,
+        RelevanceRankingPolicy? policy = null)
+    {
         ArgumentNullException.ThrowIfNull(input);
         input.Validate();
         policy ??= new RelevanceRankingPolicy();
         policy.Validate();
 
-        if (scores is null || scores.Count == 0) return input.Candidates.ToArray();
+        var candidates = input.Candidates.DistinctBy(candidate => candidate.Id, StringComparer.Ordinal).ToArray();
+        if (scores is null || scores.Count == 0)
+            return candidates.Where(candidate => candidate.MustInclude)
+                .Select(candidate => ToSelection(candidate, RelevanceRankingCategory.SemanticAbstained))
+                .Concat(candidates.Where(candidate => !candidate.MustInclude)
+                    .Select(candidate => ToSelection(candidate, RelevanceRankingCategory.SemanticAbstained))).ToArray();
 
         var counts = scores.Where(score => score is not null)
             .GroupBy(score => score.CandidateId, StringComparer.Ordinal)
@@ -92,18 +113,25 @@ public static class RelevanceRankingOrder
                 !double.IsFinite(score.Score) || score.Score is < 0 or > 1 ||
                 score.Confidence is not double confidence || !double.IsFinite(confidence) ||
                 confidence is < 0 or > 1 || confidence < policy.MinConfidence ||
-                !input.Candidates.Any(candidate => candidate.Id == score.CandidateId))
+                !candidates.Any(candidate => candidate.Id == score.CandidateId) ||
+                candidates.First(candidate => candidate.Id == score.CandidateId).MustInclude)
                 continue;
             accepted[score.CandidateId] = score.Score;
         }
 
-        return input.Candidates
+        var required = candidates.Where(candidate => candidate.MustInclude)
+            .Select(candidate => ToSelection(candidate, candidate.Category!.Value));
+        var optional = candidates.Where(candidate => !candidate.MustInclude)
             .Select((candidate, index) => (candidate, index))
             .OrderByDescending(item => accepted.ContainsKey(item.candidate.Id))
             .ThenByDescending(item => accepted.TryGetValue(item.candidate.Id, out var relevance) ? relevance : 0)
             .ThenBy(item => accepted.ContainsKey(item.candidate.Id) ? item.candidate.Id : "", StringComparer.Ordinal)
             .ThenBy(item => item.index)
-            .Select(item => item.candidate)
-            .ToArray();
+            .Select(item => ToSelection(item.candidate, accepted.ContainsKey(item.candidate.Id)
+                ? RelevanceRankingCategory.SemanticRanked : RelevanceRankingCategory.SemanticAbstained));
+        return required.Concat(optional).ToArray();
     }
+
+    private static RelevanceRankingSelection ToSelection(RelevanceRankingCandidate candidate, RelevanceRankingCategory fallback) =>
+        new(candidate.Id, candidate.Text, candidate.MustInclude, candidate.MustInclude ? candidate.Category!.Value : fallback);
 }
