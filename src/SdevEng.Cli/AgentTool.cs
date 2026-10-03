@@ -1546,10 +1546,15 @@ public static class AgentTool
                 case "repo locate":
                     var catalog = await Repository.FileCatalog(root);
                     if (!catalog.HasValidIntegrity()) throw new InvalidDataException("Repository file catalog failed its integrity check.");
-                    var searchModes = new[] { "query", "path", "name" }.Where(option => command.Get(option) is not null).ToArray();
-                    if (searchModes.Length != 1) throw new ArgumentException("repo locate requires exactly one of --query, --path, or --name.");
+                    var searchModes = new[] { "query", "path", "name", "exact-text", "fuzzy" }.Where(option => command.Get(option) is not null).ToArray();
+                    if (searchModes.Length != 1) throw new ArgumentException("repo locate requires exactly one of --query, --path, --name, --exact-text, or --fuzzy.");
                     var mode = searchModes[0];
                     var query = command.Require(mode);
+                    if (mode is "exact-text" or "fuzzy")
+                    {
+                        var ranked = mode == "exact-text" ? catalog.SearchExactText(query, Math.Min(settings.Output.MaxItems, 50)) : catalog.SearchFuzzyTerms(query, Math.Min(settings.Output.MaxItems, 50));
+                        return Result.Ok(new { indexVersion = catalog.IndexVersion, indexIntegrity = "valid", candidates = ranked, total = ranked.Length, limit = Math.Min(settings.Output.MaxItems, 50), scope = mode == "exact-text" ? "Exact text in repository paths, names, and bounded indexed text terms." : "Bounded one-edit fuzzy matching over indexed text terms; at most eight query terms and 50 candidates." });
+                    }
                     var matches = mode switch { "path" => catalog.FindExactPath(query), "name" => catalog.FindName(query), _ => catalog.Find(query) };
                     return Result.Ok(new { indexVersion = catalog.IndexVersion, indexIntegrity = "valid", matches = matches.Take(settings.Output.MaxItems).Select(file => file.Path), total = matches.Length, scope = "Git tracked + untracked, nonignored paths, names, and bounded text terms excluding the managed result store; use rg for symbols." });
                 case "repo affected-projects": return Result.Ok(await Projects.Affected(root, await Git.Changed(root, command.Get("base"))));
@@ -2304,7 +2309,7 @@ public sealed class Cli
             "uninstall" => ["home", "codex-home", "dry-run"],
             "doctor" => ["home", "codex-home"],
             "repo changed-files" or "repo affected-projects" or "repo summary" or "git summary" or "git conflict-forecast" => ["base"],
-            "repo locate" => ["query", "path", "name"],
+            "repo locate" => ["query", "path", "name", "exact-text", "fuzzy"],
             "repo ownership" => ["file"],
             "git issue-start" => ["issue", "branch"],
             "git stage-owned" => ["paths-file"],
@@ -2346,7 +2351,7 @@ public sealed class Cli
     public List<string> Words { get; } = [];
     public Dictionary<string, string?> Options { get; } = new(StringComparer.Ordinal);
     static readonly HashSet<string> Flags = ["json", "help", "version", "dry-run", "bin", "apply", "safe-input", "binlog", "failed-logs"];
-    static readonly HashSet<string> Values = ["root", "toolkit", "set", "home", "codex-home", "base", "expected", "baseline", "query", "name", "issue", "branch", "remote", "path", "paths-file", "message", "pr", "run-id", "project", "file", "sha256", "input", "output", "skill", "results", "configuration", "test", "class", "category", "filter", "process-id", "signal", "duration-seconds", "profile", "evidence-file", "tag", "hosted-file", "local-file", "commit"];
+    static readonly HashSet<string> Values = ["root", "toolkit", "set", "home", "codex-home", "base", "expected", "baseline", "query", "exact-text", "fuzzy", "name", "issue", "branch", "remote", "path", "paths-file", "message", "pr", "run-id", "project", "file", "sha256", "input", "output", "skill", "results", "configuration", "test", "class", "category", "filter", "process-id", "signal", "duration-seconds", "profile", "evidence-file", "tag", "hosted-file", "local-file", "commit"];
     public string? Get(string name) => Options.GetValueOrDefault(name);
     public bool Flag(string name) => Options.ContainsKey(name);
     public string Require(string name) => Get(name) is { Length: > 0 } v ? v : throw new ArgumentException($"--{name} is required.");
