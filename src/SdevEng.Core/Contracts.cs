@@ -14,7 +14,20 @@ public record ProcessResult(int ExitCode, string Output);
 
 public sealed record WorkspaceDiagnostic(string Id, string Kind, string Message, string? ProjectPath);
 public sealed record SolutionWorkspaceModel(string Path, string[] Projects, string[] CompilationAvailableProjects, WorkspaceDiagnostic[] Diagnostics);
-public sealed record SemanticSolutionModel(string Path, SemanticProjectModel[] Projects);
+public sealed record SemanticSolutionModel(string Path, SemanticProjectModel[] Projects)
+{
+    public SemanticProjectEdgeModel[] ProjectEdges { get; init; } = [];
+
+    public SemanticRelationshipQueryResult Relationships(string project, int limit)
+    {
+        if (limit < 1) throw new ArgumentOutOfRangeException(nameof(limit));
+        if (!Projects.Any(item => item.Path == project)) throw new ArgumentException("Project is not in the solution.", nameof(project));
+        var matches = ProjectEdges.Where(edge => edge.SourceProject == project || edge.TargetProject == project).ToArray();
+        return new(matches.Take(limit).ToArray(), matches.Length, limit, matches.Length > limit);
+    }
+}
+public sealed record SemanticProjectEdgeModel(string SourceProject, string TargetProject, string SourceKey, string TargetKey, string Kind, string Location);
+public sealed record SemanticRelationshipQueryResult(SemanticProjectEdgeModel[] Edges, int Total, int Limit, bool Truncated);
 public sealed record SemanticProjectModel(string Path, SemanticNamespaceModel[] Namespaces, SemanticTypeModel[] Types)
 {
     public SemanticReferenceModel[] References { get; init; } = [];
