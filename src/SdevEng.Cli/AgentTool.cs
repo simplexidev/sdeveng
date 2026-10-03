@@ -1015,6 +1015,7 @@ public static class AgentTool
         github pr-status | review-comments --pr NUMBER | prepare-pr | labels [--dry-run | --apply]
         github actions [--run-id NUMBER] [--failed-logs]
         dotnet inspect [--project PATH] | build-plan [--base REF] [--project PATH] [--configuration NAME] [--binlog]
+        dotnet semantic-model --project SOLUTION
         dotnet test-plan [--base REF] [--project PATH] [--configuration NAME]
             [--test NAME | --class NAME | --category NAME | --filter EXPR]
         dotnet diagnostics-plan [--process-id NUMBER] [--signal counters|cpu|contention|allocations|managed-memory|crash|hang]
@@ -1836,7 +1837,7 @@ public static class AgentTool
         [
             "dotnet verify", "dotnet format", "dotnet package-audit", "dotnet dependencies",
             "dotnet api-check", "dotnet release-verify", "dotnet inspect", "dotnet build-plan",
-            "dotnet test-plan", "dotnet diagnostics-plan"
+            "dotnet test-plan", "dotnet diagnostics-plan", "dotnet semantic-model"
         ];
 
         public bool CanHandle(Cli command) => Commands.Contains(command.Command, StringComparer.Ordinal);
@@ -1851,6 +1852,7 @@ public static class AgentTool
             {
                 "dotnet verify" or "dotnet format" or "dotnet package-audit" or "dotnet dependencies" or "dotnet api-check" or "dotnet release-verify" => await Dotnet(name, command, root, artifacts, settings),
                 "dotnet inspect" => Result.Ok(await DotnetFacts.Inspect(root, command.Get("project"))),
+                "dotnet semantic-model" => Result.Ok(await Projects.SemanticModel(root, command.Get("project") ?? throw new ArgumentException("dotnet semantic-model requires --project SOLUTION."))),
                 "dotnet build-plan" => Result.Ok(await DotnetFacts.BuildPlan(root, command.Get("project"), command.Get("base"), command.Get("configuration") ?? "Debug", command.Flag("binlog"))),
                 "dotnet test-plan" => Result.Ok(await DotnetFacts.TestPlan(root, command.Get("project"), command.Get("base"), command.Get("configuration") ?? "Debug", new(command.Get("test"), command.Get("class"), command.Get("category"), command.Get("filter")))),
                 "dotnet diagnostics-plan" => Result.Ok(await DotnetFacts.DiagnosticsPlan(command.Get("process-id"), command.Get("signal"), command.Get("duration-seconds"), root)),
@@ -2329,6 +2331,7 @@ public sealed class Cli
             "github actions" => ["run-id", "failed-logs"],
             "dotnet verify" => ["base", "project"],
             "dotnet inspect" => ["project"],
+            "dotnet semantic-model" => ["project"],
             "dotnet build-plan" => ["base", "project", "configuration", "binlog"],
             "dotnet test-plan" => ["base", "project", "configuration", "test", "class", "category", "filter"],
             "dotnet diagnostics-plan" => ["process-id", "signal", "duration-seconds"],

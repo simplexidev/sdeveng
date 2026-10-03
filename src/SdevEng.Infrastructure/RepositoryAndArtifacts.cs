@@ -8,6 +8,8 @@ using System.Text.RegularExpressions;
 using System.Xml.Linq;
 using Microsoft.Build.Locator;
 using Microsoft.CodeAnalysis.MSBuild;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 
 namespace SdevEng;
 
@@ -345,6 +347,54 @@ public static class Projects
             .ThenBy(item => item.Kind, StringComparer.Ordinal).ThenBy(item => item.Id, StringComparer.Ordinal)
             .ThenBy(item => item.Message, StringComparer.Ordinal).ToArray());
     }
+
+    public static async Task<SemanticSolutionModel> SemanticModel(string root, string solution)
+    {
+        var workspace = await LoadSolution(root, solution);
+        if (workspace.Projects.Any(path => Path.GetExtension(path) != ".csproj"))
+            throw new InvalidOperationException("Semantic models currently support C# projects only.");
+        if (workspace.Diagnostics.Any(diagnostic => diagnostic.Kind == "Failure") || workspace.CompilationAvailableProjects.Length != workspace.Projects.Length)
+            throw new InvalidOperationException("The solution is incomplete; semantic models require a compilation for every project.");
+
+        var repositoryRoot = Path.GetFullPath(root);
+        using var semanticWorkspace = MSBuildWorkspace.Create();
+        var solutionModel = await semanticWorkspace.OpenSolutionAsync(Path.GetFullPath(solution, repositoryRoot));
+        var projects = new List<SemanticProjectModel>();
+        foreach (var project in solutionModel.Projects.OrderBy(item => Path.GetFullPath(item.FilePath ?? item.Name), StringComparer.Ordinal))
+        {
+            if (project.Language != LanguageNames.CSharp)
+                throw new InvalidOperationException("The solution contains a project without C# semantic support.");
+            var compilation = await project.GetCompilationAsync();
+            if (compilation is null || compilation.GetDiagnostics().Any(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error))
+                throw new InvalidOperationException($"Project {Path.GetFileName(project.FilePath)} has incomplete semantic state.");
+            var types = new List<SemanticTypeModel>();
+            AddTypes(compilation.Assembly.GlobalNamespace, types);
+            projects.Add(new(Path.GetRelativePath(repositoryRoot, project.FilePath!).Replace('\\', '/'), types.OrderBy(type => type.Name, StringComparer.Ordinal).ToArray()));
+        }
+        return new(Path.GetFullPath(solution, repositoryRoot), projects.ToArray());
+    }
+
+    private static void AddTypes(INamespaceSymbol ns, List<SemanticTypeModel> result)
+    {
+        foreach (var child in ns.GetNamespaceMembers().OrderBy(item => item.Name, StringComparer.Ordinal)) AddTypes(child, result);
+        foreach (var type in ns.GetTypeMembers().OrderBy(item => item.Name, StringComparer.Ordinal))
+        {
+            result.Add(new(type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat), type.TypeKind.ToString(), type.DeclaredAccessibility.ToString(),
+                BaseTypes(type),
+                type.GetMembers().Where(member => !member.IsImplicitlyDeclared).Select(member => member.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)).Order(StringComparer.Ordinal).ToArray()));
+            foreach (var nested in type.GetTypeMembers().OrderBy(item => item.Name, StringComparer.Ordinal)) AddNested(nested, result);
+        }
+    }
+    private static void AddNested(INamedTypeSymbol type, List<SemanticTypeModel> result)
+    {
+        result.Add(new(type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat), type.TypeKind.ToString(), type.DeclaredAccessibility.ToString(),
+            BaseTypes(type),
+            type.GetMembers().Where(member => !member.IsImplicitlyDeclared).Select(member => member.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)).Order(StringComparer.Ordinal).ToArray()));
+        foreach (var nested in type.GetTypeMembers().OrderBy(item => item.Name, StringComparer.Ordinal)) AddNested(nested, result);
+    }
+    private static string[] BaseTypes(INamedTypeSymbol type) =>
+        (type.BaseType is { SpecialType: not SpecialType.System_Object } baseType ? new[] { baseType } : Enumerable.Empty<INamedTypeSymbol>())
+        .Concat(type.Interfaces).Select(item => item.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)).Order(StringComparer.Ordinal).ToArray();
 
     private static async Task<string[]> InSolutionProjectPaths(string root, string solution)
     {
