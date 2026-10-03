@@ -1556,8 +1556,12 @@ public static class AgentTool
                         return Result.Ok(new { indexVersion = catalog.IndexVersion, indexIntegrity = "valid", candidates = ranked, total = ranked.Length, limit = Math.Min(settings.Output.MaxItems, 50), scope = mode == "exact-text" ? "Exact text in repository paths, names, and bounded indexed text terms." : "Bounded one-edit fuzzy matching over indexed text terms; at most eight query terms and 50 candidates." });
                     }
                     var matches = mode switch { "path" => catalog.FindExactPath(query), "name" => catalog.FindName(query), _ => catalog.Find(query) };
-                    return Result.Ok(new { indexVersion = catalog.IndexVersion, indexIntegrity = "valid", matches = matches.Take(settings.Output.MaxItems).Select(file => file.Path), total = matches.Length, scope = "Git tracked + untracked, nonignored paths, names, and bounded text terms excluding the managed result store; use rg for symbols." });
-                case "repo affected-projects": return Result.Ok(await Projects.Affected(root, await Git.Changed(root, command.Get("base"))));
+                    var boundedMatches = matches.Take(settings.Output.MaxItems).ToArray();
+                    return Result.Ok(new { indexVersion = catalog.IndexVersion, indexIntegrity = "valid", matches = boundedMatches.Select(file => new { path = file.Path, evidenceKey = RepositoryLocationKey.Create(file.Path) }), total = matches.Length, limit = settings.Output.MaxItems, truncated = matches.Length > boundedMatches.Length, scope = "Git tracked + untracked, nonignored paths, names, and bounded text terms excluding the managed result store; use rg for symbols." });
+                case "repo affected-projects":
+                    var affected = await Projects.Affected(root, await Git.Changed(root, command.Get("base")));
+                    var affectedProjects = affected.Projects.Take(settings.Output.MaxItems).ToArray();
+                    return Result.Ok(new { projects = affectedProjects.Select(path => new { path = Path.GetRelativePath(root, path).Replace('\\', '/'), evidenceKey = RepositoryLocationKey.Create(Path.GetRelativePath(root, path)) }), total = affected.Projects.Length, limit = settings.Output.MaxItems, truncated = affected.Projects.Length > affectedProjects.Length, reason = affected.Reason });
                 case "repo ownership": return Result.Ok(await Projects.Ownership(root, command.Require("file")));
                 case "repo health":
                     var health = await Projects.Health(root, settings.Health);

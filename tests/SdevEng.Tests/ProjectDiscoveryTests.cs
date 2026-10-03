@@ -30,6 +30,7 @@ public class ProjectDiscoveryTests
         Assert.Empty(catalog.FindExactPath("Needle.cs"));
         Assert.Equal(new[] { "z/Needle.cs" }, catalog.FindName("needle").Select(file => file.Path));
         Assert.Equal("z/Needle.cs", catalog.SearchExactText("Needle", 10)[0].Path);
+        Assert.Equal("repo:z/Needle.cs", catalog.SearchExactText("Needle", 10)[0].EvidenceKey);
         Assert.Equal("a/other.txt", catalog.SearchFuzzyTerms("bodi", 10)[0].Path);
         Assert.Throws<ArgumentOutOfRangeException>(() => catalog.SearchFuzzyTerms("body", 201));
     }
@@ -59,13 +60,33 @@ public class ProjectDiscoveryTests
 
         var exact = await CommandTestRuntime.Execute(Cli.Parse(["repo", "locate", "--path", "src/Needle.cs"]), AgentTool.FindToolkit(), repo.Root, new(new(), new(), new(), new()));
         var exactJson = System.Text.Json.JsonSerializer.SerializeToNode(exact.Data, AgentTool.Json)!;
-        Assert.Equal(new[] { "src/Needle.cs" }, exactJson["matches"]!.AsArray().Select(item => item!.GetValue<string>()));
+        Assert.Equal(new[] { "src/Needle.cs" }, exactJson["matches"]!.AsArray().Select(item => item!["path"]!.GetValue<string>()));
+        Assert.Equal("repo:src/Needle.cs", exactJson["matches"]![0]!["evidenceKey"]!.GetValue<string>());
         Assert.Equal(1, exactJson["total"]!.GetValue<int>());
 
         var byName = await CommandTestRuntime.Execute(Cli.Parse(["repo", "locate", "--name", "needle"]), AgentTool.FindToolkit(), repo.Root, new(new(), new(), new(), new()));
         var nameJson = System.Text.Json.JsonSerializer.SerializeToNode(byName.Data, AgentTool.Json)!;
-        Assert.Equal(new[] { "src/Needle.cs" }, nameJson["matches"]!.AsArray().Select(item => item!.GetValue<string>()));
+        Assert.Equal(new[] { "src/Needle.cs" }, nameJson["matches"]!.AsArray().Select(item => item!["path"]!.GetValue<string>()));
         Assert.Equal(1, nameJson["total"]!.GetValue<int>());
+    }
+
+    [Fact]
+    public async Task LocateAndAffectedProjectsReturnBoundedStableEvidenceLocations()
+    {
+        using var repo = new TemporaryGitRepository();
+        repo.Write("src/A.csproj", Project); repo.Write("src/A.cs", "class A {}"); repo.Write("lib/B.csproj", Project);
+        var settings = new Settings(new(), new() { MaxItems = 1 }, new(), new());
+        var locate = await CommandTestRuntime.Execute(Cli.Parse(["repo", "locate", "--query", ".csproj"]), AgentTool.FindToolkit(), repo.Root, settings);
+        var locateJson = System.Text.Json.JsonSerializer.SerializeToNode(locate.Data, AgentTool.Json)!;
+        Assert.Equal(2, locateJson["total"]!.GetValue<int>());
+        Assert.True(locateJson["truncated"]!.GetValue<bool>());
+        Assert.Equal("repo:lib/B.csproj", locateJson["matches"]![0]!["evidenceKey"]!.GetValue<string>());
+
+        var affected = await CommandTestRuntime.Execute(Cli.Parse(["repo", "affected-projects"]), AgentTool.FindToolkit(), repo.Root, settings);
+        var affectedJson = System.Text.Json.JsonSerializer.SerializeToNode(affected.Data, AgentTool.Json)!;
+        Assert.Equal(2, affectedJson["total"]!.GetValue<int>());
+        Assert.True(affectedJson["truncated"]!.GetValue<bool>());
+        Assert.Equal("repo:lib/B.csproj", affectedJson["projects"]![0]!["evidenceKey"]!.GetValue<string>());
     }
     [Fact]
     public void FileCatalogIntegrityRejectsUnsortedDuplicateAndUnboundedEntries()
