@@ -53,6 +53,13 @@ public class SolutionDiscoveryTests
         Assert.EndsWith("src/Thing.cs:1:30", type.Location, StringComparison.Ordinal);
         Assert.Equal(type.StableKey, Assert.Single(repeated.Projects).Types.Single(item => item.Name == type.Name).StableKey);
         Assert.Equal(new[] { "global::Demo.Base", "global::Demo.IThing" }, type.BaseTypes);
+        Assert.Equal(new[]
+        {
+            new SemanticTypeRelationshipModel("T:Demo.IThing", "T:Demo.IBase", "inherits"),
+            new SemanticTypeRelationshipModel("T:Demo.Thing", "T:Demo.IThing", "implements"),
+            new SemanticTypeRelationshipModel("T:Demo.Thing", "T:Demo.Base", "inherits")
+        }, projectModel.TypeRelationships);
+        Assert.Equal(projectModel.TypeRelationships, Assert.Single(repeated.Projects).TypeRelationships);
         Assert.Contains(type.Members, member => member.Contains("Name", StringComparison.Ordinal));
         Assert.Contains(type.Callables, callable => callable.Kind == "Constructor" && callable.Location.EndsWith(":1:60", StringComparison.Ordinal));
         Assert.Contains(type.Callables, callable => callable.Kind == "Method" && callable.Name == "Run" && callable.Location.EndsWith(":1:170", StringComparison.Ordinal));

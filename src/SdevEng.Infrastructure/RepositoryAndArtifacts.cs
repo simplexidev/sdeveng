@@ -370,7 +370,8 @@ public static class Projects
                 throw new InvalidOperationException($"Project {Path.GetFileName(project.FilePath)} has incomplete semantic state.");
             var types = new List<SemanticTypeModel>();
             var namespaces = new List<SemanticNamespaceModel>();
-            AddSymbols(compilation.Assembly.GlobalNamespace, namespaces, types);
+            var relationships = new List<SemanticTypeRelationshipModel>();
+            AddSymbols(compilation.Assembly.GlobalNamespace, namespaces, types, relationships);
             var references = new List<SemanticReferenceModel>();
             var callSites = new List<SemanticCallSiteModel>();
             foreach (var document in project.Documents.OrderBy(item => item.FilePath, StringComparer.Ordinal))
@@ -396,34 +397,45 @@ public static class Projects
                 namespaces.OrderBy(item => item.Name, StringComparer.Ordinal).ToArray(), types.OrderBy(type => type.Name, StringComparer.Ordinal).ToArray())
             {
                 References = references.OrderBy(item => item.Location, StringComparer.Ordinal).ThenBy(item => item.TargetKey, StringComparer.Ordinal).ToArray(),
-                CallSites = callSites.OrderBy(item => item.Location, StringComparer.Ordinal).ThenBy(item => item.TargetKey, StringComparer.Ordinal).ToArray()
+                CallSites = callSites.OrderBy(item => item.Location, StringComparer.Ordinal).ThenBy(item => item.TargetKey, StringComparer.Ordinal).ToArray(),
+                TypeRelationships = relationships.OrderBy(item => item.SourceKey, StringComparer.Ordinal).ThenBy(item => item.Kind, StringComparer.Ordinal).ThenBy(item => item.TargetKey, StringComparer.Ordinal).ToArray()
             });
         }
         return new(Path.GetFullPath(solution, repositoryRoot), projects.ToArray());
     }
 
-    private static void AddSymbols(INamespaceSymbol ns, List<SemanticNamespaceModel> namespaces, List<SemanticTypeModel> result)
+    private static void AddSymbols(INamespaceSymbol ns, List<SemanticNamespaceModel> namespaces, List<SemanticTypeModel> result, List<SemanticTypeRelationshipModel> relationships)
     {
         if (!ns.IsGlobalNamespace) namespaces.Add(new(ns.ToDisplayString()));
-        foreach (var child in ns.GetNamespaceMembers().OrderBy(item => item.Name, StringComparer.Ordinal)) AddSymbols(child, namespaces, result);
+        foreach (var child in ns.GetNamespaceMembers().OrderBy(item => item.Name, StringComparer.Ordinal)) AddSymbols(child, namespaces, result, relationships);
         foreach (var type in ns.GetTypeMembers().OrderBy(item => item.Name, StringComparer.Ordinal))
         {
+            AddRelationships(type, relationships);
             result.Add(new(type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat), type.TypeKind.ToString(), type.DeclaredAccessibility.ToString(),
                 BaseTypes(type),
                 type.GetMembers().Where(member => !member.IsImplicitlyDeclared).Select(member => member.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)).Order(StringComparer.Ordinal).ToArray(),
                 Callables(type))
             { StableKey = StableKey(type), Location = SymbolLocation(type), DataMembers = DataMembers(type) });
-            foreach (var nested in type.GetTypeMembers().OrderBy(item => item.Name, StringComparer.Ordinal)) AddNested(nested, result);
+            foreach (var nested in type.GetTypeMembers().OrderBy(item => item.Name, StringComparer.Ordinal)) AddNested(nested, result, relationships);
         }
     }
-    private static void AddNested(INamedTypeSymbol type, List<SemanticTypeModel> result)
+    private static void AddNested(INamedTypeSymbol type, List<SemanticTypeModel> result, List<SemanticTypeRelationshipModel> relationships)
     {
+        AddRelationships(type, relationships);
         result.Add(new(type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat), type.TypeKind.ToString(), type.DeclaredAccessibility.ToString(),
             BaseTypes(type),
             type.GetMembers().Where(member => !member.IsImplicitlyDeclared).Select(member => member.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)).Order(StringComparer.Ordinal).ToArray(),
             Callables(type))
         { StableKey = StableKey(type), Location = SymbolLocation(type), DataMembers = DataMembers(type) });
-        foreach (var nested in type.GetTypeMembers().OrderBy(item => item.Name, StringComparer.Ordinal)) AddNested(nested, result);
+        foreach (var nested in type.GetTypeMembers().OrderBy(item => item.Name, StringComparer.Ordinal)) AddNested(nested, result, relationships);
+    }
+    private static void AddRelationships(INamedTypeSymbol type, List<SemanticTypeRelationshipModel> relationships)
+    {
+        var source = StableKey(type);
+        if (type.BaseType is { SpecialType: not SpecialType.System_Object } baseType)
+            relationships.Add(new(source, StableKey(baseType), "inherits"));
+        foreach (var contract in type.Interfaces)
+            relationships.Add(new(source, StableKey(contract), type.TypeKind == TypeKind.Interface ? "inherits" : "implements"));
     }
     private static SemanticCallableModel[] Callables(INamedTypeSymbol type) => type.GetMembers()
         .Where(member => !member.IsImplicitlyDeclared && member is IMethodSymbol { MethodKind: MethodKind.Ordinary or MethodKind.Constructor or MethodKind.StaticConstructor })
