@@ -90,6 +90,33 @@ public class SolutionDiscoveryTests
     }
 
     [Fact]
+    public async Task IndexesCrossProjectEdgesAndBoundsRelationshipQuery()
+    {
+        using var repo = new TemporaryGitRepository();
+        repo.Write("A/A.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>");
+        repo.Write("A/Thing.cs", "namespace Demo; public class Thing { public void Run() { } }");
+        repo.Write("B/B.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup><ItemGroup><ProjectReference Include=\"../A/A.csproj\" /></ItemGroup></Project>");
+        repo.Write("B/Use.cs", "namespace Demo; public class Use { public void Go() { var thing = new Thing(); thing.Run(); } }");
+        Assert.Equal(0, (await Processes.Run("dotnet", ["new", "sln", "-n", "App", "--format", "sln", "--force"], repo.Root)).ExitCode);
+        Assert.Equal(0, (await Processes.Run("dotnet", ["sln", "App.sln", "add", "A/A.csproj", "B/B.csproj"], repo.Root)).ExitCode);
+
+        var model = await Projects.SemanticModel(repo.Root, "App.sln");
+        Assert.Contains(model.ProjectEdges, edge => edge.SourceProject == "B/B.csproj" && edge.TargetProject == "A/A.csproj" && edge.TargetKey == "M:Demo.Thing.Run" && edge.Kind == "call");
+        Assert.Equal(model.ProjectEdges, (await Projects.SemanticModel(repo.Root, "App.sln")).ProjectEdges);
+        var query = model.Relationships("A/A.csproj", 1);
+        Assert.Single(query.Edges);
+        Assert.True(query.Truncated);
+        Assert.Equal(model.ProjectEdges.Length, query.Total);
+        Assert.Throws<ArgumentException>(() => model.Relationships("missing.csproj", 1));
+        Assert.Throws<ArgumentOutOfRangeException>(() => model.Relationships("A/A.csproj", 0));
+        var routed = await new AgentTool.DotnetCommandModule().Execute(
+            Cli.Parse(["dotnet", "relationships", "--project", "App.sln", "--path", "A/A.csproj"]),
+            AgentTool.FindToolkit(), repo.Root, new(new(), new(), new(), new()), CancellationToken.None);
+        Assert.Equal("ok", routed.Status);
+        Assert.Contains("M:Demo.Thing.Run", System.Text.Json.JsonSerializer.Serialize(routed.Data, AgentTool.Json), StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task RejectsSolutionWithIncompleteSemanticState()
     {
         using var repo = new TemporaryGitRepository();

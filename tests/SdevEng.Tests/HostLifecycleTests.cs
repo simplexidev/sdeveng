@@ -79,6 +79,8 @@ public sealed class HostLifecycleTests
             ("dotnet build-plan", typeof(AgentTool.DotnetCommandModule)),
             ("dotnet test-plan", typeof(AgentTool.DotnetCommandModule)),
             ("dotnet diagnostics-plan", typeof(AgentTool.DotnetCommandModule)),
+            ("dotnet semantic-model", typeof(AgentTool.DotnetCommandModule)),
+            ("dotnet relationships", typeof(AgentTool.DotnetCommandModule)),
             ("dotnet verify", typeof(AgentTool.DotnetCommandModule)),
             ("dotnet format", typeof(AgentTool.DotnetCommandModule)),
             ("dotnet dependencies", typeof(AgentTool.DotnetCommandModule)),
@@ -433,7 +435,7 @@ public sealed class HostLifecycleTests
         {
             "dotnet verify", "dotnet format", "dotnet package-audit", "dotnet dependencies",
             "dotnet api-check", "dotnet release-verify", "dotnet inspect", "dotnet build-plan",
-            "dotnet test-plan", "dotnet diagnostics-plan"
+            "dotnet test-plan", "dotnet diagnostics-plan", "dotnet semantic-model", "dotnet relationships"
         };
         foreach (var command in commands) Assert.True(module.CanHandle(Cli.Parse(command.Split(' '))));
         Assert.False(module.CanHandle(Cli.Parse(["logs", "summarize"])));

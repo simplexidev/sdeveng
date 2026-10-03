@@ -361,6 +361,8 @@ public static class Projects
         using var semanticWorkspace = MSBuildWorkspace.Create();
         var solutionModel = await semanticWorkspace.OpenSolutionAsync(Path.GetFullPath(solution, repositoryRoot));
         var projects = new List<SemanticProjectModel>();
+        var edges = new List<SemanticProjectEdgeModel>();
+        var projectCompilations = new List<(Microsoft.CodeAnalysis.Project Project, Compilation Compilation)>();
         foreach (var project in solutionModel.Projects.OrderBy(item => Path.GetFullPath(item.FilePath ?? item.Name), StringComparer.Ordinal))
         {
             if (project.Language != LanguageNames.CSharp)
@@ -368,6 +370,11 @@ public static class Projects
             var compilation = await project.GetCompilationAsync();
             if (compilation is null || compilation.GetDiagnostics().Any(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error))
                 throw new InvalidOperationException($"Project {Path.GetFileName(project.FilePath)} has incomplete semantic state.");
+            projectCompilations.Add((project, compilation));
+        }
+        foreach (var (project, compilation) in projectCompilations)
+        {
+            var sourceProject = Path.GetRelativePath(repositoryRoot, project.FilePath!).Replace('\\', '/');
             var types = new List<SemanticTypeModel>();
             var namespaces = new List<SemanticNamespaceModel>();
             var relationships = new List<SemanticTypeRelationshipModel>();
@@ -388,6 +395,13 @@ public static class Projects
                     var callerKey = caller is null ? null : StableKey(caller);
                     var line = node.GetLocation().GetLineSpan();
                     var location = $"{Path.GetRelativePath(repositoryRoot, line.Path).Replace('\\', '/')}:{line.StartLinePosition.Line + 1}:{line.StartLinePosition.Character + 1}";
+                    var targetAssembly = symbol.ContainingAssembly;
+                    var targetProject = projectCompilations.FirstOrDefault(item =>
+                        !ReferenceEquals(item.Project, project) && targetAssembly is not null &&
+                        SymbolEqualityComparer.Default.Equals(item.Compilation.Assembly, targetAssembly)).Project;
+                    if (targetProject is not null)
+                        edges.Add(new(sourceProject, Path.GetRelativePath(repositoryRoot, targetProject.FilePath!).Replace('\\', '/'),
+                            callerKey ?? "", StableKey(symbol), node is InvocationExpressionSyntax or ObjectCreationExpressionSyntax ? "call" : "reference", location));
                     if (node is InvocationExpressionSyntax or ObjectCreationExpressionSyntax)
                         callSites.Add(new(StableKey(symbol), location, callerKey));
                     else references.Add(new(StableKey(symbol), location, callerKey));
@@ -401,7 +415,12 @@ public static class Projects
                 TypeRelationships = relationships.OrderBy(item => item.SourceKey, StringComparer.Ordinal).ThenBy(item => item.Kind, StringComparer.Ordinal).ThenBy(item => item.TargetKey, StringComparer.Ordinal).ToArray()
             });
         }
-        return new(Path.GetFullPath(solution, repositoryRoot), projects.ToArray());
+        return new(Path.GetFullPath(solution, repositoryRoot), projects.ToArray())
+        {
+            ProjectEdges = edges.Distinct().OrderBy(item => item.SourceProject, StringComparer.Ordinal)
+                .ThenBy(item => item.TargetProject, StringComparer.Ordinal).ThenBy(item => item.Location, StringComparer.Ordinal)
+                .ThenBy(item => item.Kind, StringComparer.Ordinal).ThenBy(item => item.TargetKey, StringComparer.Ordinal).ToArray()
+        };
     }
 
     private static void AddSymbols(INamespaceSymbol ns, List<SemanticNamespaceModel> namespaces, List<SemanticTypeModel> result, List<SemanticTypeRelationshipModel> relationships)
