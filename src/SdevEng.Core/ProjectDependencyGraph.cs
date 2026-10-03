@@ -3,6 +3,22 @@ namespace SdevEng;
 /// <summary>A deterministic project-reference graph. Each edge points from a project to its dependency.</summary>
 public sealed record ProjectDependencyGraph(string[] Nodes, ProjectDependencyEdge[] Edges)
 {
+    public string[] AffectedProjects(IEnumerable<string> owners)
+    {
+        var selected = owners.ToHashSet(StringComparer.Ordinal);
+        bool added;
+        do
+        {
+            added = false;
+            foreach (var edge in Edges)
+                if (selected.Contains(edge.To)) added |= selected.Add(edge.From);
+        } while (added);
+        return selected.Order(StringComparer.Ordinal).ToArray();
+    }
+
+    public string[] AffectedTestProjects(IEnumerable<string> owners, IEnumerable<string> testProjects) =>
+        AffectedProjects(owners).Intersect(testProjects, StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+
     public ProjectDependencyValidation Validate()
     {
         var nodes = Nodes.ToHashSet(StringComparer.Ordinal);
