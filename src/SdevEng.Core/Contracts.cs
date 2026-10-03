@@ -12,6 +12,9 @@ public record ProcessReport(int ProcessExitCode, object Summary, string Artifact
 }
 public record ProcessResult(int ExitCode, string Output);
 
+public sealed record WorkspaceDiagnostic(string Id, string Kind, string Message, string? ProjectPath);
+public sealed record SolutionWorkspaceModel(string Path, string[] Projects, WorkspaceDiagnostic[] Diagnostics);
+
 public sealed record VerificationResult(int SchemaVersion, string Source, string Check, string Status, int ExitCode, string Artifact)
 {
     public string? EnvironmentIdentity { get; init; }
