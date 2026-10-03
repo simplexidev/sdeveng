@@ -260,7 +260,7 @@ public class MetadataTests
         var result = await CommandTestRuntime.Execute(Cli.Parse(["tools", "list"]), AgentTool.FindToolkit(), Root, new(new(), new(), new(), new()));
         var json = JsonNode.Parse(JsonSerializer.Serialize(result.Data, AgentTool.Json))!;
         Assert.Equal("tool-descriptors", json["kind"]!.GetValue<string>());
-        Assert.Equal(5, json["tools"]!.AsArray().Count);
+        Assert.Equal(6, json["tools"]!.AsArray().Count);
         Assert.All(json["tools"]!.AsArray(), tool => Assert.True(tool!["readOnly"]!.GetValue<bool>()));
     }
     [Fact]
