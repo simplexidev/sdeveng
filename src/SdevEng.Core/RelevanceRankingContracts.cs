@@ -35,5 +35,17 @@ public interface IRelevanceRankingProvider
     Task<IReadOnlyList<RelevanceRankingScore>> RankAsync(RelevanceRankingInput input, CancellationToken cancellationToken = default);
 }
 
+/// <summary>Safe default that abstains from semantic ranking without external calls.</summary>
+public sealed class AbstainingRelevanceRankingProvider : IRelevanceRankingProvider
+{
+    public Task<IReadOnlyList<RelevanceRankingScore>> RankAsync(RelevanceRankingInput input, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(input);
+        input.Validate();
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult<IReadOnlyList<RelevanceRankingScore>>(Array.Empty<RelevanceRankingScore>());
+    }
+}
+
 /// <summary>A provider's relevance score for one candidate in the supplied input.</summary>
 public record RelevanceRankingScore(string CandidateId, double Score);
