@@ -30,7 +30,7 @@ public class SolutionDiscoveryTests
     {
         using var repo = new TemporaryGitRepository();
         repo.Write("src/App.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>");
-        repo.Write("src/Thing.cs", "namespace Demo; public class Thing { public string Name => \"thing\"; }");
+        repo.Write("src/Thing.cs", "namespace Demo; public class Thing { public Thing() { } public string Name => \"thing\"; public void Run() { } }");
         var project = Path.Combine(repo.Root, "src", "App.csproj");
         var create = await Processes.Run("dotnet", ["new", "sln", "-n", "App", "--format", "sln", "--force"], repo.Root);
         Assert.Equal(0, create.ExitCode);
@@ -45,6 +45,8 @@ public class SolutionDiscoveryTests
         Assert.Equal("global::Demo.Thing", type.Name);
         Assert.Equal("Class", type.Kind);
         Assert.Contains(type.Members, member => member.Contains("Name", StringComparison.Ordinal));
+        Assert.Contains(type.Callables, callable => callable.Kind == "Constructor" && callable.Location.EndsWith(":1:45", StringComparison.Ordinal));
+        Assert.Contains(type.Callables, callable => callable.Kind == "Method" && callable.Name == "Run" && callable.Location.EndsWith(":1:100", StringComparison.Ordinal));
     }
 
     [Fact]
