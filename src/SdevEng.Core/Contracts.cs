@@ -30,10 +30,14 @@ public sealed record SemanticProjectEdgeModel(string SourceProject, string Targe
 public sealed record SemanticRelationshipQueryResult(SemanticProjectEdgeModel[] Edges, int Total, int Limit, bool Truncated);
 public sealed record SemanticProjectModel(string Path, SemanticNamespaceModel[] Namespaces, SemanticTypeModel[] Types)
 {
+    public bool IsTest { get; init; }
+    public string TestFramework { get; init; } = "unknown";
+    public SemanticTestMethodModel[] TestMethods { get; init; } = [];
     public SemanticReferenceModel[] References { get; init; } = [];
     public SemanticCallSiteModel[] CallSites { get; init; } = [];
     public SemanticTypeRelationshipModel[] TypeRelationships { get; init; } = [];
 }
+public sealed record SemanticTestMethodModel(string StableKey, string Location, string Framework);
 public sealed record SemanticTypeRelationshipModel(string SourceKey, string TargetKey, string Kind);
 public sealed record SemanticReferenceModel(string TargetKey, string Location, string? CallerKey);
 public sealed record SemanticCallSiteModel(string TargetKey, string Location, string? CallerKey);

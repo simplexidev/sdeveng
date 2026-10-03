@@ -375,6 +375,11 @@ public static class Projects
         foreach (var (project, compilation) in projectCompilations)
         {
             var sourceProject = Path.GetRelativePath(repositoryRoot, project.FilePath!).Replace('\\', '/');
+            var evaluation = await Evaluate(repositoryRoot, project.FilePath!);
+            var properties = evaluation["Properties"]!;
+            var isTest = IsTestProperty(properties);
+            var packageNames = evaluation["Items"]?["PackageReference"]?.AsArray().Select(item => item?["Identity"]?.GetValue<string>()).OfType<string>() ?? [];
+            var testFramework = DotnetFacts.DetectTestProfile(repositoryRoot, properties, packageNames).Framework;
             var types = new List<SemanticTypeModel>();
             var namespaces = new List<SemanticNamespaceModel>();
             var relationships = new List<SemanticTypeRelationshipModel>();
@@ -410,6 +415,9 @@ public static class Projects
             projects.Add(new(Path.GetRelativePath(repositoryRoot, project.FilePath!).Replace('\\', '/'),
                 namespaces.OrderBy(item => item.Name, StringComparer.Ordinal).ToArray(), types.OrderBy(type => type.Name, StringComparer.Ordinal).ToArray())
             {
+                IsTest = isTest,
+                TestFramework = testFramework,
+                TestMethods = isTest ? TestMethods(compilation.Assembly.GlobalNamespace, testFramework) : [],
                 References = references.OrderBy(item => item.Location, StringComparer.Ordinal).ThenBy(item => item.TargetKey, StringComparer.Ordinal).ToArray(),
                 CallSites = callSites.OrderBy(item => item.Location, StringComparer.Ordinal).ThenBy(item => item.TargetKey, StringComparer.Ordinal).ToArray(),
                 TypeRelationships = relationships.OrderBy(item => item.SourceKey, StringComparer.Ordinal).ThenBy(item => item.Kind, StringComparer.Ordinal).ThenBy(item => item.TargetKey, StringComparer.Ordinal).ToArray()
@@ -421,6 +429,42 @@ public static class Projects
                 .ThenBy(item => item.TargetProject, StringComparer.Ordinal).ThenBy(item => item.Location, StringComparer.Ordinal)
                 .ThenBy(item => item.Kind, StringComparer.Ordinal).ThenBy(item => item.TargetKey, StringComparer.Ordinal).ToArray()
         };
+    }
+
+    private static bool IsTestProperty(JsonNode properties) => string.Equals(properties["IsTestProject"]?.GetValue<string>(), "true", StringComparison.OrdinalIgnoreCase);
+
+    private static SemanticTestMethodModel[] TestMethods(INamespaceSymbol root, string framework)
+    {
+        var methods = new List<SemanticTestMethodModel>();
+        void VisitType(INamedTypeSymbol type)
+        {
+            foreach (var method in type.GetMembers().OfType<IMethodSymbol>().Where(item => item.MethodKind == MethodKind.Ordinary && !item.IsImplicitlyDeclared))
+            {
+                if (method.GetAttributes().Any(attribute => IsTestAttribute(attribute.AttributeClass, framework)))
+                    methods.Add(new(StableKey(method), SymbolLocation(method), framework));
+            }
+            foreach (var nested in type.GetTypeMembers()) VisitType(nested);
+        }
+        void VisitNamespace(INamespaceSymbol ns)
+        {
+            foreach (var type in ns.GetTypeMembers()) VisitType(type);
+            foreach (var child in ns.GetNamespaceMembers()) VisitNamespace(child);
+        }
+        VisitNamespace(root);
+        return methods.OrderBy(item => item.StableKey, StringComparer.Ordinal).ThenBy(item => item.Location, StringComparer.Ordinal).ToArray();
+    }
+
+    private static bool IsTestAttribute(INamedTypeSymbol? attribute, string framework)
+    {
+        for (var current = attribute; current is not null; current = current.BaseType)
+        {
+            var name = current.ToDisplayString();
+            if (framework is "xunit-v2" or "xunit-v3" && name is ("Xunit.FactAttribute" or "Xunit.TheoryAttribute")) return true;
+            if (framework == "nunit" && name is ("NUnit.Framework.TestAttribute" or "NUnit.Framework.TestCaseAttribute" or "NUnit.Framework.TestCaseSourceAttribute")) return true;
+            if (framework == "mstest" && name is ("Microsoft.VisualStudio.TestTools.UnitTesting.TestMethodAttribute" or "Microsoft.VisualStudio.TestTools.UnitTesting.DataTestMethodAttribute")) return true;
+            if (framework == "tunit" && name == "TUnit.Core.TestAttribute") return true;
+        }
+        return false;
     }
 
     private static void AddSymbols(INamespaceSymbol ns, List<SemanticNamespaceModel> namespaces, List<SemanticTypeModel> result, List<SemanticTypeRelationshipModel> relationships)
@@ -802,6 +846,7 @@ public static class DotnetFacts
     static IEnumerable<string> Frameworks(JsonNode properties) => (properties["TargetFrameworks"]?.GetValue<string>() is { Length: > 0 } frameworks ? frameworks : properties["TargetFramework"]?.GetValue<string>() ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
     static string[] Lines(ProcessResult result) => result.ExitCode == 0 ? result.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries) : [];
     static string? ItemValue(JsonNode? item, string name) => item?[name]?.GetValue<string>() ?? item?["Metadata"]?[name]?.GetValue<string>();
+    internal static TestProfile DetectTestProfile(string root, JsonNode properties, IEnumerable<string> packages) => TestProfileFor(root, properties, packages);
     static TestProfile TestProfileFor(string root, JsonNode properties, IEnumerable<string> packages)
     {
         var names = packages.ToHashSet(StringComparer.OrdinalIgnoreCase);

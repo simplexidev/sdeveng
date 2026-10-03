@@ -2,6 +2,20 @@ namespace SdevEng.Tests;
 
 public class SolutionDiscoveryTests
 {
+    [Fact]
+    public async Task IndexesOnlyAttributedMethodsInTestProjects()
+    {
+        using var repo = new TemporaryGitRepository();
+        repo.Write("Tests/Tests.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net10.0</TargetFramework><IsTestProject>true</IsTestProject></PropertyGroup><ItemGroup><PackageReference Include=\"xunit\" Version=\"2.9.3\" /></ItemGroup></Project>");
+        repo.Write("Tests/Tests.cs", "namespace Xunit { public class FactAttribute : System.Attribute {} public class TheoryAttribute : FactAttribute {} } namespace Demo { public class Tests { [Xunit.Fact] public void A() {} [Xunit.Theory] public void B() {} public void Helper() {} } }");
+        Assert.Equal(0, (await Processes.Run("dotnet", ["new", "sln", "-n", "App", "--format", "sln", "--force"], repo.Root)).ExitCode);
+        Assert.Equal(0, (await Processes.Run("dotnet", ["sln", "App.sln", "add", "Tests/Tests.csproj"], repo.Root)).ExitCode);
+        var project = Assert.Single((await Projects.SemanticModel(repo.Root, "App.sln")).Projects);
+        Assert.True(project.IsTest);
+        Assert.Equal("xunit-v2", project.TestFramework);
+        Assert.Equal(new[] { "M:Demo.Tests.A", "M:Demo.Tests.B" }, project.TestMethods.Select(item => item.StableKey));
+        Assert.All(project.TestMethods, item => Assert.Contains("Tests/Tests.cs:", item.Location, StringComparison.Ordinal));
+    }
     [Fact] public void FindsBothSolutionFormats() { using var repo = new TemporaryGitRepository(); repo.Write("A.sln", "Microsoft Visual Studio Solution File, Format Version 12.00"); repo.Write("nested/B.slnx", "<Solution />"); repo.Write("obj/ignored.slnx", "<Solution />"); Assert.Equal(2, Projects.Solutions(repo.Root).Length); }
 
     [Fact]
