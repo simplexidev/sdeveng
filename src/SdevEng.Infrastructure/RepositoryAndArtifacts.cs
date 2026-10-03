@@ -609,7 +609,9 @@ public static class Projects
         // Removed linked files and custom build inputs cannot always be inferred from evaluated Compile items.
         if (paths.Any(p => !projects.Any(project => p.StartsWith(Path.GetDirectoryName(project)! + Path.DirectorySeparatorChar, StringComparison.Ordinal))))
             return new(projects, "Change outside project directories; conservative full graph for custom or removed linked inputs.");
-        return new(graph.AffectedProjects(selected), "Evaluated Compile/ProjectReference graph including transitive dependents.");
+        var affected = graph.AffectedProjects(selected);
+        return new(affected, "Evaluated Compile/ProjectReference graph including transitive dependents.",
+            affected.ToDictionary(project => project, project => graph.ExplanationPath(selected, project)!, StringComparer.Ordinal));
     }
     public static async Task<bool> HasApiChecks(string root, string path)
     {
@@ -667,7 +669,7 @@ public static class Projects
         return findings;
     }
 }
-public record Affected(string[] Projects, string Reason);
+public record Affected(string[] Projects, string Reason, IReadOnlyDictionary<string, string[]>? ExplanationPaths = null);
 
 public static class DotnetFacts
 {

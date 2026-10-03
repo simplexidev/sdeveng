@@ -1566,7 +1566,10 @@ public static class AgentTool
                 case "repo affected-projects":
                     var affected = await Projects.Affected(root, await Git.Changed(root, command.Get("base")));
                     var affectedProjects = affected.Projects.Take(settings.Output.MaxItems).ToArray();
-                    return Result.Ok(new { projects = affectedProjects.Select(path => new { path = Path.GetRelativePath(root, path).Replace('\\', '/'), evidenceKey = RepositoryLocationKey.Create(Path.GetRelativePath(root, path)) }), total = affected.Projects.Length, limit = settings.Output.MaxItems, truncated = affected.Projects.Length > affectedProjects.Length, reason = affected.Reason });
+                    var candidateTests = new List<string>();
+                    foreach (var path in affected.Projects) if (await Projects.IsTest(root, path)) candidateTests.Add(path);
+                    object Explain(string path) => new { path = Path.GetRelativePath(root, path).Replace('\\', '/'), evidenceKey = RepositoryLocationKey.Create(Path.GetRelativePath(root, path)), explanation = affected.ExplanationPaths?.TryGetValue(path, out var chain) == true ? chain.Select(item => Path.GetRelativePath(root, item).Replace('\\', '/')).ToArray() : [affected.Reason] };
+                    return Result.Ok(new { projects = affectedProjects.Select(Explain), total = affected.Projects.Length, candidateTests = candidateTests.Take(settings.Output.MaxItems).Select(Explain), candidateTestCount = candidateTests.Count, limit = settings.Output.MaxItems, truncated = affected.Projects.Length > affectedProjects.Length, candidateTestsTruncated = candidateTests.Count > settings.Output.MaxItems, reason = affected.Reason });
                 case "repo ownership": return Result.Ok(await Projects.Ownership(root, command.Require("file")));
                 case "repo health":
                     var health = await Projects.Health(root, settings.Health);
