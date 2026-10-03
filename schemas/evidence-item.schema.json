@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://simplexidev.github.io/sdeveng/schemas/evidence-item.schema.json",
+  "title": "sdeveng evidence item v1",
+  "description": "An attributable, expandable piece of evidence anchored to a canonical repository location key.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "id", "locationKey", "source", "content"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "id": {
+      "type": "string",
+      "pattern": "^evidence:[0-9a-f]{64}$",
+      "description": "Stable evidence identifier: evidence: followed by the lowercase SHA-256 digest of the canonical item identity."
+    },
+    "locationKey": {
+      "type": "string",
+      "pattern": "^repo:(?!\\.{1,2}(?:/|#|$))[^\\\\#]+(?:/(?!\\.{1,2}(?:/|#|$))[^\\\\#]+)*(?:#[^\\s#]+)?$",
+      "description": "Canonical repository location key in the RepositoryLocationKey format, optionally narrowed to an escaped symbol."
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "identity"],
+      "properties": {
+        "kind": { "type": "string", "minLength": 1 },
+        "identity": { "type": "string", "minLength": 1 }
+      }
+    },
+    "content": {
+      "type": "object",
+      "description": "Expandable evidence payload; values may be added without changing the evidence envelope.",
+      "minProperties": 1
+    }
+  }
+}
