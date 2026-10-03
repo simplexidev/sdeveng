@@ -584,15 +584,7 @@ public static class Projects
     public static string[] Dependents(ProjectDependencyGraph graph, string project)
     {
         var target = Path.GetFullPath(project);
-        var selected = new HashSet<string>([target], StringComparer.Ordinal);
-        bool added;
-        do
-        {
-            added = false;
-            foreach (var edge in graph.Edges) if (selected.Contains(edge.To)) added |= selected.Add(edge.From);
-        } while (added);
-        selected.Remove(target);
-        return selected.Order(StringComparer.Ordinal).ToArray();
+        return graph.AffectedProjects([target]).Where(candidate => candidate != target).ToArray();
     }
     public static async Task<bool> IsTest(string root, string project) => (await Evaluate(root, project))["Properties"]?["IsTestProject"]?.GetValue<string>().Equals("true", StringComparison.OrdinalIgnoreCase) == true;
     public static async Task<Affected> Affected(string root, string[] changed)
@@ -617,8 +609,7 @@ public static class Projects
         // Removed linked files and custom build inputs cannot always be inferred from evaluated Compile items.
         if (paths.Any(p => !projects.Any(project => p.StartsWith(Path.GetDirectoryName(project)! + Path.DirectorySeparatorChar, StringComparison.Ordinal))))
             return new(projects, "Change outside project directories; conservative full graph for custom or removed linked inputs.");
-        foreach (var owner in selected.ToArray()) selected.UnionWith(Dependents(graph, owner));
-        return new(selected.Order(StringComparer.Ordinal).ToArray(), "Evaluated Compile/ProjectReference graph including transitive dependents.");
+        return new(graph.AffectedProjects(selected), "Evaluated Compile/ProjectReference graph including transitive dependents.");
     }
     public static async Task<bool> HasApiChecks(string root, string path)
     {
@@ -632,9 +623,10 @@ public static class Projects
     public static async Task<string[]> DependentTests(string root, string project)
     {
         var target = Path.GetFullPath(project);
-        var projects = Discover(root); var graph = await DependencyGraph(root); var tests = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var candidate in Dependents(graph, target)) if (await IsTest(root, candidate)) tests.Add(candidate);
-        return tests.Order(StringComparer.Ordinal).ToArray();
+        var graph = await DependencyGraph(root);
+        var tests = new List<string>();
+        foreach (var candidate in graph.Nodes) if (await IsTest(root, candidate)) tests.Add(candidate);
+        return graph.AffectedTestProjects([target], tests).Where(candidate => candidate != target).ToArray();
     }
     public static async Task<object> Ownership(string root, string file)
     {
