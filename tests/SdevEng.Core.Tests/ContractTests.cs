@@ -84,6 +84,70 @@ public class ContractTests
     }
 
     [Fact]
+    public void RelevanceRankingKeepsRequiredEvidenceAheadOfHighScoringOptionalCandidates()
+    {
+        var input = new RelevanceRankingInput
+        {
+            Query = "query",
+            Candidates =
+            [
+                new() { Id = "optional", Text = "optional", },
+                new() { Id = "project", Text = "project metadata", MustInclude = true, Category = RelevanceRankingCategory.OwningProject },
+                new() { Id = "reference", Text = "explicit symbol", MustInclude = true, Category = RelevanceRankingCategory.DeterministicReference }
+            ]
+        };
+        var result = RelevanceRankingOrder.ApplySelections(input, [new("optional", 1) { Confidence = 1 }]);
+        Assert.Equal(["project", "reference", "optional"], result.Select(item => item.Id));
+        Assert.Equal(RelevanceRankingCategory.OwningProject, result[0].Category);
+        Assert.Equal(RelevanceRankingCategory.DeterministicReference, result[1].Category);
+        Assert.Equal(RelevanceRankingCategory.SemanticRanked, result[2].Category);
+        Assert.All(result.Take(2), item => Assert.True(item.MustInclude));
+    }
+
+    [Fact]
+    public void RelevanceRankingAbstentionCollapsesDuplicateIdsAndLabelsEverySelection()
+    {
+        var input = new RelevanceRankingInput
+        {
+            Query = "query",
+            Candidates =
+            [
+                new() { Id = "required", Text = "first", MustInclude = true, Category = RelevanceRankingCategory.CandidateTest },
+                new() { Id = "required", Text = "duplicate" },
+                new() { Id = "optional", Text = "optional" }
+            ]
+        };
+        var result = RelevanceRankingOrder.ApplySelections(input, []);
+        Assert.Equal(["required", "optional"], result.Select(item => item.Id));
+        Assert.Equal("first", result[0].Text);
+        Assert.Equal(RelevanceRankingCategory.CandidateTest, result[0].Category);
+        Assert.Equal(RelevanceRankingCategory.SemanticAbstained, result[1].Category);
+        Assert.Equal(result, RelevanceRankingOrder.ApplySelections(input, []));
+    }
+
+    [Fact]
+    public void RelevanceRankingRetainsEntireMandatoryPackAtCandidateBoundary()
+    {
+        var input = new RelevanceRankingInput
+        {
+            Query = "query",
+            Candidates = Enumerable.Range(0, RelevanceRankingInput.CandidateLimit)
+                .Select(index => new RelevanceRankingCandidate { Id = $"required-{index}", Text = "evidence", MustInclude = true, Category = RelevanceRankingCategory.DeterministicReference }).ToArray()
+        };
+        var result = RelevanceRankingOrder.ApplySelections(input, [new("required-0", 1) { Confidence = 1 }]);
+        Assert.Equal(RelevanceRankingInput.CandidateLimit, result.Count);
+        Assert.All(result, item => Assert.True(item.MustInclude));
+        Assert.Equal(input.Candidates.Select(item => item.Id), result.Select(item => item.Id));
+    }
+
+    [Fact]
+    public void RelevanceRankingRejectsMustIncludeWithoutDeterministicProvenance()
+    {
+        var input = new RelevanceRankingInput { Query = "query", Candidates = [new() { Id = "required", Text = "evidence", MustInclude = true }] };
+        Assert.Throws<ArgumentException>(input.Validate);
+    }
+
+    [Fact]
     public void ProjectGraphValidationReportsCyclesAndUnresolvedEdgesDeterministically()
     {
         var graph = new ProjectDependencyGraph(["a", "b"], [new("a", "b"), new("b", "a"), new("b", "missing")]);
