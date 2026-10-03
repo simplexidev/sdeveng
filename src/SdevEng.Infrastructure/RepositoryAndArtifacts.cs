@@ -368,15 +368,18 @@ public static class Projects
             if (compilation is null || compilation.GetDiagnostics().Any(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error))
                 throw new InvalidOperationException($"Project {Path.GetFileName(project.FilePath)} has incomplete semantic state.");
             var types = new List<SemanticTypeModel>();
-            AddTypes(compilation.Assembly.GlobalNamespace, types);
-            projects.Add(new(Path.GetRelativePath(repositoryRoot, project.FilePath!).Replace('\\', '/'), types.OrderBy(type => type.Name, StringComparer.Ordinal).ToArray()));
+            var namespaces = new List<SemanticNamespaceModel>();
+            AddSymbols(compilation.Assembly.GlobalNamespace, namespaces, types);
+            projects.Add(new(Path.GetRelativePath(repositoryRoot, project.FilePath!).Replace('\\', '/'),
+                namespaces.OrderBy(item => item.Name, StringComparer.Ordinal).ToArray(), types.OrderBy(type => type.Name, StringComparer.Ordinal).ToArray()));
         }
         return new(Path.GetFullPath(solution, repositoryRoot), projects.ToArray());
     }
 
-    private static void AddTypes(INamespaceSymbol ns, List<SemanticTypeModel> result)
+    private static void AddSymbols(INamespaceSymbol ns, List<SemanticNamespaceModel> namespaces, List<SemanticTypeModel> result)
     {
-        foreach (var child in ns.GetNamespaceMembers().OrderBy(item => item.Name, StringComparer.Ordinal)) AddTypes(child, result);
+        if (!ns.IsGlobalNamespace) namespaces.Add(new(ns.ToDisplayString()));
+        foreach (var child in ns.GetNamespaceMembers().OrderBy(item => item.Name, StringComparer.Ordinal)) AddSymbols(child, namespaces, result);
         foreach (var type in ns.GetTypeMembers().OrderBy(item => item.Name, StringComparer.Ordinal))
         {
             result.Add(new(type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat), type.TypeKind.ToString(), type.DeclaredAccessibility.ToString(),
