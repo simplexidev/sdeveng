@@ -470,6 +470,7 @@ public class MetadataTests
         var ci = File.ReadAllText(Path.Combine(Root, ".github/workflows/ci.yml"));
         var release = File.ReadAllText(Path.Combine(Root, ".github/workflows/release.yml"));
         Assert.Contains("repo affected-projects --base $base --json", ci);
+        Assert.Contains("$result.data.projects | ForEach-Object { $_.path }", ci);
         Assert.Contains("dotnet build $project --configuration Release", ci);
         Assert.Contains("dotnet test $project --configuration Release --collect:", ci);
         Assert.Contains("dotnet format SdevEng.slnx --no-restore --verify-no-changes", ci);
