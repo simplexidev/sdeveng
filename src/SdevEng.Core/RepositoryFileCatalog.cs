@@ -3,8 +3,23 @@ namespace SdevEng;
 /// <summary>A deterministic path and basename entry for repository discovery.</summary>
 public sealed record RepositoryFileEntry(string Path, string Name, string[] Terms);
 
+/// <summary>A canonical repository-relative evidence location, optionally narrowed to a symbol.</summary>
+public static class RepositoryLocationKey
+{
+    public static string Create(string path, string? symbol = null)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(path);
+        var canonicalPath = path.Replace('\\', '/').TrimStart('/');
+        if (canonicalPath == ".." || canonicalPath.StartsWith("../", StringComparison.Ordinal)) throw new ArgumentException("Evidence path must be repository-relative.", nameof(path));
+        return "repo:" + canonicalPath + (string.IsNullOrWhiteSpace(symbol) ? "" : "#" + Uri.EscapeDataString(symbol));
+    }
+}
+
 /// <summary>A compact ranked repository search candidate.</summary>
-public sealed record RepositorySearchCandidate(string Path, int Score, string Match);
+public sealed record RepositorySearchCandidate(string Path, int Score, string Match)
+{
+    public string EvidenceKey => RepositoryLocationKey.Create(Path);
+}
 
 /// <summary>A sorted, lightweight index of repository file paths and names.</summary>
 public sealed record RepositoryFileCatalog(int IndexVersion, RepositoryFileEntry[] Files)
