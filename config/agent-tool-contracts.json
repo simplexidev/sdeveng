@@ -13,7 +13,18 @@
     "internalError": 70
   },
   "legacyInvocations": ["dotnet tools/AgentTool.cs", "codex-agent-tool"],
+  "toolDescriptors": [
+    { "name": "repo_describe", "description": "Read the repository description and canonical project catalog facts.", "command": "repo describe", "kind": "repository-description", "schemaVersion": 1, "readOnly": true, "inputSchema": { "type": "object", "properties": {}, "additionalProperties": false } },
+    { "name": "repo_summary", "description": "Read a bounded summary of repository state.", "command": "repo summary", "kind": "repository-summary", "schemaVersion": 1, "readOnly": true, "inputSchema": { "type": "object", "properties": { "base": { "type": "string", "description": "Optional Git base reference." } }, "additionalProperties": false } },
+    { "name": "repo_locate", "description": "Search the repository file catalog by one bounded query mode.", "command": "repo locate", "kind": "repository-file-search", "schemaVersion": 1, "readOnly": true, "inputSchema": { "type": "object", "properties": { "query": { "type": "string" }, "path": { "type": "string" }, "name": { "type": "string" }, "exact-text": { "type": "string" }, "fuzzy": { "type": "string" } }, "additionalProperties": false } },
+    { "name": "repo_affected_projects", "description": "Read affected project and candidate test facts.", "command": "repo affected-projects", "kind": "affected-projects", "schemaVersion": 1, "readOnly": true, "inputSchema": { "type": "object", "properties": { "base": { "type": "string", "description": "Optional Git base reference." } }, "additionalProperties": false } },
+    { "name": "repo_ownership", "description": "Read project ownership facts for a repository file.", "command": "repo ownership", "kind": "file-ownership", "schemaVersion": 1, "readOnly": true, "inputSchema": { "type": "object", "properties": { "file": { "type": "string" } }, "required": ["file"], "additionalProperties": false } }
+  ],
   "contracts": [
+    { "command": "tools list", "kind": "tool-descriptors", "schemaVersion": 1, "mode": "facts" },
+    { "command": "repo describe", "kind": "repository-description", "schemaVersion": 1, "mode": "facts" },
+    { "command": "repo locate", "kind": "repository-file-search", "schemaVersion": 1, "mode": "facts" },
+    { "command": "repo affected-projects", "kind": "affected-projects", "schemaVersion": 1, "mode": "facts" },
     { "command": "version", "kind": "cli-version", "schemaVersion": 1, "mode": "facts" },
     { "command": "config explain", "kind": "effective-config", "schemaVersion": 1, "mode": "facts" },
     { "command": "repo summary", "kind": "repository-summary", "schemaVersion": 1, "mode": "summary" },

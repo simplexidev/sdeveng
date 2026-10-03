@@ -1185,6 +1185,7 @@ public static class AgentTool
             services.AddTransient<IGitHubAuthorizationProbe>(provider => provider.GetRequiredService<GitHubAuthorizationProbe>());
             services.AddSingleton<ICommandModule, InstallerCommandModule>();
             services.AddSingleton<ICommandModule, ConfigurationCommandModule>();
+            services.AddSingleton<ICommandModule, ToolDiscoveryCommandModule>();
             services.AddSingleton<ICommandModule, DoctorCommandModule>();
             services.AddSingleton<ICommandModule, GitCommandModule>();
             services.AddSingleton<ICommandModule, RepoCommandModule>();
@@ -1225,6 +1226,22 @@ public static class AgentTool
                     invocationOverrides = command.ConfigurationOverrides().Select(pair => pair.Key).ToArray()
                 }
             }));
+        }
+    }
+
+    /// <summary>Lists typed, read-only worker tools backed by the canonical CLI contract manifest.</summary>
+    public sealed class ToolDiscoveryCommandModule : ICommandModule
+    {
+        public bool CanHandle(Cli command) => command.Command == "tools list";
+
+        public async Task<Result> Execute(Cli command, string toolkit, string root, Settings settings, CancellationToken cancellationToken)
+        {
+            command.ValidateCommand("tools list");
+            var path = Path.Combine(toolkit, "config", "agent-tool-contracts.json");
+            using var manifest = JsonDocument.Parse(await File.ReadAllTextAsync(path, cancellationToken));
+            var tools = manifest.RootElement.GetProperty("toolDescriptors").Deserialize<ToolDescriptor[]>(Json)
+                ?? throw new JsonException("Tool descriptor catalog is empty.");
+            return Result.Ok(new { kind = "tool-descriptors", schemaVersion = 1, tools });
         }
     }
 
@@ -1558,18 +1575,18 @@ public static class AgentTool
                     if (mode is "exact-text" or "fuzzy")
                     {
                         var ranked = mode == "exact-text" ? catalog.SearchExactText(query, Math.Min(settings.Output.MaxItems, 50)) : catalog.SearchFuzzyTerms(query, Math.Min(settings.Output.MaxItems, 50));
-                        return Result.Ok(new { indexVersion = catalog.IndexVersion, indexIntegrity = "valid", candidates = ranked, total = ranked.Length, limit = Math.Min(settings.Output.MaxItems, 50), scope = mode == "exact-text" ? "Exact text in repository paths, names, and bounded indexed text terms." : "Bounded one-edit fuzzy matching over indexed text terms; at most eight query terms and 50 candidates." });
+                        return Result.Ok(new { kind = "repository-file-search", schemaVersion = 1, indexVersion = catalog.IndexVersion, indexIntegrity = "valid", candidates = ranked, total = ranked.Length, limit = Math.Min(settings.Output.MaxItems, 50), scope = mode == "exact-text" ? "Exact text in repository paths, names, and bounded indexed text terms." : "Bounded one-edit fuzzy matching over indexed text terms; at most eight query terms and 50 candidates." });
                     }
                     var matches = mode switch { "path" => catalog.FindExactPath(query), "name" => catalog.FindName(query), _ => catalog.Find(query) };
                     var boundedMatches = matches.Take(settings.Output.MaxItems).ToArray();
-                    return Result.Ok(new { indexVersion = catalog.IndexVersion, indexIntegrity = "valid", matches = boundedMatches.Select(file => new { path = file.Path, evidenceKey = RepositoryLocationKey.Create(file.Path) }), total = matches.Length, limit = settings.Output.MaxItems, truncated = matches.Length > boundedMatches.Length, scope = "Git tracked + untracked, nonignored paths, names, and bounded text terms excluding the managed result store; use rg for symbols." });
+                    return Result.Ok(new { kind = "repository-file-search", schemaVersion = 1, indexVersion = catalog.IndexVersion, indexIntegrity = "valid", matches = boundedMatches.Select(file => new { path = file.Path, evidenceKey = RepositoryLocationKey.Create(file.Path) }), total = matches.Length, limit = settings.Output.MaxItems, truncated = matches.Length > boundedMatches.Length, scope = "Git tracked + untracked, nonignored paths, names, and bounded text terms excluding the managed result store; use rg for symbols." });
                 case "repo affected-projects":
                     var affected = await Projects.Affected(root, await Git.Changed(root, command.Get("base")));
                     var affectedProjects = affected.Projects.Take(settings.Output.MaxItems).ToArray();
                     var candidateTests = new List<string>();
                     foreach (var path in affected.Projects) if (await Projects.IsTest(root, path)) candidateTests.Add(path);
                     object Explain(string path) => new { path = Path.GetRelativePath(root, path).Replace('\\', '/'), evidenceKey = RepositoryLocationKey.Create(Path.GetRelativePath(root, path)), explanation = affected.ExplanationPaths?.TryGetValue(path, out var chain) == true ? chain.Select(item => Path.GetRelativePath(root, item).Replace('\\', '/')).ToArray() : [affected.Reason] };
-                    return Result.Ok(new { projects = affectedProjects.Select(Explain), total = affected.Projects.Length, candidateTests = candidateTests.Take(settings.Output.MaxItems).Select(Explain), candidateTestCount = candidateTests.Count, limit = settings.Output.MaxItems, truncated = affected.Projects.Length > affectedProjects.Length, candidateTestsTruncated = candidateTests.Count > settings.Output.MaxItems, reason = affected.Reason });
+                    return Result.Ok(new { kind = "affected-projects", schemaVersion = 1, projects = affectedProjects.Select(Explain), total = affected.Projects.Length, candidateTests = candidateTests.Take(settings.Output.MaxItems).Select(Explain), candidateTestCount = candidateTests.Count, limit = settings.Output.MaxItems, truncated = affected.Projects.Length > affectedProjects.Length, candidateTestsTruncated = candidateTests.Count > settings.Output.MaxItems, reason = affected.Reason });
                 case "repo ownership": return Result.Ok(await Projects.Ownership(root, command.Require("file")));
                 case "repo health":
                     var health = await Projects.Health(root, settings.Health);
