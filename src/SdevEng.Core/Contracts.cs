@@ -19,10 +19,18 @@ public sealed record SemanticProjectModel(string Path, SemanticNamespaceModel[] 
 public sealed record SemanticNamespaceModel(string Name);
 public sealed record SemanticTypeModel(string Name, string Kind, string Accessibility, string[] BaseTypes, string[] Members, SemanticCallableModel[] Callables)
 {
+    public string StableKey { get; init; } = "";
+    public string Location { get; init; } = "";
     public SemanticMemberModel[] DataMembers { get; init; } = [];
 }
-public sealed record SemanticCallableModel(string Name, string Kind, string Accessibility, string Location);
-public sealed record SemanticMemberModel(string Name, string Kind, string Accessibility, string Location);
+public sealed record SemanticCallableModel(string Name, string Kind, string Accessibility, string Location)
+{
+    public string StableKey { get; init; } = "";
+}
+public sealed record SemanticMemberModel(string Name, string Kind, string Accessibility, string Location)
+{
+    public string StableKey { get; init; } = "";
+}
 
 public sealed record VerificationResult(int SchemaVersion, string Source, string Check, string Status, int ExitCode, string Artifact)
 {
