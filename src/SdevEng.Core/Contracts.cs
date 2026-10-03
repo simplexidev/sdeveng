@@ -19,7 +19,9 @@ public sealed record SemanticProjectModel(string Path, SemanticNamespaceModel[] 
 {
     public SemanticReferenceModel[] References { get; init; } = [];
     public SemanticCallSiteModel[] CallSites { get; init; } = [];
+    public SemanticTypeRelationshipModel[] TypeRelationships { get; init; } = [];
 }
+public sealed record SemanticTypeRelationshipModel(string SourceKey, string TargetKey, string Kind);
 public sealed record SemanticReferenceModel(string TargetKey, string Location, string? CallerKey);
 public sealed record SemanticCallSiteModel(string TargetKey, string Location, string? CallerKey);
 public sealed record SemanticNamespaceModel(string Name);
