@@ -64,6 +64,25 @@ public class SolutionDiscoveryTests
     }
 
     [Fact]
+    public async Task IndexesReferencesAndCallSitesWithStableTargets()
+    {
+        using var repo = new TemporaryGitRepository();
+        repo.Write("src/App.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>");
+        repo.Write("src/Thing.cs", "namespace Demo; public class Thing { public void Run() { Helper(); } public void Helper() { } } public class Use { public void Go() { var thing = new Thing(); thing.Run(); } }");
+        Assert.Equal(0, (await Processes.Run("dotnet", ["new", "sln", "-n", "App", "--format", "sln", "--force"], repo.Root)).ExitCode);
+        Assert.Equal(0, (await Processes.Run("dotnet", ["sln", "App.sln", "add", "src/App.csproj"], repo.Root)).ExitCode);
+
+        var project = Assert.Single((await Projects.SemanticModel(repo.Root, "App.sln")).Projects);
+        Assert.Contains(project.References, item => item.TargetKey == "T:Demo.Thing" && item.CallerKey == "M:Demo.Use.Go");
+        Assert.Contains(project.CallSites, item => item.TargetKey == "M:Demo.Thing.Run" && item.CallerKey == "M:Demo.Use.Go" && item.Location.Contains("src/Thing.cs:", StringComparison.Ordinal));
+        Assert.Contains(project.CallSites, item => item.TargetKey == "M:Demo.Thing.Helper" && item.CallerKey == "M:Demo.Thing.Run");
+        Assert.Contains(project.CallSites, item => item.TargetKey == "M:Demo.Thing.#ctor" && item.CallerKey == "M:Demo.Use.Go");
+        var repeated = Assert.Single((await Projects.SemanticModel(repo.Root, "App.sln")).Projects);
+        Assert.Equal(project.References, repeated.References);
+        Assert.Equal(project.CallSites, repeated.CallSites);
+    }
+
+    [Fact]
     public async Task RejectsSolutionWithIncompleteSemanticState()
     {
         using var repo = new TemporaryGitRepository();
