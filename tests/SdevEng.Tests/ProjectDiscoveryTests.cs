@@ -29,6 +29,25 @@ public class ProjectDiscoveryTests
         Assert.Equal(new[] { "z/Needle.cs" }, catalog.FindExactPath("z\\Needle.cs").Select(file => file.Path));
         Assert.Empty(catalog.FindExactPath("Needle.cs"));
         Assert.Equal(new[] { "z/Needle.cs" }, catalog.FindName("needle").Select(file => file.Path));
+        Assert.Equal("z/Needle.cs", catalog.SearchExactText("Needle", 10)[0].Path);
+        Assert.Equal("a/other.txt", catalog.SearchFuzzyTerms("bodi", 10)[0].Path);
+        Assert.Throws<ArgumentOutOfRangeException>(() => catalog.SearchFuzzyTerms("body", 201));
+    }
+
+    [Fact]
+    public async Task LocateExactTextAndFuzzyReturnBoundedRankedCandidates()
+    {
+        using var repo = new TemporaryGitRepository();
+        repo.Write("z/Needle.cs", "needle uniquealpha");
+        repo.Write("a/other.txt", "uniquealpha bodi");
+        var exact = await CommandTestRuntime.Execute(Cli.Parse(["repo", "locate", "--exact-text", "uniquealpha"]), AgentTool.FindToolkit(), repo.Root, new(new(), new(), new(), new()));
+        var exactJson = System.Text.Json.JsonSerializer.SerializeToNode(exact.Data, AgentTool.Json)!;
+        Assert.Equal("a/other.txt", exactJson["candidates"]![0]!["path"]!.GetValue<string>());
+        Assert.Equal("exact", exactJson["candidates"]![0]!["match"]!.GetValue<string>());
+        var fuzzy = await CommandTestRuntime.Execute(Cli.Parse(["repo", "locate", "--fuzzy", "body"]), AgentTool.FindToolkit(), repo.Root, new(new(), new(), new(), new()));
+        var fuzzyJson = System.Text.Json.JsonSerializer.SerializeToNode(fuzzy.Data, AgentTool.Json)!;
+        Assert.Equal("a/other.txt", fuzzyJson["candidates"]![0]!["path"]!.GetValue<string>());
+        Assert.Equal("fuzzy-term", fuzzyJson["candidates"]![0]!["match"]!.GetValue<string>());
     }
 
     [Fact]
