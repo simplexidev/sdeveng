@@ -39,7 +39,9 @@ public class SolutionDiscoveryTests
 
         var result = await Projects.SemanticModel(repo.Root, "App.sln");
 
-        var type = Assert.Single(Assert.Single(result.Projects).Types);
+        var projectModel = Assert.Single(result.Projects);
+        Assert.Equal("Demo", Assert.Single(projectModel.Namespaces).Name);
+        var type = Assert.Single(projectModel.Types);
         Assert.Equal("global::Demo.Thing", type.Name);
         Assert.Equal("Class", type.Kind);
         Assert.Contains(type.Members, member => member.Contains("Name", StringComparison.Ordinal));
