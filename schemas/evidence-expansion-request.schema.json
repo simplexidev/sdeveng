@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://simplexidev.github.io/sdeveng/schemas/evidence-expansion-request.schema.json",
+  "title": "sdeveng evidence expansion request v1",
+  "description": "A bounded request for one item already indexed in the current role evidence pack.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "packId", "packRevision", "evidenceId", "runId", "role"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "packId": { "type": "string", "minLength": 1 },
+    "packRevision": { "type": "string", "minLength": 1 },
+    "evidenceId": { "type": "string", "pattern": "^evidence:[0-9a-f]{64}$" },
+    "runId": { "type": "string", "minLength": 1 },
+    "role": { "type": "string", "minLength": 1 },
+    "startLine": { "type": "integer", "minimum": 1 },
+    "endLine": { "type": "integer", "minimum": 1 },
+    "section": { "type": "string", "minLength": 1, "pattern": "^(?!.*(?:^|[/\\\\])\\.{1,2}(?:[/\\\\]|$))[^\\u0000-\\u001f]+$" }
+  },
+  "oneOf": [
+    { "required": ["startLine", "endLine"], "not": { "required": ["section"] } },
+    { "required": ["section"], "not": { "anyOf": [{ "required": ["startLine"] }, { "required": ["endLine"] }] } }
+  ]
+}
