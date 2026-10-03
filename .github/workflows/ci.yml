@@ -50,7 +50,7 @@ jobs:
           $result = $raw | ConvertFrom-Json
           if ($result.status -ne 'ok') { throw 'Affected-project discovery returned a non-success result.' }
           New-Item -ItemType Directory -Force -Path CiEvidence | Out-Null
-          @($result.data.projects) | ConvertTo-Json -AsArray | Set-Content -Encoding utf8 CiEvidence/affected-projects.json
+          @($result.data.projects | ForEach-Object { $_.path }) | ConvertTo-Json -AsArray | Set-Content -Encoding utf8 CiEvidence/affected-projects.json
       - name: Build affected projects
         id: build
         shell: pwsh
