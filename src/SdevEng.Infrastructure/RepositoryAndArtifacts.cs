@@ -385,7 +385,8 @@ public static class Projects
             result.Add(new(type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat), type.TypeKind.ToString(), type.DeclaredAccessibility.ToString(),
                 BaseTypes(type),
                 type.GetMembers().Where(member => !member.IsImplicitlyDeclared).Select(member => member.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)).Order(StringComparer.Ordinal).ToArray(),
-                Callables(type)));
+                Callables(type))
+            { DataMembers = DataMembers(type) });
             foreach (var nested in type.GetTypeMembers().OrderBy(item => item.Name, StringComparer.Ordinal)) AddNested(nested, result);
         }
     }
@@ -394,7 +395,8 @@ public static class Projects
         result.Add(new(type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat), type.TypeKind.ToString(), type.DeclaredAccessibility.ToString(),
             BaseTypes(type),
             type.GetMembers().Where(member => !member.IsImplicitlyDeclared).Select(member => member.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)).Order(StringComparer.Ordinal).ToArray(),
-            Callables(type)));
+            Callables(type))
+        { DataMembers = DataMembers(type) });
         foreach (var nested in type.GetTypeMembers().OrderBy(item => item.Name, StringComparer.Ordinal)) AddNested(nested, result);
     }
     private static SemanticCallableModel[] Callables(INamedTypeSymbol type) => type.GetMembers()
@@ -408,6 +410,16 @@ public static class Projects
             return new SemanticCallableModel(method.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat),
                 method.MethodKind is MethodKind.Constructor or MethodKind.StaticConstructor ? "Constructor" : "Method",
                 method.DeclaredAccessibility.ToString(), location);
+        }).OrderBy(item => item.Name, StringComparer.Ordinal).ThenBy(item => item.Location, StringComparer.Ordinal).ToArray();
+    private static SemanticMemberModel[] DataMembers(INamedTypeSymbol type) => type.GetMembers()
+        .Where(member => !member.IsImplicitlyDeclared && member is IPropertySymbol or IFieldSymbol or IEventSymbol)
+        .Select(member =>
+        {
+            var location = member.Locations.Where(item => item.IsInSource).Select(item => item.GetLineSpan())
+                .Where(span => span.IsValid).Select(span => $"{span.Path.Replace('\\', '/')}:{span.StartLinePosition.Line + 1}:{span.StartLinePosition.Character + 1}")
+                .Order(StringComparer.Ordinal).FirstOrDefault() ?? "";
+            var kind = member switch { IPropertySymbol => "Property", IFieldSymbol => "Field", IEventSymbol => "Event", _ => "" };
+            return new SemanticMemberModel(member.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat), kind, member.DeclaredAccessibility.ToString(), location);
         }).OrderBy(item => item.Name, StringComparer.Ordinal).ThenBy(item => item.Location, StringComparer.Ordinal).ToArray();
     private static string[] BaseTypes(INamedTypeSymbol type) =>
         (type.BaseType is { SpecialType: not SpecialType.System_Object } baseType ? new[] { baseType } : Enumerable.Empty<INamedTypeSymbol>())

@@ -17,8 +17,12 @@ public sealed record SolutionWorkspaceModel(string Path, string[] Projects, stri
 public sealed record SemanticSolutionModel(string Path, SemanticProjectModel[] Projects);
 public sealed record SemanticProjectModel(string Path, SemanticNamespaceModel[] Namespaces, SemanticTypeModel[] Types);
 public sealed record SemanticNamespaceModel(string Name);
-public sealed record SemanticTypeModel(string Name, string Kind, string Accessibility, string[] BaseTypes, string[] Members, SemanticCallableModel[] Callables);
+public sealed record SemanticTypeModel(string Name, string Kind, string Accessibility, string[] BaseTypes, string[] Members, SemanticCallableModel[] Callables)
+{
+    public SemanticMemberModel[] DataMembers { get; init; } = [];
+}
 public sealed record SemanticCallableModel(string Name, string Kind, string Accessibility, string Location);
+public sealed record SemanticMemberModel(string Name, string Kind, string Accessibility, string Location);
 
 public sealed record VerificationResult(int SchemaVersion, string Source, string Check, string Status, int ExitCode, string Artifact)
 {
