@@ -32,4 +32,16 @@ public sealed record RepositoryFileCatalog(int IndexVersion, RepositoryFileEntry
             || file.Name.Contains(query, StringComparison.OrdinalIgnoreCase)
             || file.Terms.Contains(query, StringComparer.OrdinalIgnoreCase))
         .ToArray();
+
+    /// <summary>Finds one canonical repository-relative path exactly.</summary>
+    public RepositoryFileEntry[] FindExactPath(string path)
+    {
+        var canonicalPath = path.Replace('\\', '/').TrimStart('/');
+        return Files.Where(file => string.Equals(file.Path, canonicalPath, StringComparison.Ordinal)).ToArray();
+    }
+
+    /// <summary>Finds basenames containing the requested text, without matching directory paths or file contents.</summary>
+    public RepositoryFileEntry[] FindName(string query) => Files
+        .Where(file => file.Name.Contains(query, StringComparison.OrdinalIgnoreCase))
+        .ToArray();
 }

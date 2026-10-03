@@ -1004,7 +1004,7 @@ public static class AgentTool
         install | update [--home DIR] [--codex-home DIR] [--dry-run] [--bin]
         uninstall [--home DIR] [--codex-home DIR] [--dry-run]
         doctor
-        repo describe | changed-files [--base REF] | summary [--base REF] | locate --query TEXT | health | hygiene
+        repo describe | changed-files [--base REF] | summary [--base REF] | locate (--query TEXT | --path PATH | --name TEXT) | health | hygiene
         repo affected-projects [--base REF] | ownership --file PATH
         git state | summary [--base REF] | conflict-forecast --base REF | prepare-commit
         git stage-owned --paths-file FILE | commit-owned --paths-file FILE --message TEXT
@@ -1546,7 +1546,11 @@ public static class AgentTool
                 case "repo locate":
                     var catalog = await Repository.FileCatalog(root);
                     if (!catalog.HasValidIntegrity()) throw new InvalidDataException("Repository file catalog failed its integrity check.");
-                    var matches = catalog.Find(command.Require("query"));
+                    var searchModes = new[] { "query", "path", "name" }.Where(option => command.Get(option) is not null).ToArray();
+                    if (searchModes.Length != 1) throw new ArgumentException("repo locate requires exactly one of --query, --path, or --name.");
+                    var mode = searchModes[0];
+                    var query = command.Require(mode);
+                    var matches = mode switch { "path" => catalog.FindExactPath(query), "name" => catalog.FindName(query), _ => catalog.Find(query) };
                     return Result.Ok(new { indexVersion = catalog.IndexVersion, indexIntegrity = "valid", matches = matches.Take(settings.Output.MaxItems).Select(file => file.Path), total = matches.Length, scope = "Git tracked + untracked, nonignored paths, names, and bounded text terms excluding the managed result store; use rg for symbols." });
                 case "repo affected-projects": return Result.Ok(await Projects.Affected(root, await Git.Changed(root, command.Get("base"))));
                 case "repo ownership": return Result.Ok(await Projects.Ownership(root, command.Require("file")));
@@ -2300,7 +2304,7 @@ public sealed class Cli
             "uninstall" => ["home", "codex-home", "dry-run"],
             "doctor" => ["home", "codex-home"],
             "repo changed-files" or "repo affected-projects" or "repo summary" or "git summary" or "git conflict-forecast" => ["base"],
-            "repo locate" => ["query"],
+            "repo locate" => ["query", "path", "name"],
             "repo ownership" => ["file"],
             "git issue-start" => ["issue", "branch"],
             "git stage-owned" => ["paths-file"],
@@ -2342,7 +2346,7 @@ public sealed class Cli
     public List<string> Words { get; } = [];
     public Dictionary<string, string?> Options { get; } = new(StringComparer.Ordinal);
     static readonly HashSet<string> Flags = ["json", "help", "version", "dry-run", "bin", "apply", "safe-input", "binlog", "failed-logs"];
-    static readonly HashSet<string> Values = ["root", "toolkit", "set", "home", "codex-home", "base", "expected", "baseline", "query", "issue", "branch", "remote", "path", "paths-file", "message", "pr", "run-id", "project", "file", "sha256", "input", "output", "skill", "results", "configuration", "test", "class", "category", "filter", "process-id", "signal", "duration-seconds", "profile", "evidence-file", "tag", "hosted-file", "local-file", "commit"];
+    static readonly HashSet<string> Values = ["root", "toolkit", "set", "home", "codex-home", "base", "expected", "baseline", "query", "name", "issue", "branch", "remote", "path", "paths-file", "message", "pr", "run-id", "project", "file", "sha256", "input", "output", "skill", "results", "configuration", "test", "class", "category", "filter", "process-id", "signal", "duration-seconds", "profile", "evidence-file", "tag", "hosted-file", "local-file", "commit"];
     public string? Get(string name) => Options.GetValueOrDefault(name);
     public bool Flag(string name) => Options.ContainsKey(name);
     public string Require(string name) => Get(name) is { Length: > 0 } v ? v : throw new ArgumentException($"--{name} is required.");

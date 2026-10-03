@@ -26,6 +26,27 @@ public class ProjectDiscoveryTests
         Assert.True(catalog.HasValidIntegrity());
         Assert.Equal(new[] { "a/other.txt", "z/Needle.cs" }, catalog.Find("needle").Select(file => file.Path));
         Assert.Equal(new[] { "a/other.txt", "z/Needle.cs" }, catalog.Find("body").Select(file => file.Path));
+        Assert.Equal(new[] { "z/Needle.cs" }, catalog.FindExactPath("z\\Needle.cs").Select(file => file.Path));
+        Assert.Empty(catalog.FindExactPath("Needle.cs"));
+        Assert.Equal(new[] { "z/Needle.cs" }, catalog.FindName("needle").Select(file => file.Path));
+    }
+
+    [Fact]
+    public async Task LocateSupportsExactPathAndNameOnlySearchThroughCli()
+    {
+        using var repo = new TemporaryGitRepository();
+        repo.Write("src/Needle.cs", "body with a different term");
+        repo.Write("docs/guide.md", "Needle appears only in this body");
+
+        var exact = await CommandTestRuntime.Execute(Cli.Parse(["repo", "locate", "--path", "src/Needle.cs"]), AgentTool.FindToolkit(), repo.Root, new(new(), new(), new(), new()));
+        var exactJson = System.Text.Json.JsonSerializer.SerializeToNode(exact.Data, AgentTool.Json)!;
+        Assert.Equal(new[] { "src/Needle.cs" }, exactJson["matches"]!.AsArray().Select(item => item!.GetValue<string>()));
+        Assert.Equal(1, exactJson["total"]!.GetValue<int>());
+
+        var byName = await CommandTestRuntime.Execute(Cli.Parse(["repo", "locate", "--name", "needle"]), AgentTool.FindToolkit(), repo.Root, new(new(), new(), new(), new()));
+        var nameJson = System.Text.Json.JsonSerializer.SerializeToNode(byName.Data, AgentTool.Json)!;
+        Assert.Equal(new[] { "src/Needle.cs" }, nameJson["matches"]!.AsArray().Select(item => item!.GetValue<string>()));
+        Assert.Equal(1, nameJson["total"]!.GetValue<int>());
     }
     [Fact]
     public void FileCatalogIntegrityRejectsUnsortedDuplicateAndUnboundedEntries()
