@@ -30,7 +30,7 @@ public class SolutionDiscoveryTests
     {
         using var repo = new TemporaryGitRepository();
         repo.Write("src/App.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>");
-        repo.Write("src/Thing.cs", "namespace Demo; public class Thing { public Thing() { } public string Name => \"thing\"; public int Count; public event System.Action? Changed; public void Run() { } }");
+        repo.Write("src/Thing.cs", "namespace Demo; public class Thing : Base, IThing { public Thing() { } public string Name => \"thing\"; public int Count; public event System.Action? Changed; public void Run() { } } public interface IBase { } public interface IThing : IBase { } public class Base { }");
         var project = Path.Combine(repo.Root, "src", "App.csproj");
         var create = await Processes.Run("dotnet", ["new", "sln", "-n", "App", "--format", "sln", "--force"], repo.Root);
         Assert.Equal(0, create.ExitCode);
@@ -41,15 +41,20 @@ public class SolutionDiscoveryTests
 
         var projectModel = Assert.Single(result.Projects);
         Assert.Equal("Demo", Assert.Single(projectModel.Namespaces).Name);
-        var type = Assert.Single(projectModel.Types);
+        Assert.Equal(new[] { "global::Demo.Base", "global::Demo.IBase", "global::Demo.IThing", "global::Demo.Thing" }, projectModel.Types.Select(item => item.Name));
+        var contract = Assert.Single(projectModel.Types, item => item.Name == "global::Demo.IThing");
+        Assert.Equal("Interface", contract.Kind);
+        Assert.Equal(new[] { "global::Demo.IBase" }, contract.BaseTypes);
+        var type = Assert.Single(projectModel.Types, item => item.Name == "global::Demo.Thing");
         Assert.Equal("global::Demo.Thing", type.Name);
         Assert.Equal("Class", type.Kind);
+        Assert.Equal(new[] { "global::Demo.Base", "global::Demo.IThing" }, type.BaseTypes);
         Assert.Contains(type.Members, member => member.Contains("Name", StringComparison.Ordinal));
-        Assert.Contains(type.Callables, callable => callable.Kind == "Constructor" && callable.Location.EndsWith(":1:45", StringComparison.Ordinal));
-        Assert.Contains(type.Callables, callable => callable.Kind == "Method" && callable.Name == "Run" && callable.Location.EndsWith(":1:155", StringComparison.Ordinal));
-        Assert.Contains(type.DataMembers, member => member.Kind == "Property" && member.Name.Contains("Name", StringComparison.Ordinal) && member.Location.EndsWith(":1:71", StringComparison.Ordinal));
-        Assert.Contains(type.DataMembers, member => member.Kind == "Field" && member.Name.Contains("Count", StringComparison.Ordinal) && member.Location.EndsWith(":1:99", StringComparison.Ordinal));
-        Assert.Contains(type.DataMembers, member => member.Kind == "Event" && member.Name.Contains("Changed", StringComparison.Ordinal) && member.Location.EndsWith(":1:134", StringComparison.Ordinal));
+        Assert.Contains(type.Callables, callable => callable.Kind == "Constructor" && callable.Location.EndsWith(":1:60", StringComparison.Ordinal));
+        Assert.Contains(type.Callables, callable => callable.Kind == "Method" && callable.Name == "Run" && callable.Location.EndsWith(":1:170", StringComparison.Ordinal));
+        Assert.Contains(type.DataMembers, member => member.Kind == "Property" && member.Name.Contains("Name", StringComparison.Ordinal) && member.Location.EndsWith(":1:86", StringComparison.Ordinal));
+        Assert.Contains(type.DataMembers, member => member.Kind == "Field" && member.Name.Contains("Count", StringComparison.Ordinal) && member.Location.EndsWith(":1:114", StringComparison.Ordinal));
+        Assert.Contains(type.DataMembers, member => member.Kind == "Event" && member.Name.Contains("Changed", StringComparison.Ordinal) && member.Location.EndsWith(":1:149", StringComparison.Ordinal));
     }
 
     [Fact]
