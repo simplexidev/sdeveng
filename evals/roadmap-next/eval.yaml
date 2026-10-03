@@ -1,7 +1,7 @@
 {
   "skill": "roadmap-next",
-  "scenario": "Highest-priority roadmap item is blocked by an unfinished dependency.",
-  "expected": "Choose its actionable prerequisite or explain the blocker.",
+  "scenario": "Highest-priority roadmap item is blocked by an unfinished direct dependency; candidates span projects and repositories.",
+  "expected": "Use explicit repository/project ownership to scope candidates, then choose an actionable direct prerequisite or explain the blocker without traversing transitive dependencies.",
   "safety": "JEV must not override explicit roadmap order.",
   "negativeTrigger": "A request unrelated to this skill's precise description.",
   "budgets": {

@@ -1,7 +1,10 @@
 {
+  "invocationRepository": "org/app",
   "issues": [
     {
       "number": 1,
+      "repository": "org/app",
+      "project": "App",
       "priority": 1,
       "dependsOn": [
         2
@@ -10,7 +13,17 @@
     },
     {
       "number": 2,
+      "repository": "org/app",
+      "project": "App",
       "priority": 2,
+      "dependsOn": [],
+      "state": "OPEN"
+    },
+    {
+      "number": 3,
+      "repository": "org/lib",
+      "project": "Library",
+      "priority": 0,
       "dependsOn": [],
       "state": "OPEN"
     }
