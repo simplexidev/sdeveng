@@ -10,6 +10,7 @@ using Microsoft.Build.Locator;
 using Microsoft.CodeAnalysis.MSBuild;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 
 namespace SdevEng;
 
@@ -370,8 +371,33 @@ public static class Projects
             var types = new List<SemanticTypeModel>();
             var namespaces = new List<SemanticNamespaceModel>();
             AddSymbols(compilation.Assembly.GlobalNamespace, namespaces, types);
+            var references = new List<SemanticReferenceModel>();
+            var callSites = new List<SemanticCallSiteModel>();
+            foreach (var document in project.Documents.OrderBy(item => item.FilePath, StringComparer.Ordinal))
+            {
+                if (document.FilePath is null || await document.GetSyntaxRootAsync() is not { } syntax) continue;
+                var model = await document.GetSemanticModelAsync();
+                if (model is null) continue;
+                foreach (var node in syntax.DescendantNodes())
+                {
+                    if (node is not (IdentifierNameSyntax or GenericNameSyntax or InvocationExpressionSyntax or ObjectCreationExpressionSyntax)) continue;
+                    var symbol = model.GetSymbolInfo(node).Symbol;
+                    if (symbol is null) continue;
+                    var caller = model.GetEnclosingSymbol(node.SpanStart);
+                    var callerKey = caller is null ? null : StableKey(caller);
+                    var line = node.GetLocation().GetLineSpan();
+                    var location = $"{Path.GetRelativePath(repositoryRoot, line.Path).Replace('\\', '/')}:{line.StartLinePosition.Line + 1}:{line.StartLinePosition.Character + 1}";
+                    if (node is InvocationExpressionSyntax or ObjectCreationExpressionSyntax)
+                        callSites.Add(new(StableKey(symbol), location, callerKey));
+                    else references.Add(new(StableKey(symbol), location, callerKey));
+                }
+            }
             projects.Add(new(Path.GetRelativePath(repositoryRoot, project.FilePath!).Replace('\\', '/'),
-                namespaces.OrderBy(item => item.Name, StringComparer.Ordinal).ToArray(), types.OrderBy(type => type.Name, StringComparer.Ordinal).ToArray()));
+                namespaces.OrderBy(item => item.Name, StringComparer.Ordinal).ToArray(), types.OrderBy(type => type.Name, StringComparer.Ordinal).ToArray())
+            {
+                References = references.OrderBy(item => item.Location, StringComparer.Ordinal).ThenBy(item => item.TargetKey, StringComparer.Ordinal).ToArray(),
+                CallSites = callSites.OrderBy(item => item.Location, StringComparer.Ordinal).ThenBy(item => item.TargetKey, StringComparer.Ordinal).ToArray()
+            });
         }
         return new(Path.GetFullPath(solution, repositoryRoot), projects.ToArray());
     }

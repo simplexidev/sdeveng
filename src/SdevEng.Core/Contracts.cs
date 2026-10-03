@@ -15,7 +15,13 @@ public record ProcessResult(int ExitCode, string Output);
 public sealed record WorkspaceDiagnostic(string Id, string Kind, string Message, string? ProjectPath);
 public sealed record SolutionWorkspaceModel(string Path, string[] Projects, string[] CompilationAvailableProjects, WorkspaceDiagnostic[] Diagnostics);
 public sealed record SemanticSolutionModel(string Path, SemanticProjectModel[] Projects);
-public sealed record SemanticProjectModel(string Path, SemanticNamespaceModel[] Namespaces, SemanticTypeModel[] Types);
+public sealed record SemanticProjectModel(string Path, SemanticNamespaceModel[] Namespaces, SemanticTypeModel[] Types)
+{
+    public SemanticReferenceModel[] References { get; init; } = [];
+    public SemanticCallSiteModel[] CallSites { get; init; } = [];
+}
+public sealed record SemanticReferenceModel(string TargetKey, string Location, string? CallerKey);
+public sealed record SemanticCallSiteModel(string TargetKey, string Location, string? CallerKey);
 public sealed record SemanticNamespaceModel(string Name);
 public sealed record SemanticTypeModel(string Name, string Kind, string Accessibility, string[] BaseTypes, string[] Members, SemanticCallableModel[] Callables)
 {
