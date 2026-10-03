@@ -19,6 +19,25 @@ public sealed record ProjectDependencyGraph(string[] Nodes, ProjectDependencyEdg
     public string[] AffectedTestProjects(IEnumerable<string> owners, IEnumerable<string> testProjects) =>
         AffectedProjects(owners).Intersect(testProjects, StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
 
+    public string[]? ExplanationPath(IEnumerable<string> owners, string project)
+    {
+        var paths = new Queue<string[]>();
+        var visited = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var owner in owners.Order(StringComparer.Ordinal))
+        {
+            paths.Enqueue([owner]);
+            visited.Add(owner);
+        }
+        while (paths.TryDequeue(out var path))
+        {
+            var current = path[^1];
+            if (current == project) return path;
+            foreach (var dependent in Edges.Where(edge => edge.To == current).Select(edge => edge.From).Order(StringComparer.Ordinal))
+                if (visited.Add(dependent)) paths.Enqueue([.. path, dependent]);
+        }
+        return null;
+    }
+
     public ProjectDependencyValidation Validate()
     {
         var nodes = Nodes.ToHashSet(StringComparer.Ordinal);
