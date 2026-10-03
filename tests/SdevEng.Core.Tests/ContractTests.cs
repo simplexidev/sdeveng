@@ -43,6 +43,47 @@ public class ContractTests
     }
 
     [Fact]
+    public void RelevanceRankingOrderAppliesConfidenceGateAndPreservesAbstentions()
+    {
+        var input = new RelevanceRankingInput
+        {
+            Query = "query",
+            Candidates = [new() { Id = "z", Text = "first" }, new() { Id = "b", Text = "second" }, new() { Id = "a", Text = "third" }, new() { Id = "tail", Text = "tail" }]
+        };
+        var ordered = RelevanceRankingOrder.Apply(input,
+        [
+            new("z", .1) { Confidence = .79 },
+            new("b", .4) { Confidence = .80 },
+            new("a", .4) { Confidence = .81 },
+            new("tail", .9)
+        ]);
+        Assert.Equal(["a", "b", "z", "tail"], ordered.Select(candidate => candidate.Id));
+        Assert.Equal(input.Candidates.Select(candidate => candidate.Id), RelevanceRankingOrder.Apply(input, []).Select(candidate => candidate.Id));
+        Assert.Equal(input.Candidates.Select(candidate => candidate.Id), RelevanceRankingOrder.Apply(input, null).Select(candidate => candidate.Id));
+    }
+
+    [Fact]
+    public void RelevanceRankingOrderAbstainsOnMalformedScoresAndRejectsInvalidPolicy()
+    {
+        var input = new RelevanceRankingInput
+        {
+            Query = "query",
+            Candidates = [new() { Id = "x", Text = "x" }, new() { Id = "y", Text = "y" }, new() { Id = "z", Text = "z" }]
+        };
+        var scores = new RelevanceRankingScore[]
+        {
+            new("x", .9) { Confidence = double.NaN },
+            new("x", .8) { Confidence = .9 },
+            new("y", 1.1) { Confidence = .9 },
+            new("missing", .9) { Confidence = .9 },
+            new("z", .9) { Confidence = 1.1 }
+        };
+        Assert.Equal(["x", "y", "z"], RelevanceRankingOrder.Apply(input, scores).Select(candidate => candidate.Id));
+        Assert.Throws<ArgumentException>(() => RelevanceRankingOrder.Apply(input, [], new() { MinConfidence = double.NaN }));
+        Assert.Throws<ArgumentException>(() => RelevanceRankingOrder.Apply(input, [], new() { MinConfidence = 1.01 }));
+    }
+
+    [Fact]
     public void ProjectGraphValidationReportsCyclesAndUnresolvedEdgesDeterministically()
     {
         var graph = new ProjectDependencyGraph(["a", "b"], [new("a", "b"), new("b", "a"), new("b", "missing")]);
