@@ -3,6 +3,31 @@ namespace SdevEng.Tests;
 public class SolutionDiscoveryTests
 {
     [Fact]
+    public async Task MapsDirectTestReferencesAndProjectDependencyCandidates()
+    {
+        using var repo = new TemporaryGitRepository();
+        repo.Write("A/A.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>");
+        repo.Write("A/Thing.cs", "namespace Demo; public class Thing { public void Run() {} public void Other() {} }");
+        repo.Write("Tests/Tests.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net10.0</TargetFramework><IsTestProject>true</IsTestProject></PropertyGroup><ItemGroup><ProjectReference Include=\"../A/A.csproj\" /><PackageReference Include=\"xunit\" Version=\"2.9.3\" /></ItemGroup></Project>");
+        repo.Write("Tests/Tests.cs", "namespace Xunit { public class FactAttribute : System.Attribute {} } namespace Demo { public class Tests { [Xunit.Fact] public void CallsRun() { new Thing().Run(); } [Xunit.Fact] public void Unrelated() {} } }");
+        Assert.Equal(0, (await Processes.Run("dotnet", ["new", "sln", "-n", "App", "--format", "sln", "--force"], repo.Root)).ExitCode);
+        Assert.Equal(0, (await Processes.Run("dotnet", ["sln", "App.sln", "add", "A/A.csproj", "Tests/Tests.csproj"], repo.Root)).ExitCode);
+
+        var model = await Projects.SemanticModel(repo.Root, "App.sln");
+        var result = model.TestCandidates("M:Demo.Thing.Run", 1);
+        Assert.Equal(2, result.Total);
+        Assert.True(result.Truncated);
+        Assert.Contains(model.TestCandidates("M:Demo.Thing.Run", 2).Candidates, item => item.TestKey == "M:Demo.Tests.CallsRun" && item.Reason == "direct-reference");
+        Assert.Contains(model.TestCandidates("M:Demo.Thing.Other", 2).Candidates, item => item.TestKey is null && item.Reason == "project-dependency");
+        Assert.DoesNotContain(model.TestCandidates("M:Demo.Thing.Other", 2).Candidates, item => item.TestKey == "M:Demo.Tests.Unrelated");
+        Assert.Throws<ArgumentException>(() => model.TestCandidates("M:Missing", 2));
+        Assert.Throws<ArgumentOutOfRangeException>(() => model.TestCandidates("M:Demo.Thing.Run", 0));
+        var routed = await new AgentTool.DotnetCommandModule().Execute(Cli.Parse(["dotnet", "test-candidates", "--project", "App.sln", "--symbol", "M:Demo.Thing.Run"]),
+            AgentTool.FindToolkit(), repo.Root, new(new(), new(), new(), new()), CancellationToken.None);
+        Assert.Equal("ok", routed.Status);
+        Assert.Contains("direct-reference", System.Text.Json.JsonSerializer.Serialize(routed.Data, AgentTool.Json), StringComparison.Ordinal);
+    }
+    [Fact]
     public async Task IndexesOnlyAttributedMethodsInTestProjects()
     {
         using var repo = new TemporaryGitRepository();

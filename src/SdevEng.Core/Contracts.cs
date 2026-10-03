@@ -17,6 +17,27 @@ public sealed record SolutionWorkspaceModel(string Path, string[] Projects, stri
 public sealed record SemanticSolutionModel(string Path, SemanticProjectModel[] Projects)
 {
     public SemanticProjectEdgeModel[] ProjectEdges { get; init; } = [];
+    public SemanticProjectDependencyModel[] ProjectDependencies { get; init; } = [];
+
+    public SemanticTestCandidateResult TestCandidates(string symbol, int limit)
+    {
+        if (string.IsNullOrWhiteSpace(symbol)) throw new ArgumentException("A symbol key is required.", nameof(symbol));
+        if (limit < 1) throw new ArgumentOutOfRangeException(nameof(limit));
+        var owners = Projects.Where(project => project.Types.Any(type => type.StableKey == symbol ||
+            type.Callables.Any(callable => callable.StableKey == symbol) ||
+            type.DataMembers.Any(member => member.StableKey == symbol))).Select(project => project.Path).ToHashSet(StringComparer.Ordinal);
+        if (owners.Count == 0) throw new ArgumentException("Symbol is not in the solution.", nameof(symbol));
+        var direct = Projects.Where(project => project.IsTest).SelectMany(project => project.TestMethods
+            .Where(method => project.References.Any(reference => reference.TargetKey == symbol && reference.CallerKey == method.StableKey) ||
+                project.CallSites.Any(call => call.TargetKey == symbol && call.CallerKey == method.StableKey))
+            .Select(method => new SemanticTestCandidateModel(project.Path, method.StableKey, method.Location, "direct-reference")));
+        var dependentProjects = ProjectDependencies.Where(edge => owners.Contains(edge.TargetProject)).Select(edge => edge.SourceProject).ToHashSet(StringComparer.Ordinal);
+        var dependencies = Projects.Where(project => project.IsTest && dependentProjects.Contains(project.Path))
+            .Select(project => new SemanticTestCandidateModel(project.Path, null, null, "project-dependency"));
+        var matches = direct.Concat(dependencies).Distinct().OrderBy(item => item.Project, StringComparer.Ordinal)
+            .ThenBy(item => item.Reason, StringComparer.Ordinal).ThenBy(item => item.TestKey, StringComparer.Ordinal).ToArray();
+        return new(matches.Take(limit).ToArray(), matches.Length, limit, matches.Length > limit);
+    }
 
     public SemanticRelationshipQueryResult Relationships(string project, int limit)
     {
@@ -26,6 +47,9 @@ public sealed record SemanticSolutionModel(string Path, SemanticProjectModel[] P
         return new(matches.Take(limit).ToArray(), matches.Length, limit, matches.Length > limit);
     }
 }
+public sealed record SemanticProjectDependencyModel(string SourceProject, string TargetProject);
+public sealed record SemanticTestCandidateModel(string Project, string? TestKey, string? Location, string Reason);
+public sealed record SemanticTestCandidateResult(SemanticTestCandidateModel[] Candidates, int Total, int Limit, bool Truncated);
 public sealed record SemanticProjectEdgeModel(string SourceProject, string TargetProject, string SourceKey, string TargetKey, string Kind, string Location);
 public sealed record SemanticRelationshipQueryResult(SemanticProjectEdgeModel[] Edges, int Total, int Limit, bool Truncated);
 public sealed record SemanticProjectModel(string Path, SemanticNamespaceModel[] Namespaces, SemanticTypeModel[] Types)

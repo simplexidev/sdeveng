@@ -1017,6 +1017,7 @@ public static class AgentTool
         dotnet inspect [--project PATH] | build-plan [--base REF] [--project PATH] [--configuration NAME] [--binlog]
         dotnet semantic-model --project SOLUTION
         dotnet relationships --project SOLUTION --path PROJECT
+        dotnet test-candidates --project SOLUTION --symbol KEY
         dotnet test-plan [--base REF] [--project PATH] [--configuration NAME]
             [--test NAME | --class NAME | --category NAME | --filter EXPR]
         dotnet diagnostics-plan [--process-id NUMBER] [--signal counters|cpu|contention|allocations|managed-memory|crash|hang]
@@ -1838,7 +1839,7 @@ public static class AgentTool
         [
             "dotnet verify", "dotnet format", "dotnet package-audit", "dotnet dependencies",
             "dotnet api-check", "dotnet release-verify", "dotnet inspect", "dotnet build-plan",
-            "dotnet test-plan", "dotnet diagnostics-plan", "dotnet semantic-model", "dotnet relationships"
+            "dotnet test-plan", "dotnet diagnostics-plan", "dotnet semantic-model", "dotnet relationships", "dotnet test-candidates"
         ];
 
         public bool CanHandle(Cli command) => Commands.Contains(command.Command, StringComparer.Ordinal);
@@ -1856,6 +1857,8 @@ public static class AgentTool
                 "dotnet semantic-model" => Result.Ok(await Projects.SemanticModel(root, command.Get("project") ?? throw new ArgumentException("dotnet semantic-model requires --project SOLUTION."))),
                 "dotnet relationships" => Result.Ok((await Projects.SemanticModel(root, command.Get("project") ?? throw new ArgumentException("dotnet relationships requires --project SOLUTION.")))
                     .Relationships(command.Get("path") ?? throw new ArgumentException("dotnet relationships requires --path PROJECT."), settings.Output.MaxItems)),
+                "dotnet test-candidates" => Result.Ok((await Projects.SemanticModel(root, command.Get("project") ?? throw new ArgumentException("dotnet test-candidates requires --project SOLUTION.")))
+                    .TestCandidates(command.Get("symbol") ?? throw new ArgumentException("dotnet test-candidates requires --symbol KEY."), settings.Output.MaxItems)),
                 "dotnet build-plan" => Result.Ok(await DotnetFacts.BuildPlan(root, command.Get("project"), command.Get("base"), command.Get("configuration") ?? "Debug", command.Flag("binlog"))),
                 "dotnet test-plan" => Result.Ok(await DotnetFacts.TestPlan(root, command.Get("project"), command.Get("base"), command.Get("configuration") ?? "Debug", new(command.Get("test"), command.Get("class"), command.Get("category"), command.Get("filter")))),
                 "dotnet diagnostics-plan" => Result.Ok(await DotnetFacts.DiagnosticsPlan(command.Get("process-id"), command.Get("signal"), command.Get("duration-seconds"), root)),
@@ -2336,6 +2339,7 @@ public sealed class Cli
             "dotnet inspect" => ["project"],
             "dotnet semantic-model" => ["project"],
             "dotnet relationships" => ["project", "path"],
+            "dotnet test-candidates" => ["project", "symbol"],
             "dotnet build-plan" => ["base", "project", "configuration", "binlog"],
             "dotnet test-plan" => ["base", "project", "configuration", "test", "class", "category", "filter"],
             "dotnet diagnostics-plan" => ["process-id", "signal", "duration-seconds"],
@@ -2362,7 +2366,7 @@ public sealed class Cli
     public List<string> Words { get; } = [];
     public Dictionary<string, string?> Options { get; } = new(StringComparer.Ordinal);
     static readonly HashSet<string> Flags = ["json", "help", "version", "dry-run", "bin", "apply", "safe-input", "binlog", "failed-logs"];
-    static readonly HashSet<string> Values = ["root", "toolkit", "set", "home", "codex-home", "base", "expected", "baseline", "query", "exact-text", "fuzzy", "name", "issue", "branch", "remote", "path", "paths-file", "message", "pr", "run-id", "project", "file", "sha256", "input", "output", "skill", "results", "configuration", "test", "class", "category", "filter", "process-id", "signal", "duration-seconds", "profile", "evidence-file", "tag", "hosted-file", "local-file", "commit"];
+    static readonly HashSet<string> Values = ["root", "toolkit", "set", "home", "codex-home", "base", "expected", "baseline", "query", "exact-text", "fuzzy", "name", "issue", "branch", "remote", "path", "paths-file", "message", "pr", "run-id", "project", "symbol", "file", "sha256", "input", "output", "skill", "results", "configuration", "test", "class", "category", "filter", "process-id", "signal", "duration-seconds", "profile", "evidence-file", "tag", "hosted-file", "local-file", "commit"];
     public string? Get(string name) => Options.GetValueOrDefault(name);
     public bool Flag(string name) => Options.ContainsKey(name);
     public string Require(string name) => Get(name) is { Length: > 0 } v ? v : throw new ArgumentException($"--{name} is required.");
