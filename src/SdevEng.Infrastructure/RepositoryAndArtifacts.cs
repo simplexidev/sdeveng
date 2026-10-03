@@ -425,6 +425,10 @@ public static class Projects
         }
         return new(Path.GetFullPath(solution, repositoryRoot), projects.ToArray())
         {
+            ProjectDependencies = projectCompilations.SelectMany(item => item.Project.ProjectReferences.Select(reference =>
+                new SemanticProjectDependencyModel(Path.GetRelativePath(repositoryRoot, item.Project.FilePath!).Replace('\\', '/'),
+                    Path.GetRelativePath(repositoryRoot, solutionModel.GetProject(reference.ProjectId)!.FilePath!).Replace('\\', '/'))))
+                .Distinct().OrderBy(item => item.SourceProject, StringComparer.Ordinal).ThenBy(item => item.TargetProject, StringComparer.Ordinal).ToArray(),
             ProjectEdges = edges.Distinct().OrderBy(item => item.SourceProject, StringComparer.Ordinal)
                 .ThenBy(item => item.TargetProject, StringComparer.Ordinal).ThenBy(item => item.Location, StringComparer.Ordinal)
                 .ThenBy(item => item.Kind, StringComparer.Ordinal).ThenBy(item => item.TargetKey, StringComparer.Ordinal).ToArray()
