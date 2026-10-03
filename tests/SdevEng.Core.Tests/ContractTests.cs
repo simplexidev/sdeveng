@@ -19,6 +19,30 @@ public class ContractTests
     }
 
     [Fact]
+    public async Task AbstainingRelevanceRankingProviderReturnsNoSemanticScores()
+    {
+        var provider = new AbstainingRelevanceRankingProvider();
+        var input = new RelevanceRankingInput
+        {
+            Query = "documentation impact",
+            Candidates = [new() { Id = "docs/readme", Text = "Build instructions" }]
+        };
+
+        Assert.Empty(await provider.RankAsync(input));
+    }
+
+    [Fact]
+    public async Task AbstainingRelevanceRankingProviderValidatesAndHonorsCancellation()
+    {
+        var provider = new AbstainingRelevanceRankingProvider();
+        await Assert.ThrowsAsync<ArgumentException>(() => provider.RankAsync(new RelevanceRankingInput()));
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => provider.RankAsync(
+            new RelevanceRankingInput { Query = "query" }, cancellation.Token));
+    }
+
+    [Fact]
     public void ProjectGraphValidationReportsCyclesAndUnresolvedEdgesDeterministically()
     {
         var graph = new ProjectDependencyGraph(["a", "b"], [new("a", "b"), new("b", "a"), new("b", "missing")]);
