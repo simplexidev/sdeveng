@@ -13,10 +13,28 @@
       "type": "array",
       "items": { "$ref": "https://simplexidev.github.io/sdeveng/schemas/evidence-item.schema.json" }
     },
+    "omissions": {
+      "type": "array",
+      "description": "Evidence that could not be supplied, with a stable reason code.",
+      "items": { "$ref": "#/$defs/omission" }
+    },
     "content": {
       "type": "object",
       "description": "Expandable pack-level context.",
       "additionalProperties": true
+    }
+  },
+  "$defs": {
+    "omission": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["reasonCode"],
+      "properties": {
+        "reasonCode": {
+          "enum": ["not-available", "not-applicable", "not-collected", "redacted", "access-denied", "source-unavailable", "truncated"]
+        },
+        "detail": { "type": "string", "minLength": 1 }
+      }
     }
   }
 }

@@ -40,4 +40,17 @@ public sealed class EvidenceItemSchemaTests
         pack["role"] = "";
         Assert.False(schema.Evaluate(pack).IsValid);
     }
+
+    [Fact]
+    public void EvidencePackSchemaAcceptsKnownOmissionReasonCodesAndRejectsUnknownCodes()
+    {
+        var itemSchema = JsonSchema.FromFile(Path.Combine(AgentTool.FindToolkit(), "schemas/evidence-item.schema.json"));
+        SchemaRegistry.Global.Register(itemSchema);
+        var schema = JsonSchema.FromFile(Path.Combine(AgentTool.FindToolkit(), "schemas/evidence-pack.schema.json"));
+        var pack = JsonNode.Parse("""{"schemaVersion":1,"role":"implementer","items":[],"omissions":[{"reasonCode":"source-unavailable","detail":"Repository snapshot was unavailable."}]}""")!;
+
+        Assert.True(schema.Evaluate(pack).IsValid);
+        pack["omissions"]![0]!["reasonCode"] = "unknown";
+        Assert.False(schema.Evaluate(pack).IsValid);
+    }
 }
