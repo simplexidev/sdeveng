@@ -19,6 +19,7 @@ public class SolutionDiscoveryTests
 
         Assert.Equal(Path.Combine(repo.Root, "App.sln"), result.Path);
         Assert.True(result.Projects.SequenceEqual([project]), System.Text.Json.JsonSerializer.Serialize(result.Diagnostics));
+        Assert.Equal([project], result.CompilationAvailableProjects);
         Assert.Equal(result.Diagnostics.OrderBy(item => item.ProjectPath, StringComparer.Ordinal)
             .ThenBy(item => item.Kind, StringComparer.Ordinal).ThenBy(item => item.Id, StringComparer.Ordinal)
             .ThenBy(item => item.Message, StringComparer.Ordinal), result.Diagnostics);
