@@ -6,6 +6,8 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
+using Microsoft.Build.Locator;
+using Microsoft.CodeAnalysis.MSBuild;
 
 namespace SdevEng;
 
@@ -300,8 +302,41 @@ public record ResultFile(string Path, string Type, DateTimeOffset TimestampUtc, 
 
 public static class Projects
 {
+    private static readonly object WorkspaceRegistrationLock = new();
+    private static bool workspaceRegistered;
     public static string[] Discover(string root) => SafeFiles.Enumerate(root).Where(x => Path.GetExtension(x) is ".csproj" or ".fsproj" or ".vbproj").Order(StringComparer.Ordinal).ToArray();
     public static string[] Solutions(string root) => SafeFiles.Enumerate(root).Where(x => Path.GetExtension(x) is ".sln" or ".slnx").Order(StringComparer.Ordinal).ToArray();
+    public static async Task<SolutionWorkspaceModel> LoadSolution(string root, string solution)
+    {
+        var repositoryRoot = Path.GetFullPath(root);
+        var fullPath = Path.GetFullPath(solution, repositoryRoot);
+        if (!File.Exists(fullPath) || Path.GetExtension(fullPath) is not (".sln" or ".slnx")) throw new ArgumentException("A solution file (.sln or .slnx) must exist.", nameof(solution));
+        lock (WorkspaceRegistrationLock)
+        {
+            if (!workspaceRegistered)
+            {
+                if (!MSBuildLocator.IsRegistered) MSBuildLocator.RegisterDefaults();
+                workspaceRegistered = true;
+            }
+        }
+        using var workspace = MSBuildWorkspace.Create();
+        var diagnostics = new List<WorkspaceDiagnostic>();
+        workspace.WorkspaceFailed += (_, args) => diagnostics.Add(NormalizeWorkspaceDiagnostic(args.Diagnostic, repositoryRoot));
+        var loaded = await workspace.OpenSolutionAsync(fullPath);
+        var projects = loaded.Projects.Select(project => Path.GetFullPath(project.FilePath ?? project.Name))
+            .Order(StringComparer.Ordinal).ToArray();
+        return new(Path.GetFullPath(fullPath), projects, diagnostics.Distinct().OrderBy(item => item.ProjectPath, StringComparer.Ordinal)
+            .ThenBy(item => item.Kind, StringComparer.Ordinal).ThenBy(item => item.Id, StringComparer.Ordinal)
+            .ThenBy(item => item.Message, StringComparer.Ordinal).ToArray());
+    }
+
+    private static WorkspaceDiagnostic NormalizeWorkspaceDiagnostic(Microsoft.CodeAnalysis.WorkspaceDiagnostic diagnostic, string root)
+    {
+        var message = Regex.Replace(diagnostic.Message.Replace('\\', '/'), @"\s+", " ", RegexOptions.CultureInvariant).Trim();
+        var normalizedRoot = root.Replace('\\', '/').TrimEnd('/') + "/";
+        message = message.Replace(normalizedRoot, "", StringComparison.OrdinalIgnoreCase);
+        return new("MSBUILD_WORKSPACE", diagnostic.Kind.ToString(), message, null);
+    }
     public static async Task<string[]> InSolution(string root, string solution)
     {
         var full = Path.GetFullPath(solution, root); if (!File.Exists(full)) throw new ArgumentException("Solution does not exist.");
