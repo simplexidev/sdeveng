@@ -19,6 +19,60 @@ public sealed record SemanticSolutionModel(string Path, SemanticProjectModel[] P
     public SemanticProjectEdgeModel[] ProjectEdges { get; init; } = [];
     public SemanticProjectDependencyModel[] ProjectDependencies { get; init; } = [];
 
+    /// <summary>Finds declarations and callers transitively affected by a declared symbol.</summary>
+    public SemanticImpactResult AffectedSymbols(string symbol, int limit)
+    {
+        if (string.IsNullOrWhiteSpace(symbol)) throw new ArgumentException("A symbol key is required.", nameof(symbol));
+        if (limit < 1) throw new ArgumentOutOfRangeException(nameof(limit));
+        var declarations = Projects.SelectMany(project => project.Types.SelectMany(type =>
+            new[] { type.StableKey }.Concat(type.Callables.Select(item => item.StableKey)).Concat(type.DataMembers.Select(item => item.StableKey))));
+        if (!declarations.Contains(symbol, StringComparer.Ordinal)) throw new ArgumentException("Symbol is not in the solution.", nameof(symbol));
+        var affected = new HashSet<string>(StringComparer.Ordinal) { symbol };
+        var references = Projects.SelectMany(project => project.References.Select(item => (item.TargetKey, item.CallerKey))
+            .Concat(project.CallSites.Select(item => (item.TargetKey, item.CallerKey)))).ToArray();
+        bool added;
+        do
+        {
+            added = false;
+            foreach (var reference in references)
+                if (reference.CallerKey is not null && affected.Contains(reference.TargetKey)) added |= affected.Add(reference.CallerKey);
+        } while (added);
+        var matches = affected.Order(StringComparer.Ordinal).ToArray();
+        return new(matches.Take(limit).ToArray(), matches.Length, limit, matches.Length > limit);
+    }
+
+    /// <summary>Finds files declaring or referencing symbols declared in a changed source file.</summary>
+    public SemanticImpactResult AffectedFiles(string file, int limit)
+    {
+        if (string.IsNullOrWhiteSpace(file)) throw new ArgumentException("A repository-relative file is required.", nameof(file));
+        if (limit < 1) throw new ArgumentOutOfRangeException(nameof(limit));
+        var path = file.Replace('\\', '/');
+        var declarations = Projects.SelectMany(project => project.Types.SelectMany(type =>
+            new[] { (type.StableKey, type.Location) }
+                .Concat(type.Callables.Select(item => (item.StableKey, item.Location)))
+                .Concat(type.DataMembers.Select(item => (item.StableKey, item.Location))))).ToArray();
+        var source = declarations.Select(item => SourcePath(item.Location))
+            .FirstOrDefault(item => item == path || item.EndsWith("/" + path, StringComparison.Ordinal));
+        var roots = declarations.Where(item => SourcePath(item.Location) == source).Select(item => item.StableKey).Distinct(StringComparer.Ordinal).ToArray();
+        if (roots.Length == 0) throw new ArgumentException("File has no declarations in the solution.", nameof(file));
+        var prefix = source![..^path.Length];
+        var affected = roots.SelectMany(symbol => AffectedSymbols(symbol, int.MaxValue).Items).ToHashSet(StringComparer.Ordinal);
+        var files = declarations.Where(item => affected.Contains(item.StableKey)).Select(item => SourcePath(item.Location))
+            .Concat(Projects.SelectMany(project => project.References.Select(item => (item.TargetKey, item.Location))
+                .Concat(project.CallSites.Select(item => (item.TargetKey, item.Location))))
+                .Where(item => affected.Contains(item.TargetKey)).Select(item => SourcePath(item.Location)))
+            .Select(item => item.StartsWith(prefix, StringComparison.Ordinal) ? item[prefix.Length..] : item)
+            .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+        return new(files.Take(limit).ToArray(), files.Length, limit, files.Length > limit);
+    }
+
+    private static string SourcePath(string location)
+    {
+        var column = location.LastIndexOf(':');
+        var line = column < 0 ? -1 : location.LastIndexOf(':', column - 1);
+        return line < 0 ? location : location[..line];
+    }
+
     public SemanticTestCandidateResult TestCandidates(string symbol, int limit)
     {
         if (string.IsNullOrWhiteSpace(symbol)) throw new ArgumentException("A symbol key is required.", nameof(symbol));
@@ -47,6 +101,7 @@ public sealed record SemanticSolutionModel(string Path, SemanticProjectModel[] P
         return new(matches.Take(limit).ToArray(), matches.Length, limit, matches.Length > limit);
     }
 }
+public sealed record SemanticImpactResult(string[] Items, int Total, int Limit, bool Truncated);
 public sealed record SemanticProjectDependencyModel(string SourceProject, string TargetProject);
 public sealed record SemanticTestCandidateModel(string Project, string? TestKey, string? Location, string Reason);
 public sealed record SemanticTestCandidateResult(SemanticTestCandidateModel[] Candidates, int Total, int Limit, bool Truncated);

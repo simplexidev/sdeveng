@@ -22,10 +22,25 @@ public class SolutionDiscoveryTests
         Assert.DoesNotContain(model.TestCandidates("M:Demo.Thing.Other", 2).Candidates, item => item.TestKey == "M:Demo.Tests.Unrelated");
         Assert.Throws<ArgumentException>(() => model.TestCandidates("M:Missing", 2));
         Assert.Throws<ArgumentOutOfRangeException>(() => model.TestCandidates("M:Demo.Thing.Run", 0));
+        var symbols = model.AffectedSymbols("M:Demo.Thing.Run", 1);
+        Assert.Equal(2, symbols.Total);
+        Assert.True(symbols.Truncated);
+        Assert.Contains("M:Demo.Tests.CallsRun", model.AffectedSymbols("M:Demo.Thing.Run", 10).Items);
+        Assert.Equal(new[] { "A/Thing.cs", "Tests/Tests.cs" }, model.AffectedFiles("A/Thing.cs", 10).Items);
+        Assert.Throws<ArgumentException>(() => model.AffectedFiles("missing.cs", 10));
+        Assert.Throws<ArgumentException>(() => model.AffectedSymbols("M:Missing", 10));
         var routed = await new AgentTool.DotnetCommandModule().Execute(Cli.Parse(["dotnet", "test-candidates", "--project", "App.sln", "--symbol", "M:Demo.Thing.Run"]),
             AgentTool.FindToolkit(), repo.Root, new(new(), new(), new(), new()), CancellationToken.None);
         Assert.Equal("ok", routed.Status);
         Assert.Contains("direct-reference", System.Text.Json.JsonSerializer.Serialize(routed.Data, AgentTool.Json), StringComparison.Ordinal);
+        var filesCommand = await new AgentTool.DotnetCommandModule().Execute(Cli.Parse(["dotnet", "affected-files", "--project", "App.sln", "--path", "A/Thing.cs"]),
+            AgentTool.FindToolkit(), repo.Root, new(new(), new(), new(), new()), CancellationToken.None);
+        Assert.Equal("ok", filesCommand.Status);
+        Assert.Contains("Tests/Tests.cs", System.Text.Json.JsonSerializer.Serialize(filesCommand.Data, AgentTool.Json), StringComparison.Ordinal);
+        var symbolsCommand = await new AgentTool.DotnetCommandModule().Execute(Cli.Parse(["dotnet", "affected-symbols", "--project", "App.sln", "--symbol", "M:Demo.Thing.Run"]),
+            AgentTool.FindToolkit(), repo.Root, new(new(), new(), new(), new()), CancellationToken.None);
+        Assert.Equal("ok", symbolsCommand.Status);
+        Assert.Contains("M:Demo.Tests.CallsRun", System.Text.Json.JsonSerializer.Serialize(symbolsCommand.Data, AgentTool.Json), StringComparison.Ordinal);
     }
     [Fact]
     public async Task IndexesOnlyAttributedMethodsInTestProjects()
