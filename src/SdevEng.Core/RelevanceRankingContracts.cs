@@ -28,3 +28,12 @@ public record RelevanceRankingCandidate
     public string Id { get; init; } = "";
     public string Text { get; init; } = "";
 }
+
+/// <summary>Provides semantic relevance scores for an already bounded candidate set.</summary>
+public interface IRelevanceRankingProvider
+{
+    Task<IReadOnlyList<RelevanceRankingScore>> RankAsync(RelevanceRankingInput input, CancellationToken cancellationToken = default);
+}
+
+/// <summary>A provider's relevance score for one candidate in the supplied input.</summary>
+public record RelevanceRankingScore(string CandidateId, double Score);
