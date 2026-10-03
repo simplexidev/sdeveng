@@ -3,6 +3,22 @@ using SdevEng;
 public class ContractTests
 {
     [Fact]
+    public void RelevanceRankingInputValidatesAndCapsCandidates()
+    {
+        var input = new RelevanceRankingInput
+        {
+            Query = "documentation impact",
+            Candidates = [new() { Id = "docs/readme", Text = "Build instructions" }]
+        };
+        input.Validate();
+        Assert.Throws<ArgumentException>(() => (input with
+        {
+            Candidates = Enumerable.Range(0, RelevanceRankingInput.CandidateLimit + 1)
+                .Select(index => new RelevanceRankingCandidate { Id = $"candidate-{index}", Text = "summary" }).ToArray()
+        }).Validate());
+    }
+
+    [Fact]
     public void ProjectGraphValidationReportsCyclesAndUnresolvedEdgesDeterministically()
     {
         var graph = new ProjectDependencyGraph(["a", "b"], [new("a", "b"), new("b", "a"), new("b", "missing")]);
