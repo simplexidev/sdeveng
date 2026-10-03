@@ -38,6 +38,7 @@ public class SolutionDiscoveryTests
         Assert.Equal(0, add.ExitCode);
 
         var result = await Projects.SemanticModel(repo.Root, "App.sln");
+        var repeated = await Projects.SemanticModel(repo.Root, "App.sln");
 
         var projectModel = Assert.Single(result.Projects);
         Assert.Equal("Demo", Assert.Single(projectModel.Namespaces).Name);
@@ -48,13 +49,18 @@ public class SolutionDiscoveryTests
         var type = Assert.Single(projectModel.Types, item => item.Name == "global::Demo.Thing");
         Assert.Equal("global::Demo.Thing", type.Name);
         Assert.Equal("Class", type.Kind);
+        Assert.Equal("T:Demo.Thing", type.StableKey);
+        Assert.EndsWith("src/Thing.cs:1:30", type.Location, StringComparison.Ordinal);
+        Assert.Equal(type.StableKey, Assert.Single(repeated.Projects).Types.Single(item => item.Name == type.Name).StableKey);
         Assert.Equal(new[] { "global::Demo.Base", "global::Demo.IThing" }, type.BaseTypes);
         Assert.Contains(type.Members, member => member.Contains("Name", StringComparison.Ordinal));
         Assert.Contains(type.Callables, callable => callable.Kind == "Constructor" && callable.Location.EndsWith(":1:60", StringComparison.Ordinal));
         Assert.Contains(type.Callables, callable => callable.Kind == "Method" && callable.Name == "Run" && callable.Location.EndsWith(":1:170", StringComparison.Ordinal));
+        Assert.Contains(type.Callables, callable => callable.Name.Contains("Run", StringComparison.Ordinal) && callable.StableKey.StartsWith("M:Demo.Thing.Run", StringComparison.Ordinal));
         Assert.Contains(type.DataMembers, member => member.Kind == "Property" && member.Name.Contains("Name", StringComparison.Ordinal) && member.Location.EndsWith(":1:86", StringComparison.Ordinal));
         Assert.Contains(type.DataMembers, member => member.Kind == "Field" && member.Name.Contains("Count", StringComparison.Ordinal) && member.Location.EndsWith(":1:114", StringComparison.Ordinal));
         Assert.Contains(type.DataMembers, member => member.Kind == "Event" && member.Name.Contains("Changed", StringComparison.Ordinal) && member.Location.EndsWith(":1:149", StringComparison.Ordinal));
+        Assert.All(type.DataMembers, member => Assert.False(string.IsNullOrWhiteSpace(member.StableKey)));
     }
 
     [Fact]
