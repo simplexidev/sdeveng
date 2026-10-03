@@ -247,6 +247,8 @@ public class MetadataTests
         Assert.All(descriptors, descriptor =>
         {
             Assert.True(descriptor!["readOnly"]!.GetValue<bool>());
+            Assert.NotEmpty(descriptor["authorizationRequirements"]!.AsArray());
+            Assert.InRange(descriptor["maxOutputBytes"]!.GetValue<int>(), 256, 131072);
             var command = descriptor["command"]!.GetValue<string>();
             Assert.Contains(contracts, contract => contract!["command"]!.GetValue<string>() == command && contract["kind"]!.GetValue<string>() == descriptor["kind"]!.GetValue<string>());
             Assert.Single(modules, module => module.CanHandle(Cli.Parse(command.Split(' '))));
@@ -261,7 +263,12 @@ public class MetadataTests
         var json = JsonNode.Parse(JsonSerializer.Serialize(result.Data, AgentTool.Json))!;
         Assert.Equal("tool-descriptors", json["kind"]!.GetValue<string>());
         Assert.Equal(6, json["tools"]!.AsArray().Count);
-        Assert.All(json["tools"]!.AsArray(), tool => Assert.True(tool!["readOnly"]!.GetValue<bool>()));
+        Assert.All(json["tools"]!.AsArray(), tool =>
+        {
+            Assert.True(tool!["readOnly"]!.GetValue<bool>());
+            Assert.NotEmpty(tool["authorizationRequirements"]!.AsArray());
+            Assert.True(tool["maxOutputBytes"]!.GetValue<int>() > 0);
+        });
     }
     [Fact]
     public void CliResultEnvelopesConformToThePublishedSchema()

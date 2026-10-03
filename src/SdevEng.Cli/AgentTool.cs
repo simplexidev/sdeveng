@@ -1979,7 +1979,7 @@ public static class AgentTool
     public static string RenderJson(Result result, string command, string root, OutputSettings output)
     {
         var rendered = SerializeEnvelope(result, command, null);
-        if (rendered.Length <= output.MaxOutputChars) return rendered;
+        if (Encoding.UTF8.GetByteCount(rendered) <= output.MaxOutputChars) return rendered;
         var report = Path.Combine(root, ".agent-tool", $"result-{Guid.NewGuid():N}.json");
         SafeFiles.Atomic(report, rendered);
         return SerializeEnvelope(new(result.Status, new { truncated = true, characters = rendered.Length, artifact = report }, result.ExitCode), command, null);
@@ -2000,7 +2000,7 @@ public static class AgentTool
     public static string Render(Result result, string root, OutputSettings output)
     {
         var rendered = Secrets.RedactJson(JsonSerializer.Serialize(result, Json));
-        if (rendered.Length <= output.MaxOutputChars) return rendered;
+        if (Encoding.UTF8.GetByteCount(rendered) <= output.MaxOutputChars) return rendered;
         var report = Path.Combine(root, ".agent-tool", $"result-{Guid.NewGuid():N}.json");
         SafeFiles.Atomic(report, rendered);
         return Secrets.RedactJson(JsonSerializer.Serialize(new { result.Status, result.ExitCode, truncated = true, characters = rendered.Length, artifact = report }, Json));
