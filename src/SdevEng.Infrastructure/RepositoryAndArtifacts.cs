@@ -323,11 +323,37 @@ public static class Projects
         var diagnostics = new List<WorkspaceDiagnostic>();
         workspace.WorkspaceFailed += (_, args) => diagnostics.Add(NormalizeWorkspaceDiagnostic(args.Diagnostic, repositoryRoot));
         var loaded = await workspace.OpenSolutionAsync(fullPath);
-        var projects = loaded.Projects.Select(project => Path.GetFullPath(project.FilePath ?? project.Name))
-            .Order(StringComparer.Ordinal).ToArray();
-        return new(Path.GetFullPath(fullPath), projects, diagnostics.Distinct().OrderBy(item => item.ProjectPath, StringComparer.Ordinal)
+        var loadedProjects = loaded.Projects.ToDictionary(project => Path.GetFullPath(project.FilePath ?? project.Name), StringComparer.Ordinal);
+        foreach (var projectPath in await InSolutionProjectPaths(repositoryRoot, fullPath))
+        {
+            if (!loadedProjects.ContainsKey(projectPath))
+            {
+                try { loadedProjects[projectPath] = await workspace.OpenProjectAsync(projectPath); }
+                catch (Exception exception) when (exception is InvalidOperationException or IOException or ArgumentException)
+                {
+                    diagnostics.Add(new("PROJECT_FALLBACK", "Failure", Regex.Replace(exception.Message, @"\s+", " ").Trim(), Path.GetRelativePath(repositoryRoot, projectPath).Replace('\\', '/')));
+                }
+            }
+        }
+        var projects = loadedProjects.Keys.Order(StringComparer.Ordinal).ToArray();
+        var compilable = new List<string>();
+        foreach (var project in loadedProjects.Values.OrderBy(project => Path.GetFullPath(project.FilePath ?? project.Name), StringComparer.Ordinal))
+        {
+            if (await project.GetCompilationAsync() is not null) compilable.Add(Path.GetFullPath(project.FilePath ?? project.Name));
+        }
+        return new(Path.GetFullPath(fullPath), projects, compilable.Order(StringComparer.Ordinal).ToArray(), diagnostics.Distinct().OrderBy(item => item.ProjectPath, StringComparer.Ordinal)
             .ThenBy(item => item.Kind, StringComparer.Ordinal).ThenBy(item => item.Id, StringComparer.Ordinal)
             .ThenBy(item => item.Message, StringComparer.Ordinal).ToArray());
+    }
+
+    private static async Task<string[]> InSolutionProjectPaths(string root, string solution)
+    {
+        var directory = Path.GetDirectoryName(solution)!;
+        var result = await Processes.Run("dotnet", ["sln", solution, "list"], root);
+        if (result.ExitCode != 0) return [];
+        return result.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(line => Path.GetExtension(line.Trim('"')) is ".csproj" or ".fsproj" or ".vbproj")
+            .Select(line => Path.GetFullPath(line.Trim('"'), directory)).Where(File.Exists).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
     }
 
     private static WorkspaceDiagnostic NormalizeWorkspaceDiagnostic(Microsoft.CodeAnalysis.WorkspaceDiagnostic diagnostic, string root)
