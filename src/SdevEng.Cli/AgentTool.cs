@@ -1018,6 +1018,8 @@ public static class AgentTool
         dotnet semantic-model --project SOLUTION
         dotnet relationships --project SOLUTION --path PROJECT
         dotnet test-candidates --project SOLUTION --symbol KEY
+        dotnet affected-symbols --project SOLUTION --symbol KEY
+        dotnet affected-files --project SOLUTION --path FILE
         dotnet test-plan [--base REF] [--project PATH] [--configuration NAME]
             [--test NAME | --class NAME | --category NAME | --filter EXPR]
         dotnet diagnostics-plan [--process-id NUMBER] [--signal counters|cpu|contention|allocations|managed-memory|crash|hang]
@@ -1839,7 +1841,7 @@ public static class AgentTool
         [
             "dotnet verify", "dotnet format", "dotnet package-audit", "dotnet dependencies",
             "dotnet api-check", "dotnet release-verify", "dotnet inspect", "dotnet build-plan",
-            "dotnet test-plan", "dotnet diagnostics-plan", "dotnet semantic-model", "dotnet relationships", "dotnet test-candidates"
+            "dotnet test-plan", "dotnet diagnostics-plan", "dotnet semantic-model", "dotnet relationships", "dotnet test-candidates", "dotnet affected-symbols", "dotnet affected-files"
         ];
 
         public bool CanHandle(Cli command) => Commands.Contains(command.Command, StringComparer.Ordinal);
@@ -1859,6 +1861,10 @@ public static class AgentTool
                     .Relationships(command.Get("path") ?? throw new ArgumentException("dotnet relationships requires --path PROJECT."), settings.Output.MaxItems)),
                 "dotnet test-candidates" => Result.Ok((await Projects.SemanticModel(root, command.Get("project") ?? throw new ArgumentException("dotnet test-candidates requires --project SOLUTION.")))
                     .TestCandidates(command.Get("symbol") ?? throw new ArgumentException("dotnet test-candidates requires --symbol KEY."), settings.Output.MaxItems)),
+                "dotnet affected-symbols" => Result.Ok((await Projects.SemanticModel(root, command.Get("project") ?? throw new ArgumentException("dotnet affected-symbols requires --project SOLUTION.")))
+                    .AffectedSymbols(command.Get("symbol") ?? throw new ArgumentException("dotnet affected-symbols requires --symbol KEY."), settings.Output.MaxItems)),
+                "dotnet affected-files" => Result.Ok((await Projects.SemanticModel(root, command.Get("project") ?? throw new ArgumentException("dotnet affected-files requires --project SOLUTION.")))
+                    .AffectedFiles(command.Get("path") ?? throw new ArgumentException("dotnet affected-files requires --path FILE."), settings.Output.MaxItems)),
                 "dotnet build-plan" => Result.Ok(await DotnetFacts.BuildPlan(root, command.Get("project"), command.Get("base"), command.Get("configuration") ?? "Debug", command.Flag("binlog"))),
                 "dotnet test-plan" => Result.Ok(await DotnetFacts.TestPlan(root, command.Get("project"), command.Get("base"), command.Get("configuration") ?? "Debug", new(command.Get("test"), command.Get("class"), command.Get("category"), command.Get("filter")))),
                 "dotnet diagnostics-plan" => Result.Ok(await DotnetFacts.DiagnosticsPlan(command.Get("process-id"), command.Get("signal"), command.Get("duration-seconds"), root)),
@@ -2340,6 +2346,8 @@ public sealed class Cli
             "dotnet semantic-model" => ["project"],
             "dotnet relationships" => ["project", "path"],
             "dotnet test-candidates" => ["project", "symbol"],
+            "dotnet affected-symbols" => ["project", "symbol"],
+            "dotnet affected-files" => ["project", "path"],
             "dotnet build-plan" => ["base", "project", "configuration", "binlog"],
             "dotnet test-plan" => ["base", "project", "configuration", "test", "class", "category", "filter"],
             "dotnet diagnostics-plan" => ["process-id", "signal", "duration-seconds"],
