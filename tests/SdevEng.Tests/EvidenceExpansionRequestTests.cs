@@ -15,6 +15,23 @@ public sealed class EvidenceExpansionRequestTests
         var schema = JsonSchema.FromFile(Path.Combine(AgentTool.FindToolkit(), "schemas/evidence-expansion-request.schema.json"));
         var range = JsonNode.Parse($"{{\"schemaVersion\":1,\"packId\":\"pack-1\",\"packRevision\":\"rev-1\",\"evidenceId\":\"{EvidenceId}\",\"runId\":\"run-1\",\"role\":\"reviewer\",\"startLine\":2,\"endLine\":4}}")!;
         Assert.True(schema.Evaluate(range).IsValid);
+        range["requestId"] = "req-1";
+        range["parentRequestId"] = "parent:1";
+        Assert.True(schema.Evaluate(range).IsValid);
+        foreach (var field in new[] { "requestId", "parentRequestId" })
+        {
+            foreach (var malformed in new[] { "", " ", "../bad", "bad\n", new string('a', 129) })
+            {
+                range[field] = malformed;
+                Assert.False(schema.Evaluate(range).IsValid);
+                Assert.Equal(EvidenceExpansionRejection.MalformedRequest,
+                    Validate(new("pack-1", "rev-1", EvidenceId, "run-1", "reviewer", 2, 4,
+                        RequestId: field == "requestId" ? malformed : null,
+                        ParentRequestId: field == "parentRequestId" ? malformed : null)).Rejection);
+            }
+            range[field] = "valid";
+        }
+        range.AsObject().Remove("parentRequestId");
         range["startLine"] = 0;
         Assert.False(schema.Evaluate(range).IsValid);
         range["startLine"] = 2;
@@ -46,6 +63,26 @@ public sealed class EvidenceExpansionRequestTests
             Validate(known, remainingLines: 2).Rejection);
         Assert.Equal(EvidenceExpansionRejection.MalformedRequest,
             Validate(known with { Section = "../secret", StartLine = null, EndLine = null }).Rejection);
+        Assert.Equal(EvidenceExpansionRejection.RecursiveExpansion,
+            Validate(known with { ParentRequestId = "parent" }).Rejection);
+    }
+
+    [Fact]
+    public void ExpansionEventsPersistOnceAndReplayByRequestId()
+    {
+        using var repo = new TemporaryGitRepository();
+        var runId = Guid.NewGuid();
+        var first = LocalRunEventStore.AppendEvidenceExpansion(repo.Root, runId, "req-1", "reviewer", "pack-1", EvidenceId,
+            "revision-1", 2, 4, 24, null, "unavailable", "accepted");
+        var replay = LocalRunEventStore.AppendEvidenceExpansion(repo.Root, runId, "req-1", "reviewer", "pack-1", EvidenceId,
+            "revision-1", 2, 4, 24, null, "unavailable", "accepted");
+        var events = LocalRunEventStore.Read(repo.Root, runId);
+        Assert.Single(events);
+        Assert.Equal(first.GetProperty("sequence").GetInt32(), replay.GetProperty("sequence").GetInt32());
+        Assert.Equal("accepted", events[0].GetProperty("status").GetString());
+        Assert.Equal(System.Text.Json.JsonValueKind.Null, events[0].GetProperty("actualTokens").ValueKind);
+        var schema = JsonSchema.FromFile(Path.Combine(AgentTool.FindToolkit(), "schemas/run-event.schema.json"));
+        Assert.True(schema.Evaluate(JsonNode.Parse(events[0].GetRawText())).IsValid);
     }
 
     private static EvidenceExpansionValidation Validate(EvidenceExpansionRequest request, int remainingLines = 3) =>

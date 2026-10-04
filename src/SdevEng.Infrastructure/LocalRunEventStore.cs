@@ -9,6 +9,100 @@ namespace SdevEng;
 
 public static class LocalRunEventStore
 {
+    public static JsonElement AppendEvidenceExpansion(string directory, Guid runId, EvidenceExpansionRequest request,
+        string? sourceRevision, EvidenceExpansionOutcome outcome)
+    {
+        if (runId == Guid.Empty || !Guid.TryParseExact(request.RunId, "D", out var requestedRun) || requestedRun != runId ||
+            !Regex.IsMatch(outcome.Digest, "^[0-9a-f]{64}$", RegexOptions.CultureInvariant) ||
+            !EvidenceExpansionRequestValidator.ValidRequestReference(outcome.RequestId) || outcome.RequestId.Length == 0)
+            throw new ArgumentException("Expansion event identity is invalid.");
+        var existing = Read(directory, runId).FirstOrDefault(item => item.GetProperty("eventType").GetString() == "evidence-expansion" && item.GetProperty("requestId").GetString() == outcome.RequestId);
+        if (existing.ValueKind != JsonValueKind.Undefined)
+        {
+            if (!existing.TryGetProperty("requestDigest", out var digest) || digest.GetString() != outcome.Digest)
+                throw new InvalidOperationException("Conflicting expansion replay.");
+            return existing;
+        }
+        string? Metadata(string? value, int limit) => string.IsNullOrWhiteSpace(value) || value.Length > limit ? null : Secrets.Redact(value);
+        var payload = new
+        {
+            schemaVersion = 1,
+            runId = runId.ToString("D"),
+            sequence = 0,
+            occurredAt = DateTimeOffset.UtcNow,
+            eventType = "evidence-expansion",
+            expansionVersion = 1,
+            requestId = outcome.RequestId,
+            requestDigest = outcome.Digest,
+            role = Metadata(request.Role, 64),
+            packId = Metadata(request.PackId, 128),
+            packRevision = Metadata(request.PackRevision, 128),
+            evidenceId = Regex.IsMatch(request.EvidenceId ?? "", "^evidence:[0-9a-f]{64}$", RegexOptions.CultureInvariant) ? request.EvidenceId : null,
+            sourceRevision = Metadata(sourceRevision, 128),
+            startLine = request.StartLine > 0 ? request.StartLine : null,
+            endLine = request.EndLine > 0 ? request.EndLine : null,
+            section = Metadata(request.Section, 256),
+            parentRequestId = EvidenceExpansionRequestValidator.ValidRequestReference(request.ParentRequestId) ? request.ParentRequestId : null,
+            actualBytes = outcome.Result.Utf8Bytes,
+            actualTokens = (int?)null,
+            tokenMethod = "unavailable",
+            status = outcome.Result.Status switch { EvidenceExpansionStatus.Expanded => "accepted", EvidenceExpansionStatus.BudgetExceeded => "budget-exceeded", EvidenceExpansionStatus.Omitted => "omitted", _ => "rejected" },
+            reason = outcome.Reason,
+            rejection = outcome.Result.Rejection.ToString()
+        };
+        var record = JsonSerializer.SerializeToElement(payload);
+        ValidateExpansionRecord(record, record.EnumerateObject().Select(property => property.Name).ToHashSet(StringComparer.Ordinal));
+        return AppendSnapshot(directory, runId, payload);
+    }
+
+    public static JsonElement AppendEvidenceExpansion(string directory, Guid runId, string requestId, string role,
+        string packId, string evidenceId, string sourceRevision, int? startLine, int? endLine, int actualBytes,
+        int? actualTokens, string tokenMethod, string status, string reason = "")
+    {
+        if (runId == Guid.Empty || string.IsNullOrWhiteSpace(requestId) || requestId.Length > 128 ||
+            string.IsNullOrWhiteSpace(role) || role.Length > 64 || string.IsNullOrWhiteSpace(packId) || packId.Length > 128 ||
+            string.IsNullOrWhiteSpace(evidenceId) || string.IsNullOrWhiteSpace(sourceRevision) || actualBytes < 0 ||
+            actualBytes > RepositoryEvidenceExpander.MaximumUtf8Bytes || actualTokens < 0 ||
+            tokenMethod is not ("unavailable" or "exact") || status is not ("accepted" or "rejected" or "omitted" or "budget-exceeded") || reason.Length > 64)
+            throw new ArgumentException("Expansion event is invalid.");
+        var existing = Read(directory, runId).FirstOrDefault(item => item.GetProperty("eventType").GetString() == "evidence-expansion" && item.GetProperty("requestId").GetString() == requestId);
+        if (existing.ValueKind != JsonValueKind.Undefined) return existing;
+        return AppendExpansion(directory, runId, requestId, role, packId, evidenceId, sourceRevision, startLine, endLine, actualBytes, actualTokens, tokenMethod, status, reason);
+    }
+
+    private static JsonElement AppendExpansion(string directory, Guid runId, string requestId, string role, string packId,
+        string evidenceId, string sourceRevision, int? startLine, int? endLine, int actualBytes, int? actualTokens,
+        string tokenMethod, string status, string reason)
+    {
+        var path = Path.Combine(directory, runId.ToString("D")); Directory.CreateDirectory(path);
+        using var gate = new FileStream(Path.Combine(path, ".lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+        var sequence = Read(directory, runId).Count + 1;
+        var payload = new
+        {
+            schemaVersion = 1,
+            runId = runId.ToString("D"),
+            sequence,
+            occurredAt = DateTimeOffset.UtcNow,
+            eventType = "evidence-expansion",
+            expansionVersion = 1,
+            requestId,
+            role,
+            packId,
+            evidenceId,
+            sourceRevision,
+            startLine,
+            endLine,
+            actualBytes,
+            actualTokens,
+            tokenMethod,
+            status,
+            reason
+        };
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(payload);
+        File.WriteAllBytes(Path.Combine(path, sequence.ToString("D20", CultureInfo.InvariantCulture) + ".json"), bytes);
+        using var document = JsonDocument.Parse(bytes); return document.RootElement.Clone();
+    }
+
     public static object List(string directory)
     {
         var runs = Directory.Exists(directory)
@@ -266,6 +360,24 @@ public static class LocalRunEventStore
                         item.GetProperty("operation").GetString() is not ("branch-created" or "branch-pushed"))
                         throw new InvalidDataException("Run operation completion is invalid.");
                 }
+                else if (type == "evidence-expansion")
+                {
+                    if (item.TryGetProperty("requestDigest", out _))
+                    {
+                        ValidateExpansionRecord(item, properties);
+                        events.Add(item.Clone());
+                        continue;
+                    }
+                    if (!properties.SetEquals(["schemaVersion", "runId", "sequence", "occurredAt", "eventType", "expansionVersion", "requestId", "role", "packId", "evidenceId", "sourceRevision", "startLine", "endLine", "actualBytes", "actualTokens", "tokenMethod", "status", "reason"]) ||
+                        item.GetProperty("expansionVersion").GetInt32() != 1 ||
+                        new[] { "requestId", "role", "packId", "evidenceId", "sourceRevision" }.Any(name => string.IsNullOrWhiteSpace(item.GetProperty(name).GetString())) ||
+                        item.GetProperty("actualBytes").GetInt32() is < 0 or > RepositoryEvidenceExpander.MaximumUtf8Bytes ||
+                        item.GetProperty("actualTokens").ValueKind is not (JsonValueKind.Null or JsonValueKind.Number) ||
+                        item.GetProperty("tokenMethod").GetString() is not ("unavailable" or "exact") ||
+                        item.GetProperty("status").GetString() is not ("accepted" or "rejected" or "omitted" or "budget-exceeded") ||
+                        item.GetProperty("reason").GetString()!.Length > 64)
+                        throw new InvalidDataException("Run evidence expansion is invalid.");
+                }
                 else if (type == "start-work-progress")
                 {
                     if (!properties.SetEquals(["schemaVersion", "runId", "sequence", "occurredAt", "eventType", "progressVersion", "operation", "status", "detail"]) ||
@@ -323,6 +435,31 @@ public static class LocalRunEventStore
         return events;
     }
 
+    private static void ValidateExpansionRecord(JsonElement item, HashSet<string> properties)
+    {
+        if (!properties.SetEquals(["schemaVersion", "runId", "sequence", "occurredAt", "eventType", "expansionVersion", "requestId", "requestDigest", "role", "packId", "packRevision", "evidenceId", "sourceRevision", "startLine", "endLine", "section", "parentRequestId", "actualBytes", "actualTokens", "tokenMethod", "status", "reason", "rejection"]) ||
+            item.GetProperty("expansionVersion").GetInt32() != 1 ||
+            !Regex.IsMatch(item.GetProperty("requestDigest").GetString() ?? "", "^[0-9a-f]{64}$", RegexOptions.CultureInvariant) ||
+            string.IsNullOrEmpty(item.GetProperty("requestId").GetString()) || !EvidenceExpansionRequestValidator.ValidRequestReference(item.GetProperty("requestId").GetString()) ||
+            !EvidenceExpansionRequestValidator.ValidRequestReference(item.GetProperty("parentRequestId").GetString()) ||
+            item.GetProperty("actualBytes").GetInt32() is < 0 or > RepositoryEvidenceExpander.MaximumUtf8Bytes ||
+            item.GetProperty("actualTokens").ValueKind != JsonValueKind.Null || item.GetProperty("tokenMethod").GetString() != "unavailable" ||
+            item.GetProperty("status").GetString() is not ("accepted" or "rejected" or "omitted" or "budget-exceeded") ||
+            !Enum.TryParse<EvidenceExpansionRejection>(item.GetProperty("rejection").GetString(), out var rejection) || !Enum.IsDefined(rejection) ||
+            string.IsNullOrEmpty(item.GetProperty("reason").GetString()) || item.GetProperty("reason").GetString()!.Length > 64)
+            throw new InvalidDataException("Run evidence expansion is invalid.");
+        foreach (var (name, limit) in new[] { ("role", 64), ("packId", 128), ("packRevision", 128), ("sourceRevision", 128), ("section", 256) })
+            if (item.GetProperty(name).ValueKind != JsonValueKind.Null &&
+                (string.IsNullOrWhiteSpace(item.GetProperty(name).GetString()) || item.GetProperty(name).GetString()!.Length > limit))
+                throw new InvalidDataException("Run evidence expansion metadata is invalid.");
+        var evidence = item.GetProperty("evidenceId");
+        if (evidence.ValueKind != JsonValueKind.Null && !Regex.IsMatch(evidence.GetString() ?? "", "^evidence:[0-9a-f]{64}$", RegexOptions.CultureInvariant))
+            throw new InvalidDataException("Run evidence expansion ID is invalid.");
+        foreach (var name in new[] { "startLine", "endLine" })
+            if (item.GetProperty(name).ValueKind != JsonValueKind.Null && item.GetProperty(name).GetInt32() < 1)
+                throw new InvalidDataException("Run evidence expansion range is invalid.");
+    }
+
     public static object Status(string directory, Guid runId)
     {
         var events = Read(directory, runId);
@@ -349,6 +486,8 @@ public static class LocalRunEventStore
             ? (object)new { sequence = item.GetProperty("sequence").GetInt32(), occurredAt = item.GetProperty("occurredAt").GetString(), type = "ci-failure-evidence", from = (string?)null, to = item.GetProperty("failureClass").GetString() }
             : item.GetProperty("eventType").GetString() == "ci-rerun"
             ? (object)new { sequence = item.GetProperty("sequence").GetInt32(), occurredAt = item.GetProperty("occurredAt").GetString(), type = "ci-rerun", from = (string?)null, to = item.GetProperty("failureSignature").GetString() }
+            : item.GetProperty("eventType").GetString() == "evidence-expansion"
+            ? (object)new { sequence = item.GetProperty("sequence").GetInt32(), occurredAt = item.GetProperty("occurredAt").GetString(), type = "evidence-expansion", from = item.GetProperty("requestId").GetString(), to = item.GetProperty("status").GetString() }
             : new { sequence = item.GetProperty("sequence").GetInt32(), occurredAt = item.GetProperty("occurredAt").GetString(), type = "external-identifier-recorded", from = (string?)null, to = $"{item.GetProperty("externalSystem").GetString()}:{item.GetProperty("identifierType").GetString()}={item.GetProperty("identifier").GetString()}" }).ToArray();
         object? ciSnapshot = snapshot.ValueKind == JsonValueKind.Undefined ? null : new
         {

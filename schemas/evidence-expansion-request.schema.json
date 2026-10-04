@@ -13,6 +13,8 @@
     "evidenceId": { "type": "string", "pattern": "^evidence:[0-9a-f]{64}$" },
     "runId": { "type": "string", "minLength": 1 },
     "role": { "type": "string", "minLength": 1 },
+    "requestId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9_.:-]+(?![\\s\\S])" },
+    "parentRequestId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9_.:-]+(?![\\s\\S])" },
     "startLine": { "type": "integer", "minimum": 1 },
     "endLine": { "type": "integer", "minimum": 1 },
     "section": { "type": "string", "minLength": 1, "pattern": "^(?!.*(?:^|[/\\\\])\\.{1,2}(?:[/\\\\]|$))[^\\u0000-\\u001f]+$" }

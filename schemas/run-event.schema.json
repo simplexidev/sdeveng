@@ -15,7 +15,18 @@
     },
     "sequence": { "type": "integer", "minimum": 1 },
     "occurredAt": { "type": "string", "format": "date-time" },
-    "eventType": { "enum": ["state-transition", "external-identifier-recorded", "operation-completed", "start-work-progress", "ci-check-snapshot", "ci-failure-evidence", "ci-rerun"] },
+    "eventType": { "enum": ["state-transition", "external-identifier-recorded", "operation-completed", "start-work-progress", "ci-check-snapshot", "ci-failure-evidence", "ci-rerun", "evidence-expansion"] },
+    "expansionVersion": { "const": 1 }, "requestId": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "requestDigest": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "packRevision": { "type": ["string", "null"], "minLength": 1, "maxLength": 128 },
+    "parentRequestId": { "type": ["string", "null"], "minLength": 1, "maxLength": 128, "pattern": "^[A-Za-z0-9_.:-]+(?![\\s\\S])" },
+    "section": { "type": ["string", "null"], "minLength": 1, "maxLength": 256 },
+    "rejection": { "enum": ["None", "MalformedRequest", "StalePack", "UnknownEvidenceId", "RecursiveExpansion", "WrongRun", "ConflictingReplay"] },
+    "role": { "type": ["string", "null"], "minLength": 1, "maxLength": 64 }, "packId": { "type": ["string", "null"], "minLength": 1, "maxLength": 128 },
+    "evidenceId": { "type": ["string", "null"], "pattern": "^evidence:[0-9a-f]{64}$" }, "sourceRevision": { "type": ["string", "null"], "minLength": 1 },
+    "startLine": { "type": ["integer", "null"], "minimum": 1 }, "endLine": { "type": ["integer", "null"], "minimum": 1 },
+    "actualBytes": { "type": "integer", "minimum": 0, "maximum": 16384 }, "actualTokens": { "type": ["integer", "null"], "minimum": 0 },
+    "tokenMethod": { "enum": ["unavailable", "exact"] }, "reason": { "type": "string", "maxLength": 64 },
     "fromState": { "type": ["string", "null"], "minLength": 1 },
     "toState": { "type": "string", "minLength": 1 },
     "externalSystem": { "type": "string", "minLength": 1 },
@@ -23,7 +34,7 @@
     "identifier": { "type": "string", "minLength": 1 },
     "operation": { "enum": ["branch-created", "branch-pushed", "bootstrap-created", "bootstrap-cleanup", "pr-created", "pr-linked", "metadata-persisted"] },
     "progressVersion": { "const": 1 },
-    "status": { "enum": ["completed", "retryable-failure", "terminal-failure"] },
+    "status": { "enum": ["completed", "retryable-failure", "terminal-failure", "accepted", "rejected", "omitted", "budget-exceeded"] },
     "detail": { "type": "string", "maxLength": 512 },
     "snapshotVersion": { "const": 1 },
     "commitSha": { "type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$" },
@@ -60,7 +71,7 @@
       "not": { "anyOf": [{ "required": ["fromState"] }, { "required": ["toState"] }, { "required": ["externalSystem"] }, { "required": ["identifierType"] }, { "required": ["identifier"] }] }
     },
     {
-      "properties": { "eventType": { "const": "start-work-progress" } },
+      "properties": { "eventType": { "const": "start-work-progress" }, "status": { "enum": ["completed", "retryable-failure", "terminal-failure"] } },
       "required": ["progressVersion", "operation", "status", "detail"],
       "not": { "anyOf": [{ "required": ["fromState"] }, { "required": ["toState"] }, { "required": ["externalSystem"] }, { "required": ["identifierType"] }, { "required": ["identifier"] }] }
     },
@@ -79,8 +90,14 @@
       "required": ["rerunVersion", "repository", "commitSha", "providerRunId", "providerJobId", "rerunMode", "rerunReason", "failureSignature", "ordinal"],
       "not": { "anyOf": [{ "required": ["fromState"] }, { "required": ["toState"] }, { "required": ["externalSystem"] }, { "required": ["identifierType"] }, { "required": ["identifier"] }, { "required": ["detail"] }, { "required": ["operation"] }] }
     }
+    ,{
+      "properties": { "eventType": { "const": "evidence-expansion" }, "status": { "enum": ["accepted", "rejected", "omitted", "budget-exceeded"] } },
+      "required": ["expansionVersion", "requestId", "role", "packId", "evidenceId", "sourceRevision", "startLine", "endLine", "actualBytes", "actualTokens", "tokenMethod", "status", "reason"]
+    }
   ],
   "allOf": [
+    { "if": { "properties": { "eventType": { "const": "evidence-expansion" } }, "not": { "required": ["requestDigest"] } }, "then": { "properties": { "role": { "type": "string" }, "packId": { "type": "string" }, "evidenceId": { "type": "string" }, "sourceRevision": { "type": "string" } } } },
+    { "if": { "required": ["requestDigest"] }, "then": { "required": ["packRevision", "section", "parentRequestId", "rejection"], "properties": { "requestId": { "pattern": "^[A-Za-z0-9_.:-]+(?![\\s\\S])" }, "sourceRevision": { "maxLength": 128 } } } },
     { "if": { "properties": { "eventType": { "const": "external-identifier-recorded" }, "externalSystem": { "const": "github" }, "identifierType": { "const": "pull-request-number" } }, "required": ["eventType", "externalSystem", "identifierType"] }, "then": { "properties": { "identifier": { "type": "string", "pattern": "^[1-9][0-9]*$" } } } },
     { "if": { "properties": { "eventType": { "const": "external-identifier-recorded" }, "externalSystem": { "const": "github" }, "identifierType": { "const": "pull-request-url" } }, "required": ["eventType", "externalSystem", "identifierType"] }, "then": { "properties": { "identifier": { "type": "string", "format": "uri", "pattern": "^https://github\\.com/[^/]+/[^/]+/pull/[1-9][0-9]*$" } } } }
   ]

@@ -53,6 +53,37 @@ or linked to a pull request.
 
 Examples:
 
+`RunEvidenceExpansion.Expand` is the callable application service for one bounded
+repository excerpt. Callers supply the owned repository and run event roots,
+canonical Run UUID, current pack ID/revision, indexed items, remaining line
+allowance, and optional stable request ID. The request Run must match before
+reading or writing. A parent request ID rejects nested expansion before reader
+access. Named sections are explicitly omitted as unsupported.
+
+One terminal `evidence-expansion` event records the request ID/digest, role,
+pack ID/revision, evidence/source identity, range/section, reader status
+(`accepted` means expanded), reason, bytes and unavailable token measurement
+(`actualTokens: null`, `tokenMethod: "unavailable"`). Invalid or unavailable
+metadata is null; excerpt text is never logged. Legacy expansion events without
+the additive digest/revision/section/rejection fields remain readable.
+
+Sequential retries use the canonical Run and stable request ID plus a SHA-256
+digest of the canonical request, current pack/source tuple and effective line
+allowance (capped at 200). Missing request IDs derive from that digest. A matching
+completed retry returns recorded metadata with `Replay: true` and
+`ContentAvailable: false`, without rereading or appending. A conflicting digest
+returns `ConflictingReplay` without changing history. Persistence failure throws
+instead of returning expanded success. Worker routing is deferred; no expansion
+CLI is introduced here.
+
+Focused executable evaluation cases in `RunEvidenceExpansionTests` cover
+accepted content and schema-valid persistence; rejected ranges, allowances,
+pack/item IDs and nested requests; unsupported sections, stale sources, unsafe
+paths and byte/line budgets; sequential and conflicting retries; foreign or
+malformed Run IDs; and persistence failure. Existing validator, reader and event
+compatibility cases remain in `EvidenceExpansionRequestTests` and
+`LocalRunEventStoreTests`.
+
 ```json
 {"schemaVersion":1,"runId":"123e4567-e89b-42d3-a456-426614174000","sequence":1,"occurredAt":"2026-09-28T12:00:00Z","eventType":"state-transition","fromState":null,"toState":"created"}
 {"schemaVersion":1,"runId":"123e4567-e89b-42d3-a456-426614174000","sequence":2,"occurredAt":"2026-09-28T12:01:00Z","eventType":"external-identifier-recorded","externalSystem":"github","identifierType":"pull-request","identifier":"42"}
