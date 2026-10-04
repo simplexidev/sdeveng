@@ -43,14 +43,24 @@ public static class RepositoryEvidenceExpander
         stream.Position = 0;
         using var reader = new StreamReader(stream, new UTF8Encoding(false, true), detectEncodingFromByteOrderMarks: false);
         var selected = new List<string>();
-        string? line;
         var lineNumber = 0;
         var selectedBytes = 0;
-        while ((line = reader.ReadLine()) is not null)
+        while (reader.Peek() >= 0 && lineNumber < end)
         {
             lineNumber++;
+            var buffer = new StringBuilder();
+            int character;
+            while ((character = reader.Read()) >= 0 && character is not ('\r' or '\n'))
+            {
+                if (lineNumber < start) continue;
+                // Even one enormous line must not be materialized before the byte guard.
+                if (buffer.Length >= MaximumUtf8Bytes)
+                    return new(EvidenceExpansionStatus.BudgetExceeded, request.EvidenceId, null, start, end, 0, false);
+                buffer.Append((char)character);
+            }
+            if (character == '\r' && reader.Peek() == '\n') reader.Read();
             if (lineNumber < start) continue;
-            if (lineNumber > end) break;
+            var line = buffer.ToString();
             var lineBytes = Encoding.UTF8.GetByteCount(line) + (selected.Count == 0 ? 0 : 1);
             if ((long)selectedBytes + lineBytes > MaximumUtf8Bytes)
                 return new(EvidenceExpansionStatus.BudgetExceeded, request.EvidenceId, null, start, end, 0, false);
