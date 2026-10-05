@@ -24,5 +24,26 @@ public class PromptManifestSchemaTests
         Assert.False(schema.Evaluate(JsonNode.Parse("""{"schemaVersion":2,"components":[]}""")).IsValid);
         Assert.Equal("system", json["components"]![0]!["id"]!.GetValue<string>());
         Assert.Equal("role", json["components"]![1]!["id"]!.GetValue<string>());
+
+        var skillManifest = manifest with
+        {
+            Components =
+            [
+                .. manifest.Components.Take(2),
+                new(PromptComponentId.SkillMetadata, "implementer", "skill:alpha/1.0", "skills/alpha/1.0/metadata", "sha256:metadata"),
+                new(PromptComponentId.SkillInstructions, "implementer", "skill:alpha/1.0", "skills/alpha/1.0/SKILL.md", "sha256:instructions"),
+                new(PromptComponentId.SkillReferences, "implementer", "skill:alpha/1.0", "skills/alpha/1.0/reference.md", "sha256:reference", IsLoaded: false),
+                .. manifest.Components.Skip(2)
+            ]
+        };
+        skillManifest.Validate();
+        var skillJson = JsonSerializer.SerializeToNode(skillManifest, AgentTool.Json)!;
+        Assert.True(schema.Evaluate(skillJson).IsValid, JsonSerializer.Serialize(skillJson));
+        Assert.Equal("skill-metadata", skillJson["components"]![2]!["id"]!.GetValue<string>());
+        Assert.False(skillJson["components"]![4]!["isLoaded"]!.GetValue<bool>());
+
+        // Existing v1 fixtures without the additive isLoaded field remain readable as loaded content.
+        var legacy = JsonSerializer.Deserialize<PromptManifest>(JsonSerializer.Serialize(manifest, AgentTool.Json), AgentTool.Json)!;
+        Assert.All(legacy.Components, component => Assert.True(component.IsLoaded));
     }
 }

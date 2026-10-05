@@ -37,6 +37,40 @@ public class ContractTests
     }
 
     [Fact]
+    public void PromptManifestRepresentsSkillMetadataLoadedInstructionsAndUnloadedReferences()
+    {
+        var manifest = new PromptManifest(1,
+        [
+            Component(PromptComponentId.System),
+            Component(PromptComponentId.Role),
+            new(PromptComponentId.SkillMetadata, "implementer", "skill:alpha/1.0", "skills/alpha/1.0/metadata", "sha256:metadata"),
+            new(PromptComponentId.SkillInstructions, "implementer", "skill:alpha/1.0", "skills/alpha/1.0/SKILL.md", "sha256:instructions"),
+            new(PromptComponentId.SkillReferences, "implementer", "skill:alpha/1.0", "skills/alpha/1.0/references/guide.md", "sha256:reference", IsLoaded: false),
+            Component(PromptComponentId.Request),
+            Component(PromptComponentId.OutputContract)
+        ]);
+
+        manifest.Validate();
+        Assert.Equal([PromptComponentId.SkillMetadata, PromptComponentId.SkillInstructions, PromptComponentId.SkillReferences],
+            manifest.Components.Where(component => component.Id is PromptComponentId.SkillMetadata or PromptComponentId.SkillInstructions or PromptComponentId.SkillReferences).Select(component => component.Id));
+        Assert.False(manifest.Components.Single(component => component.Id == PromptComponentId.SkillReferences).IsLoaded);
+    }
+
+    [Fact]
+    public void PromptManifestRejectsLoadedReferencesDuplicateSkillIdentityAndUnstableSkillOrder()
+    {
+        var prefix = new[] { Component(PromptComponentId.System), Component(PromptComponentId.Role) };
+        var suffix = new[] { Component(PromptComponentId.Request), Component(PromptComponentId.OutputContract) };
+        var metadata = new PromptComponent(PromptComponentId.SkillMetadata, "implementer", "skill", "skills/alpha/1.0/metadata", "sha256:a");
+        var otherMetadata = metadata with { ContentReference = "skills/beta/1.0/metadata" };
+        var reference = new PromptComponent(PromptComponentId.SkillReferences, "implementer", "skill", "skills/alpha/1.0/reference.md", "sha256:r", IsLoaded: false);
+
+        Assert.Throws<ArgumentException>(() => new PromptManifest(1, [.. prefix, reference with { IsLoaded = true }, .. suffix]).Validate());
+        Assert.Throws<ArgumentException>(() => new PromptManifest(1, [.. prefix, metadata, metadata, .. suffix]).Validate());
+        Assert.Throws<ArgumentException>(() => new PromptManifest(1, [.. prefix, otherMetadata, metadata, .. suffix]).Validate());
+    }
+
+    [Fact]
     public void RelevanceRankingInputValidatesAndCapsCandidates()
     {
         var input = new RelevanceRankingInput

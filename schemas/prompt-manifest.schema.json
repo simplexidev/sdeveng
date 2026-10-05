@@ -30,7 +30,8 @@
         "role": { "type": "string", "minLength": 1 },
         "provenance": { "type": "string", "minLength": 1 },
         "contentReference": { "type": "string", "minLength": 1 },
-        "contentHash": { "type": "string", "minLength": 1 }
+        "contentHash": { "type": "string", "minLength": 1 },
+        "isLoaded": { "type": "boolean", "default": true }
       }
     }
   }
