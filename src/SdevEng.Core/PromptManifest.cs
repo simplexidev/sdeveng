@@ -25,7 +25,8 @@ public sealed record PromptComponent(
     string Role,
     string Provenance,
     string ContentReference,
-    string ContentHash);
+    string ContentHash,
+    bool IsLoaded = true);
 
 public sealed class PromptComponentIdJsonConverter : JsonConverter<PromptComponentId>
 {
@@ -77,23 +78,38 @@ public sealed record PromptManifest(int SchemaVersion, IReadOnlyList<PromptCompo
         if (Components is null) throw new ArgumentException("Prompt components are required.", nameof(Components));
 
         var seen = new HashSet<PromptComponentId>();
+        var seenSkillIdentities = new HashSet<(PromptComponentId Id, string Reference)>();
         var priorIndex = -1;
+        string? priorSkillReference = null;
         foreach (var component in Components)
         {
             if (component is null) throw new ArgumentException("Prompt components cannot contain null entries.", nameof(Components));
             if (!Enum.IsDefined(component.Id)) throw new ArgumentException("Unknown prompt component identity.", nameof(Components));
-            if (!seen.Add(component.Id)) throw new ArgumentException($"Duplicate prompt component identity: {component.Id}.", nameof(Components));
+            var isSkillComponent = component.Id is PromptComponentId.SkillMetadata or PromptComponentId.SkillInstructions or PromptComponentId.SkillReferences;
+            if (!isSkillComponent && !seen.Add(component.Id)) throw new ArgumentException($"Duplicate prompt component identity: {component.Id}.", nameof(Components));
+            if (isSkillComponent && !seenSkillIdentities.Add((component.Id, component.ContentReference)))
+                throw new ArgumentException($"Duplicate skill component identity: {component.ContentReference}.", nameof(Components));
             var index = Array.IndexOf(CanonicalOrder, component.Id);
             if (index < priorIndex) throw new ArgumentException("Prompt components must follow canonical order.", nameof(Components));
+            if (isSkillComponent && index != priorIndex) priorSkillReference = null;
+            if (isSkillComponent && priorSkillReference is not null && string.CompareOrdinal(component.ContentReference, priorSkillReference) < 0)
+                throw new ArgumentException("Skill components must follow stable content-reference order.", nameof(Components));
             priorIndex = index;
             Require(component.Role, nameof(component.Role));
             Require(component.Provenance, nameof(component.Provenance));
             Require(component.ContentReference, nameof(component.ContentReference));
             Require(component.ContentHash, nameof(component.ContentHash));
+            if (component.Id == PromptComponentId.SkillReferences && component.IsLoaded)
+                throw new ArgumentException("Skill resource references cannot be marked as loaded content.", nameof(Components));
+            if (isSkillComponent && !component.ContentReference.Contains('/', StringComparison.Ordinal))
+                throw new ArgumentException("Skill component references must identify a canonical skill/version/resource.", nameof(Components));
+            if (isSkillComponent) priorSkillReference = component.ContentReference;
+            else priorSkillReference = null;
         }
 
         foreach (var required in new[] { PromptComponentId.System, PromptComponentId.Role, PromptComponentId.Request, PromptComponentId.OutputContract })
-            if (!seen.Contains(required)) throw new ArgumentException($"Required prompt component is missing: {required}.", nameof(Components));
+            if (required is PromptComponentId.System or PromptComponentId.Role or PromptComponentId.Request or PromptComponentId.OutputContract && !seen.Contains(required))
+                throw new ArgumentException($"Required prompt component is missing: {required}.", nameof(Components));
     }
 
     private static void Require(string value, string name)
