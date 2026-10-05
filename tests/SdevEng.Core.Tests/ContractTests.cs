@@ -1,7 +1,41 @@
 using SdevEng;
+using System.Text.Json;
 
 public class ContractTests
 {
+    private static PromptComponent Component(PromptComponentId id) => new(id, "implementer", "step-policy", $"content/{id}", $"sha256:{id}");
+
+    [Fact]
+    public void PromptManifestDefinesSystemAndRoleAndAllowsEmptyOptionalCategories()
+    {
+        var manifest = new PromptManifest(PromptManifest.CurrentSchemaVersion,
+        [
+            Component(PromptComponentId.System),
+            Component(PromptComponentId.Role),
+            Component(PromptComponentId.Request),
+            Component(PromptComponentId.OutputContract)
+        ]);
+
+        manifest.Validate();
+        Assert.Equal(PromptComponentId.System, manifest.Components[0].Id);
+        Assert.Equal(PromptComponentId.Role, manifest.Components[1].Id);
+        Assert.Equal("implementer", manifest.Components[1].Role);
+        Assert.Equal("content/Role", manifest.Components[1].ContentReference);
+        Assert.Equal("sha256:Role", manifest.Components[1].ContentHash);
+    }
+
+    [Fact]
+    public void PromptManifestRejectsMissingEmptyDuplicateUnknownAndOutOfOrderComponents()
+    {
+        var minimal = new[] { Component(PromptComponentId.System), Component(PromptComponentId.Role), Component(PromptComponentId.Request), Component(PromptComponentId.OutputContract) };
+        Assert.Throws<ArgumentException>(() => new PromptManifest(1, minimal.Skip(1).ToArray()).Validate());
+        Assert.Throws<ArgumentException>(() => new PromptManifest(1, [minimal[0] with { Provenance = " " }, .. minimal.Skip(1)]).Validate());
+        Assert.Throws<ArgumentException>(() => new PromptManifest(1, [.. minimal, minimal[0]]).Validate());
+        Assert.Throws<ArgumentException>(() => new PromptManifest(1, [minimal[0] with { Id = (PromptComponentId)999 }, .. minimal.Skip(1)]).Validate());
+        Assert.Throws<ArgumentException>(() => new PromptManifest(1, [minimal[0], minimal[1], Component(PromptComponentId.Evidence), minimal[2], minimal[3]]).Validate());
+        Assert.Throws<ArgumentOutOfRangeException>(() => new PromptManifest(2, minimal).Validate());
+    }
+
     [Fact]
     public void RelevanceRankingInputValidatesAndCapsCandidates()
     {
