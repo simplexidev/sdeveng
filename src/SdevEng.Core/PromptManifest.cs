@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using System.Text.Json;
+using System.Text;
 
 namespace SdevEng;
 
@@ -320,3 +321,33 @@ public sealed record PromptManifest(int SchemaVersion, IReadOnlyList<PromptCompo
         if (string.IsNullOrWhiteSpace(value)) throw new ArgumentException("Prompt component fields must be nonempty.", name);
     }
 }
+
+/// <summary>A deterministic measurement of a manifest text projection; this is not model-rendered input.</summary>
+public sealed record PromptManifestSizeMeasurement(int SchemaVersion, string Kind, string MeasurementKind, string RendererRevision,
+    IReadOnlyList<PromptComponentSizeMeasurement> Components)
+{
+    public const int CurrentSchemaVersion = 1;
+    public const string ProjectionKind = "manifest-text-projection";
+    public const string ProjectionRevision = "manifest-text-projection/v1";
+
+    public static PromptManifestSizeMeasurement Measure(PromptManifest manifest, IReadOnlyDictionary<string, string> textByContentReference)
+    {
+        ArgumentNullException.ThrowIfNull(manifest);
+        ArgumentNullException.ThrowIfNull(textByContentReference);
+        manifest.Validate();
+        var components = manifest.Components.Select(component =>
+        {
+            if (!component.IsLoaded || !textByContentReference.TryGetValue(component.ContentReference, out var text))
+                return new PromptComponentSizeMeasurement(component.Id, component.ContentReference, component.Provenance, null, null, null, "component-text-unavailable");
+            var bytes = (long)Encoding.UTF8.GetByteCount(text);
+            var characters = (long)text.EnumerateRunes().Count();
+            var normalizedLines = text.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
+            var lines = text.Length == 0 ? 0L : normalizedLines.Count(c => c == '\n') + 1L;
+            return new PromptComponentSizeMeasurement(component.Id, component.ContentReference, component.Provenance, bytes, characters, lines, null);
+        }).ToArray();
+        return new(CurrentSchemaVersion, "prompt-manifest-size-measurement", ProjectionKind, ProjectionRevision, components);
+    }
+}
+
+public sealed record PromptComponentSizeMeasurement([property: JsonConverter(typeof(PromptComponentIdJsonConverter))] PromptComponentId ComponentId, string ContentReference, string Provenance,
+    long? Utf8Bytes, long? UnicodeScalarValues, long? Lines, string? UnavailableReason);
