@@ -24,6 +24,10 @@ public class PromptManifestSizeMeasurementTests
 
         Assert.Equal("manifest-text-projection", measured.MeasurementKind);
         Assert.Equal("manifest-text-projection/v1", measured.RendererRevision);
+        Assert.Equal("prompt-manifest-size-measurement", measured.Kind);
+        Assert.Equal(PromptComponentId.System, measured.Components[0].ComponentId);
+        Assert.Equal("system", measured.Components[0].ContentReference);
+        Assert.Equal("policy", measured.Components[0].Provenance);
         Assert.Equal((long)11, measured.Components[0].Utf8Bytes);
         Assert.Equal((long)7, measured.Components[0].UnicodeScalarValues);
         Assert.Equal((long)3, measured.Components[0].Lines);
@@ -60,6 +64,12 @@ public class PromptManifestSizeMeasurementTests
         Assert.Equal((long)10, item.Utf8Bytes);
         Assert.Equal((long)6, item.UnicodeScalarValues);
         Assert.Equal((long)3, item.Lines);
+        Assert.Equal((long)0, PromptManifestSizeMeasurement.Measure(manifest,
+            new Dictionary<string, string> { ["system"] = "" }).Components[0].Lines);
+        Assert.Equal((long)1, PromptManifestSizeMeasurement.Measure(manifest,
+            new Dictionary<string, string> { ["system"] = "single line" }).Components[0].Lines);
+        Assert.Equal((long)3, PromptManifestSizeMeasurement.Measure(manifest,
+            new Dictionary<string, string> { ["system"] = "a\nb\n" }).Components[0].Lines);
         var unavailableManifest = manifest with { Components = manifest.Components.Select(component => component.Id == PromptComponentId.System ? component with { IsLoaded = false } : component).ToArray() };
         Assert.Equal("component-text-unavailable", PromptManifestSizeMeasurement.Measure(unavailableManifest, new Dictionary<string, string> { ["system"] = value }).Components[0].UnavailableReason);
     }
