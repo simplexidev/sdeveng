@@ -16,7 +16,7 @@ public class PromptManifestSchemaTests
                 RequestContentKind: PromptRequestContentKind.Text,
                 RequestProjection: PromptRequestProjection.Condensed,
                 OriginalArtifactReference: "work-request/original"),
-            new(PromptComponentId.OutputContract, "implementer", "contract", "prompt/output", "sha256:output")
+            new(PromptComponentId.OutputContract, "implementer", "contract", "prompt/output", "sha256:output", ResponseSchema: "schema:worker-response/v1")
         ]);
         manifest.Validate();
 
@@ -43,6 +43,32 @@ public class PromptManifestSchemaTests
         Assert.Equal("text", json["components"]![2]!["requestContentKind"]!.GetValue<string>());
         Assert.Equal("condensed", json["components"]![2]!["requestProjection"]!.GetValue<string>());
         Assert.Equal("work-request/original", json["components"]![2]!["originalArtifactReference"]!.GetValue<string>());
+        Assert.Equal("schema:worker-response/v1", json["components"]![3]!["responseSchema"]!.GetValue<string>());
+
+        var withTools = manifest with
+        {
+            Components = [.. manifest.Components.Take(3),
+                new(PromptComponentId.Tools, "implementer", "tool-registry", "prompt/tools", "sha256:tools", Tools:
+                    [new("repo.read", "Repository read", "Read a bounded file.", "schema:repo-read/v1")]),
+                .. manifest.Components.Skip(3)]
+        };
+        withTools.Validate();
+        var toolsJson = JsonSerializer.SerializeToNode(withTools, AgentTool.Json)!;
+        Assert.True(schema.Evaluate(toolsJson).IsValid, JsonSerializer.Serialize(toolsJson));
+        Assert.Equal("function", toolsJson["components"]![3]!["tools"]![0]!["type"]!.GetValue<string>());
+        var duplicateTools = toolsJson.DeepClone();
+        duplicateTools["components"]![3]!["tools"]!.AsArray().Add(duplicateTools["components"]![3]!["tools"]![0]!.DeepClone());
+        var duplicateToolManifest = withTools with
+        {
+            Components = [.. withTools.Components.Take(3),
+            withTools.Components[3] with { Tools = [.. withTools.Components[3].Tools!, withTools.Components[3].Tools![0]] }, .. withTools.Components.Skip(4)]
+        };
+        Assert.Throws<ArgumentException>(() => duplicateToolManifest.Validate());
+        Assert.False(schema.Evaluate(duplicateTools).IsValid);
+        var missingResponseSchema = json.DeepClone();
+        missingResponseSchema["components"]![3]!.AsObject().Remove("responseSchema");
+        Assert.False(schema.Evaluate(missingResponseSchema).IsValid);
+        Assert.Throws<ArgumentException>(() => (manifest with { Components = [.. manifest.Components.Take(3), manifest.Components[3] with { ResponseSchema = null }] }).Validate());
 
         var factMappingManifest = manifest with
         {

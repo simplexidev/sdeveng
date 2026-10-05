@@ -43,6 +43,9 @@ public static class PromptStateContentKind
     public const string SyntheticPlaceholder = "synthetic-placeholder";
 }
 
+/// <summary>A tool exposed to a worker through the prompt manifest.</summary>
+public sealed record PromptToolDescriptor(string Id, string Name, string Description, string SchemaReference, string Type = "function");
+
 /// <summary>A prompt component's identity and attribution, separate from its referenced content.</summary>
 public sealed record PromptComponent(
     [property: JsonConverter(typeof(PromptComponentIdJsonConverter))]
@@ -67,7 +70,11 @@ public sealed record PromptComponent(
     string? EvidenceItemId = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     [property: JsonConverter(typeof(PromptStateContentKindJsonConverter))]
-    string? StateContentKind = null);
+    string? StateContentKind = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    IReadOnlyList<PromptToolDescriptor>? Tools = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? ResponseSchema = null);
 
 public sealed class PromptEvidenceReferenceKindJsonConverter : JsonConverter<string>
 {
@@ -220,6 +227,7 @@ public sealed record PromptManifest(int SchemaVersion, IReadOnlyList<PromptCompo
             Require(component.ContentHash, nameof(component.ContentHash));
             ValidateRequestMetadata(component);
             ValidateEvidenceAndStateMetadata(component);
+            ValidateToolAndOutputMetadata(component);
             if (component.Id == PromptComponentId.SkillReferences && component.IsLoaded)
                 throw new ArgumentException("Skill resource references cannot be marked as loaded content.", nameof(Components));
             if (isSkillComponent && !component.ContentReference.Contains('/', StringComparison.Ordinal))
@@ -231,6 +239,37 @@ public sealed record PromptManifest(int SchemaVersion, IReadOnlyList<PromptCompo
         foreach (var required in new[] { PromptComponentId.System, PromptComponentId.Role, PromptComponentId.Request, PromptComponentId.OutputContract })
             if (required is PromptComponentId.System or PromptComponentId.Role or PromptComponentId.Request or PromptComponentId.OutputContract && !seen.Contains(required))
                 throw new ArgumentException($"Required prompt component is missing: {required}.", nameof(Components));
+    }
+
+    private static void ValidateToolAndOutputMetadata(PromptComponent component)
+    {
+        if (component.Id == PromptComponentId.Tools)
+        {
+            if (component.ResponseSchema is not null)
+                throw new ArgumentException("Response schema is only valid on the output-contract component.", nameof(Components));
+            if (component.Tools is not null)
+            {
+                var ids = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var tool in component.Tools)
+                {
+                    if (tool is null || string.IsNullOrWhiteSpace(tool.Id) || string.IsNullOrWhiteSpace(tool.Name) ||
+                        string.IsNullOrWhiteSpace(tool.Description) || string.IsNullOrWhiteSpace(tool.SchemaReference) || tool.Type != "function")
+                        throw new ArgumentException("Tool descriptors require id, name, description, and schema reference.", nameof(Components));
+                    if (!ids.Add(tool.Id)) throw new ArgumentException("Tool descriptor IDs must be unique.", nameof(Components));
+                }
+            }
+            return;
+        }
+
+        if (component.Tools is not null)
+            throw new ArgumentException("Tool descriptors are only valid on the tools component.", nameof(Components));
+        if (component.Id == PromptComponentId.OutputContract)
+        {
+            if (string.IsNullOrWhiteSpace(component.ResponseSchema))
+                throw new ArgumentException("Response schema identity must be nonempty.", nameof(Components));
+        }
+        else if (component.ResponseSchema is not null)
+            throw new ArgumentException("Response schema is only valid on the output-contract component.", nameof(Components));
     }
 
     private static void ValidateRequestMetadata(PromptComponent component)
