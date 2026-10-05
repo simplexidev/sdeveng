@@ -36,6 +36,11 @@ public sealed class TokenizerManifestTests
             Assert.Throws<ArgumentException>(() => (manifest with { Assets = [manifest.Assets[0] with { Path = "../outside" }] }).Validate());
 
             var registry = new TokenizerRegistry(root);
+            var metadataPath = Path.Combine(root, "manifest.json");
+            File.WriteAllText(metadataPath, JsonSerializer.Serialize(manifest, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+            var availability = new TokenizerRegistry(root).CheckAvailability(metadataPath);
+            Assert.Equal(new TokenizerAvailabilityResult(true, manifest.Id, null), availability);
+            Assert.False(File.Exists(Path.Combine(root, "fixture-model.weights")));
             registry.Register(manifest);
             var fixtureAdapter = Assert.IsType<FixtureTokenizerAdapter>(registry.Resolve(manifest.Id));
             Assert.True(fixtureAdapter.Manifest.FixtureOnly);
@@ -45,7 +50,11 @@ public sealed class TokenizerManifestTests
             Assert.Throws<KeyNotFoundException>(() => registry.Get("missing"));
             Assert.Throws<InvalidDataException>(() => new TokenizerRegistry(root).Register(manifest with { Assets = [manifest.Assets[0] with { Sha256 = new string('0', 64) }] }));
             Assert.Throws<FileNotFoundException>(() => new TokenizerRegistry(root).Register(manifest with { Assets = [new("missing.fixture", digest)] }));
-            var metadataPath = Path.Combine(root, "manifest.json");
+            var mismatched = manifest with { Assets = [manifest.Assets[0] with { Sha256 = new string('0', 64) }] };
+            File.WriteAllText(metadataPath, JsonSerializer.Serialize(mismatched, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+            var checksumUnavailable = new TokenizerRegistry(root).CheckAvailability(metadataPath);
+            Assert.False(checksumUnavailable.Available);
+            Assert.Contains("checksum mismatch", checksumUnavailable.Reason);
             File.WriteAllText(metadataPath, JsonSerializer.Serialize(manifest, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
             Assert.Equal(JsonSerializer.Serialize(manifest), JsonSerializer.Serialize(TokenizerRegistry.ReadMetadata(metadataPath)));
             var legacyMetadata = JsonSerializer.SerializeToNode(manifest, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
@@ -53,6 +62,13 @@ public sealed class TokenizerManifestTests
             File.WriteAllText(metadataPath, legacyMetadata.ToJsonString());
             Assert.Equal("legacy-unspecified", TokenizerRegistry.ReadMetadata(metadataPath).ModelFamily);
             Assert.Equal("legacy-unspecified", new TokenizerRegistry(root).RegisterFile(metadataPath).Manifest.ModelFamily);
+            var unsupported = JsonSerializer.SerializeToNode(manifest, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+            unsupported["adapter"] = "unsupported-adapter";
+            File.WriteAllText(metadataPath, unsupported.ToJsonString());
+            var unavailable = new TokenizerRegistry(root).CheckAvailability(metadataPath);
+            Assert.False(unavailable.Available);
+            Assert.Null(unavailable.TokenizerId);
+            Assert.Contains("Unknown tokenizer identity", unavailable.Reason);
             File.WriteAllBytes(Path.Combine(root, "encoding.fixture"), [9]);
             Assert.Throws<InvalidDataException>(() => registry.Resolve(manifest.Id));
             File.Delete(Path.Combine(root, "encoding.fixture"));

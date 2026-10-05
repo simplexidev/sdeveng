@@ -43,6 +43,22 @@ public sealed class TokenizerRegistry(string assetRoot)
         return Resolve(manifest.Id);
     }
 
+    /// <summary>Checks manifest and tokenizer asset availability through normal registry resolution.</summary>
+    public TokenizerAvailabilityResult CheckAvailability(string manifestPath)
+    {
+        try
+        {
+            var manifest = ReadMetadata(manifestPath);
+            Register(manifest);
+            _ = Resolve(manifest.Id);
+            return new TokenizerAvailabilityResult(true, manifest.Id, null);
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException or JsonException or ArgumentException or KeyNotFoundException or NotSupportedException)
+        {
+            return new TokenizerAvailabilityResult(false, null, ex.Message);
+        }
+    }
+
     public ITokenizerAdapter Resolve(string id)
     {
         VerifyAssets(Get(id));

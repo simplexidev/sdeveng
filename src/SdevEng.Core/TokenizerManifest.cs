@@ -68,6 +68,9 @@ public sealed record TokenizerAsset(string Path, string Sha256)
     }
 }
 
+/// <summary>Result of checking a tokenizer manifest and its pinned local assets.</summary>
+public sealed record TokenizerAvailabilityResult(bool Available, string? TokenizerId, string? Reason);
+
 public sealed class TokenizerAssetFamilyJsonConverter : JsonConverter<string>
 {
     public override string Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) => ReadKnown(ref reader, [TokenizerAssetFamily.Fixture, TokenizerAssetFamily.Tiktoken]);
