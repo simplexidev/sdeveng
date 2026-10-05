@@ -4,7 +4,7 @@
   "title": "Prompt Manifest Size Measurement",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "kind", "measurementKind", "rendererRevision", "components"],
+  "required": ["schemaVersion", "kind", "measurementKind", "rendererRevision", "components", "completePrompt"],
   "properties": {
     "schemaVersion": { "const": 1 },
     "kind": { "const": "prompt-manifest-size-measurement" },
@@ -30,6 +30,22 @@
           { "properties": { "utf8Bytes": { "type": "null" }, "unicodeScalarValues": { "type": "null" }, "lines": { "type": "null" }, "unavailableReason": { "type": "string", "minLength": 1 } } }
         ]
       }
+    },
+    "completePrompt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["measurementKind", "utf8Bytes", "unicodeScalarValues", "lines", "unavailableReason"],
+      "properties": {
+        "measurementKind": { "const": "complete-manifest-text-projection" },
+        "utf8Bytes": { "type": ["integer", "null"], "minimum": 0 },
+        "unicodeScalarValues": { "type": ["integer", "null"], "minimum": 0 },
+        "lines": { "type": ["integer", "null"], "minimum": 0 },
+        "unavailableReason": { "type": ["string", "null"] }
+      },
+      "oneOf": [
+        { "properties": { "utf8Bytes": { "type": "integer" }, "unicodeScalarValues": { "type": "integer" }, "lines": { "type": "integer" }, "unavailableReason": { "type": "null" } } },
+        { "properties": { "utf8Bytes": { "type": "null" }, "unicodeScalarValues": { "type": "null" }, "lines": { "type": "null" }, "unavailableReason": { "type": "string", "minLength": 1 } } }
+      ]
     }
   }
 }
