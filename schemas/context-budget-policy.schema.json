@@ -4,11 +4,19 @@
   "description": "Operational limits for context allocation, separate from ordinary toolkit settings.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["version", "maxContextTokens", "reservedOutputTokens"],
+  "required": ["version", "maxContextTokens"],
   "properties": {
     "$schema": { "type": "string" },
     "version": { "const": 1 },
     "maxContextTokens": { "type": "integer", "minimum": 1 },
-    "reservedOutputTokens": { "type": "integer", "minimum": 0 }
+    "reservedOutputTokens": { "type": "integer", "minimum": 0 },
+    "defaultInputTokens": { "type": "integer", "minimum": 1 },
+    "evidenceShare": { "type": "number", "minimum": 0, "maximum": 1 },
+    "skillsShare": { "type": "number", "minimum": 0, "maximum": 1 },
+    "roleInputTokens": {
+      "type": "object",
+      "propertyNames": { "enum": ["planner", "coder", "test-author", "reviewer", "repair"] },
+      "additionalProperties": { "type": "integer", "minimum": 1 }
+    }
   }
 }
