@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://simplexidev.github.io/sdeveng/schemas/tokenizer-manifest.schema.json",
+  "title": "Tokenizer Asset Manifest",
+  "description": "Pinned tokenizer metadata and local assets, separate from model weights.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "id", "family", "revision", "assets", "encoding", "specialTokens", "adapter", "fixtureOnly"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "id": { "type": "string", "minLength": 1 },
+    "family": { "enum": ["fixture", "tiktoken"] },
+    "revision": { "type": "string", "minLength": 1 },
+    "assets": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/asset" }, "uniqueItems": true },
+    "encoding": { "type": "string", "minLength": 1 },
+    "specialTokens": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+    "adapter": { "enum": ["fixture-v1", "tiktoken-v1"] },
+    "fixtureOnly": { "type": "boolean" }
+  },
+  "allOf": [
+    { "if": { "properties": { "family": { "const": "fixture" } }, "required": ["family"] }, "then": { "properties": { "adapter": { "const": "fixture-v1" }, "fixtureOnly": { "const": true } } } },
+    { "if": { "properties": { "family": { "const": "tiktoken" } }, "required": ["family"] }, "then": { "properties": { "adapter": { "const": "tiktoken-v1" }, "fixtureOnly": { "const": false }, "revision": { "pattern": "^sha256:[0-9a-fA-F]{64}$" } } } }
+  ],
+  "$defs": {
+    "asset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": { "type": "string", "minLength": 1, "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.?/)[^\\\\]+$" },
+        "sha256": { "type": "string", "pattern": "^[0-9a-fA-F]{64}$" }
+      }
+    }
+  }
+}
