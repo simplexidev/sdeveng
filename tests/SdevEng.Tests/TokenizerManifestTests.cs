@@ -37,6 +37,9 @@ public sealed class TokenizerManifestTests
 
             var registry = new TokenizerRegistry(root);
             registry.Register(manifest);
+            var fixtureAdapter = Assert.IsType<FixtureTokenizerAdapter>(registry.Resolve(manifest.Id));
+            Assert.True(fixtureAdapter.Manifest.FixtureOnly);
+            Assert.Equal(new byte[] { 1, 3, 7 }, fixtureAdapter.Vocabulary);
             Assert.Equal(JsonSerializer.Serialize(manifest), JsonSerializer.Serialize(registry.Get(manifest.Id)));
             Assert.Throws<ArgumentException>(() => registry.Register(manifest));
             Assert.Throws<KeyNotFoundException>(() => registry.Get("missing"));
@@ -49,6 +52,12 @@ public sealed class TokenizerManifestTests
             legacyMetadata.AsObject().Remove("modelFamily");
             File.WriteAllText(metadataPath, legacyMetadata.ToJsonString());
             Assert.Equal("legacy-unspecified", TokenizerRegistry.ReadMetadata(metadataPath).ModelFamily);
+            Assert.Equal("legacy-unspecified", new TokenizerRegistry(root).RegisterFile(metadataPath).Manifest.ModelFamily);
+            File.WriteAllBytes(Path.Combine(root, "encoding.fixture"), [9]);
+            Assert.Throws<InvalidDataException>(() => registry.Resolve(manifest.Id));
+            File.Delete(Path.Combine(root, "encoding.fixture"));
+            Assert.Throws<FileNotFoundException>(() => registry.Resolve(manifest.Id));
+            Assert.Throws<KeyNotFoundException>(() => registry.Resolve("unknown"));
         }
         finally { Directory.Delete(root, recursive: true); }
     }
@@ -62,5 +71,49 @@ public sealed class TokenizerManifestTests
         Assert.Equal("gpt-family", production.ModelFamily);
         Assert.Throws<ArgumentException>(() => (production with { Revision = "latest" }).Validate());
         Assert.Throws<ArgumentException>(() => (production with { Adapter = "fixture-v1" }).Validate());
+    }
+
+    [Theory]
+    [InlineData("YQ== 0\nYg== 1\n", true)]
+    [InlineData("invalid", false)]
+    [InlineData("YQ== 0\nYQ== 1\n", false)]
+    [InlineData("YQ== 1\n", false)]
+    [InlineData("YQ== 0\nYg== 0\n", false)]
+    [InlineData("", false)]
+    public void RegistryDispatchesPinnedProductionFormatAndRejectsInvalidVocabulary(string content, bool valid)
+    {
+        var root = Path.Combine(Path.GetTempPath(), "tokenizer-adapter-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            var bytes = System.Text.Encoding.UTF8.GetBytes(content);
+            File.WriteAllBytes(Path.Combine(root, "vocabulary.tiktoken"), bytes);
+            var digest = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
+            var manifest = new TokenizerManifest(1, "production", "gpt-family", "tiktoken", "sha256:" + digest,
+                [new("vocabulary.tiktoken", digest)], "cl100k_base", ["<|endoftext|>"], "tiktoken-v1");
+            var path = Path.Combine(root, "manifest.json");
+            var json = JsonSerializer.SerializeToNode(manifest, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+            var schema = JsonSchema.FromFile(Path.Combine(AgentTool.FindToolkit(), "schemas/tokenizer-manifest.schema.json"));
+            Assert.True(schema.Evaluate(json).IsValid);
+            File.WriteAllText(path, json.ToJsonString());
+            var registry = new TokenizerRegistry(root);
+            if (valid)
+            {
+                var adapter = Assert.IsType<TiktokenTokenizerAdapter>(registry.RegisterFile(path));
+                Assert.Same(adapter, registry.Resolve(manifest.Id));
+                Assert.False(adapter.Manifest.FixtureOnly);
+                Assert.Equal(0, adapter.MergeableRanks["YQ=="]);
+                Assert.Equal(1, adapter.MergeableRanks["Yg=="]);
+            }
+            else
+            {
+                Assert.Throws<InvalidDataException>(() => registry.RegisterFile(path));
+                Assert.Throws<KeyNotFoundException>(() => registry.Resolve(manifest.Id));
+            }
+            Assert.Throws<ArgumentException>(() => new TokenizerRegistry(root).Register(manifest with { Revision = "sha256:" + new string('0', 64) }));
+            Assert.Throws<ArgumentException>(() => new TokenizerRegistry(root).Register(manifest with { Adapter = "unknown" }));
+            Assert.Throws<ArgumentException>(() => new TokenizerRegistry(root).Register(manifest with { Assets = [manifest.Assets[0], new("other", digest)] }));
+        }
+        finally { Directory.Delete(root, recursive: true); }
     }
 }

@@ -9,6 +9,13 @@ namespace SdevEng.Infrastructure;
 public sealed class TokenizerRegistry(string assetRoot)
 {
     private readonly Dictionary<string, TokenizerManifest> _manifests = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, ITokenizerAdapter> _adapters = new(StringComparer.Ordinal);
+    private static readonly IReadOnlyDictionary<string, Func<TokenizerManifest, byte[], ITokenizerAdapter>> Factories =
+        new Dictionary<string, Func<TokenizerManifest, byte[], ITokenizerAdapter>>(StringComparer.Ordinal)
+        {
+            [TokenizerAdapterId.Fixture] = (manifest, asset) => new FixtureTokenizerAdapter(manifest, asset),
+            [TokenizerAdapterId.Tiktoken] = (manifest, asset) => new TiktokenTokenizerAdapter(manifest, asset)
+        };
     private readonly string _assetRoot = Path.GetFullPath(assetRoot);
 
     public void Register(TokenizerManifest manifest)
@@ -16,16 +23,46 @@ public sealed class TokenizerRegistry(string assetRoot)
         ArgumentNullException.ThrowIfNull(manifest);
         manifest.Validate();
         if (_manifests.ContainsKey(manifest.Id)) throw new ArgumentException("Tokenizer identity is already registered.", nameof(manifest));
+        if (!Factories.TryGetValue(manifest.Adapter, out var factory)) throw new ArgumentException("Unsupported tokenizer adapter.", nameof(manifest));
+        if (manifest.Assets.Count != 1) throw new ArgumentException("Supported adapters require one vocabulary asset.", nameof(manifest));
+        if (manifest.Family == TokenizerAssetFamily.Tiktoken &&
+            !manifest.Revision.AsSpan(7).Equals(manifest.Assets[0].Sha256.AsSpan(), StringComparison.OrdinalIgnoreCase))
+            throw new ArgumentException("Tiktoken revision must pin the vocabulary asset checksum.", nameof(manifest));
+        manifest = manifest with { Assets = Array.AsReadOnly(manifest.Assets.ToArray()), SpecialTokens = Array.AsReadOnly(manifest.SpecialTokens.ToArray()) };
+        var assets = VerifyAssets(manifest);
+        var adapter = factory(manifest, assets[0]);
+        _manifests.Add(manifest.Id, manifest);
+        _adapters.Add(manifest.Id, adapter);
+    }
+
+    /// <summary>Normal metadata-to-verified-adapter registration boundary, including legacy metadata replay.</summary>
+    public ITokenizerAdapter RegisterFile(string path)
+    {
+        var manifest = ReadMetadata(path);
+        Register(manifest);
+        return Resolve(manifest.Id);
+    }
+
+    public ITokenizerAdapter Resolve(string id)
+    {
+        VerifyAssets(Get(id));
+        return _adapters[id];
+    }
+
+    private List<byte[]> VerifyAssets(TokenizerManifest manifest)
+    {
+        var assets = new List<byte[]>();
         foreach (var asset in manifest.Assets)
         {
             var fullPath = Path.GetFullPath(Path.Combine(_assetRoot, asset.Path.Replace('/', Path.DirectorySeparatorChar)));
             if (!fullPath.StartsWith(_assetRoot + Path.DirectorySeparatorChar, StringComparison.Ordinal)) throw new ArgumentException("Tokenizer asset escapes the configured root.", nameof(manifest));
             if (!File.Exists(fullPath)) throw new FileNotFoundException("Tokenizer asset is unavailable.", fullPath);
-            var digest = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(fullPath))).ToLowerInvariant();
-            if (!CryptographicOperations.FixedTimeEquals(Convert.FromHexString(digest), Convert.FromHexString(asset.Sha256)))
+            var bytes = File.ReadAllBytes(fullPath);
+            if (!CryptographicOperations.FixedTimeEquals(SHA256.HashData(bytes), Convert.FromHexString(asset.Sha256)))
                 throw new InvalidDataException($"Tokenizer asset checksum mismatch: {asset.Path}");
+            assets.Add(bytes);
         }
-        _manifests.Add(manifest.Id, manifest);
+        return assets;
     }
 
     public TokenizerManifest Get(string id) => _manifests.TryGetValue(id, out var manifest)
