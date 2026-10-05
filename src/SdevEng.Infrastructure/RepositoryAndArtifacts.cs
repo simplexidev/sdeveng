@@ -985,6 +985,19 @@ public static class Output
 
 public static class Artifacts
 {
+    public static string WritePromptManifestSizeMeasurement(string path, PromptManifestSizeMeasurement measurement)
+    {
+        ArgumentNullException.ThrowIfNull(measurement);
+        if (measurement.SchemaVersion != PromptManifestSizeMeasurement.CurrentSchemaVersion ||
+            measurement.Kind != "prompt-manifest-size-measurement" ||
+            measurement.MeasurementKind != PromptManifestSizeMeasurement.ProjectionKind ||
+            measurement.RendererRevision != PromptManifestSizeMeasurement.ProjectionRevision)
+            throw new ArgumentException("Unsupported prompt manifest measurement contract.", nameof(measurement));
+        path = Path.GetFullPath(path);
+        SafeFiles.Atomic(path, JsonSerializer.Serialize(measurement, InfrastructureJson.Options));
+        return path;
+    }
+
     public static object Inspect(string path, OutputSettings limits)
     {
         path = Path.GetFullPath(path); if (!File.Exists(path)) throw new ArgumentException("Artifact does not exist.");

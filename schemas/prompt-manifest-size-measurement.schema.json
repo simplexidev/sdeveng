@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://simplexidev.github.io/sdeveng/schemas/prompt-manifest-size-measurement.schema.json",
+  "title": "Prompt Manifest Size Measurement",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "kind", "measurementKind", "rendererRevision", "components"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "prompt-manifest-size-measurement" },
+    "measurementKind": { "const": "manifest-text-projection" },
+    "rendererRevision": { "const": "manifest-text-projection/v1" },
+    "components": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["componentId", "contentReference", "provenance", "utf8Bytes", "unicodeScalarValues", "lines", "unavailableReason"],
+        "properties": {
+          "componentId": { "enum": ["system", "role", "skill-metadata", "skill-instructions", "skill-references", "request", "evidence", "state", "tools", "output-contract"] },
+          "contentReference": { "type": "string", "minLength": 1 },
+          "provenance": { "type": "string", "minLength": 1 },
+          "utf8Bytes": { "type": ["integer", "null"], "minimum": 0 },
+          "unicodeScalarValues": { "type": ["integer", "null"], "minimum": 0 },
+          "lines": { "type": ["integer", "null"], "minimum": 0 },
+          "unavailableReason": { "type": ["string", "null"] }
+        },
+        "oneOf": [
+          { "properties": { "utf8Bytes": { "type": "integer" }, "unicodeScalarValues": { "type": "integer" }, "lines": { "type": "integer" }, "unavailableReason": { "type": "null" } } },
+          { "properties": { "utf8Bytes": { "type": "null" }, "unicodeScalarValues": { "type": "null" }, "lines": { "type": "null" }, "unavailableReason": { "type": "string", "minLength": 1 } } }
+        ]
+      }
+    }
+  }
+}
