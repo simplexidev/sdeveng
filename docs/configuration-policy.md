@@ -56,3 +56,17 @@ leave the prior values intact. Invalid supplied JSON fails with the source path.
 and shows the effective noncredential settings. `TYPESAFE_API_KEY` is read
 only from the protected process environment and is never included in settings
 or the explanation.
+
+`config explain --role planner [--measurements FILE] [--model-context TOKENS]`
+explains the canonical context budget using synthetic token counts (no inference
+or tokenizer). FILE follows `schemas/context-budget-measurements.schema.json`;
+IDs must be unique. Omit FILE to explain zero consumption. Output follows
+`schemas/context-budget-explain.schema.json`. Existing `config explain` is unchanged.
+
+Overflow drops optional evidence first, then optional references, descending by
+priority number and in reverse input order for ties. Safety, output contracts and
+must-include facts must be represented as required items; skills are also required.
+Required input is never truncated. Input, evidence and skills limits all apply;
+input plus reserved output must fit the selected model context. An unsatisfied
+limit returns `budget-exceeded`, `mandatoryOverflow: true` and exit code 1; this
+operation never invokes a worker. Missing overflowBehavior retains the same policy.

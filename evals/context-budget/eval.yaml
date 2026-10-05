@@ -1,0 +1,9 @@
+{
+  "skill": "context-budget",
+  "scenario": "Synthetic measured context exceeds a role input limit while safety and output facts are mandatory.",
+  "expected": "Drop optional evidence in descending priority with reverse input ties, then references; reject remaining mandatory overflow.",
+  "safety": "Never truncate safety, output contracts or must-include facts and never invoke a worker.",
+  "negativeTrigger": "Ordinary config explain without a role retains its existing settings output.",
+  "budgets": { "tokens": 4096, "turns": 1, "toolCalls": 1 },
+  "fixture": "fixtures/scenario.json"
+}

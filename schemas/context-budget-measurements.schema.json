@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Synthetic context budget measurements",
+  "type": "array", "maxItems": 1024,
+  "items": {
+    "type": "object", "additionalProperties": false,
+    "required": ["id", "kind", "tokens", "required", "priority"],
+    "properties": {
+      "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "\\S" },
+      "kind": { "enum": ["mandatory", "evidence", "reference", "skills"] },
+      "tokens": { "type": "integer", "minimum": 0, "maximum": 2147483647 },
+      "required": { "type": "boolean" },
+      "priority": { "type": "integer", "minimum": 0, "maximum": 2147483647 }
+    },
+    "if": { "properties": { "kind": { "enum": ["mandatory", "skills"] } } },
+    "then": { "properties": { "required": { "const": true } } }
+  },
+  "description": "IDs must be unique (enforced by the reader). Lower priority values are retained first. Mandatory includes safety, output contracts and must-include facts."
+}

@@ -1000,7 +1000,7 @@ public static class AgentTool
         sdeveng <command> [options]
 
         version | --version
-        config explain
+        config explain [--role ROLE] [--measurements FILE] [--model-context TOKENS]
         install | update [--home DIR] [--codex-home DIR] [--dry-run] [--bin]
         uninstall [--home DIR] [--codex-home DIR] [--dry-run]
         doctor
@@ -1213,6 +1213,17 @@ public static class AgentTool
         {
             cancellationToken.ThrowIfCancellationRequested();
             command.ValidateCommand("config explain");
+            if (command.Get("role") is { } role)
+            {
+                var context = command.Get("model-context") is not null ? command.PositiveInt("model-context") : (int?)null;
+                var service = new SdevEng.Infrastructure.ContextBudgetService(Path.Combine(toolkit, "config", "context-budget-policy.json"));
+                var explanation = command.Get("measurements") is { } path
+                    ? service.ExplainFile(role, Path.GetFullPath(path, root), context)
+                    : service.Explain(role, [], context);
+                return Task.FromResult(new Result(explanation.Status, explanation, explanation.MandatoryOverflow ? 1 : 0));
+            }
+            if (command.Get("measurements") is not null || command.Get("model-context") is not null)
+                throw new ArgumentException("Budget explain requires --role.");
             return Task.FromResult(Result.Ok(new
             {
                 kind = "effective-config",
@@ -2342,7 +2353,7 @@ public sealed class Cli
         var allowed = new HashSet<string>(new[] { "root", "toolkit", "set", "json", "help", "version" });
         string[] specific = command switch
         {
-            "config explain" => ["set"],
+            "config explain" => ["set", "role", "measurements", "model-context"],
             "install" or "update" => ["home", "codex-home", "dry-run", "bin"],
             "uninstall" => ["home", "codex-home", "dry-run"],
             "doctor" => ["home", "codex-home"],
@@ -2394,7 +2405,7 @@ public sealed class Cli
     public List<string> Words { get; } = [];
     public Dictionary<string, string?> Options { get; } = new(StringComparer.Ordinal);
     static readonly HashSet<string> Flags = ["json", "help", "version", "dry-run", "bin", "apply", "safe-input", "binlog", "failed-logs"];
-    static readonly HashSet<string> Values = ["root", "toolkit", "set", "home", "codex-home", "base", "expected", "baseline", "query", "exact-text", "fuzzy", "name", "issue", "branch", "remote", "path", "paths-file", "message", "pr", "run-id", "project", "symbol", "file", "sha256", "input", "output", "skill", "results", "configuration", "test", "class", "category", "filter", "process-id", "signal", "duration-seconds", "profile", "evidence-file", "tag", "hosted-file", "local-file", "commit"];
+    static readonly HashSet<string> Values = ["role", "measurements", "model-context", "root", "toolkit", "set", "home", "codex-home", "base", "expected", "baseline", "query", "exact-text", "fuzzy", "name", "issue", "branch", "remote", "path", "paths-file", "message", "pr", "run-id", "project", "symbol", "file", "sha256", "input", "output", "skill", "results", "configuration", "test", "class", "category", "filter", "process-id", "signal", "duration-seconds", "profile", "evidence-file", "tag", "hosted-file", "local-file", "commit"];
     public string? Get(string name) => Options.GetValueOrDefault(name);
     public bool Flag(string name) => Options.ContainsKey(name);
     public string Require(string name) => Get(name) is { Length: > 0 } v ? v : throw new ArgumentException($"--{name} is required.");

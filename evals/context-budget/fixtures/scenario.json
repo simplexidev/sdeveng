@@ -1,0 +1,12 @@
+{
+  "role": "planner",
+  "items": [
+    { "id": "safety-output-facts", "kind": "mandatory", "tokens": 4096, "required": true, "priority": 0 },
+    { "id": "evidence-first", "kind": "evidence", "tokens": 1, "required": false, "priority": 1 },
+    { "id": "evidence-last", "kind": "evidence", "tokens": 1, "required": false, "priority": 1 },
+    { "id": "reference", "kind": "reference", "tokens": 1, "required": false, "priority": 0 }
+  ],
+  "expectedDropped": ["evidence-last", "evidence-first", "reference"],
+  "expectedStatus": "ok",
+  "mandatoryOverflowTokens": 4097
+}
