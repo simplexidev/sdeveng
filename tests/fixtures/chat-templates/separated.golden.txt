@@ -1,0 +1,6 @@
+<m>system|sys</m>
+<m>assistant|role</m>
+<m>user|ask</m>
+<m>tools|<tools>[{"description":"desc","id":"a","name":"A","schemaReference":"a-schema","type":"function"},{"description":"desc","id":"z","name":"Z","schemaReference":"z-schema","type":"function"}]</tools></m>
+<m>assistant|json</m>
+<m>assistant|

@@ -8,8 +8,10 @@ using SdevEng.Infrastructure;
 
 public sealed class ChatTemplateManifestTests
 {
-    [Fact]
-    public void RegistryValidatesSchemaIdentityAndRendersCanonicalMessagesToolsAndPrefix()
+    [Theory]
+    [InlineData("compact", "<assistant>")]
+    [InlineData("separated", "\n<m>assistant|")]
+    public void RegistryValidatesSchemaIdentityAndRendersCanonicalMessagesToolsAndPrefix(string goldenName, string generationPrefix)
     {
         var root = Path.Combine(Path.GetTempPath(), "chat-template-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(root);
@@ -21,7 +23,7 @@ public sealed class ChatTemplateManifestTests
             var tokenizer = new TokenizerManifest(1, "tok", "fixture-model", "fixture", "r1", [new("tokens.bin", assetHash)], "fixture", [], "fixture-v1", true);
             var tokenRegistry = new TokenizerRegistry(root);
             tokenRegistry.Register(tokenizer);
-            var template = new ChatTemplateManifest(1, "template", "r1", new string('0', 64), "tok", "r1", "fixture", "<m>", "|", "</m>", "\n", "<tools>", "</tools>", "<assistant>", true);
+            var template = new ChatTemplateManifest(1, "template", "r1", new string('0', 64), "tok", "r1", "fixture", "<m>", "|", "</m>", "\n", "<tools>", "</tools>", generationPrefix, true);
             template = template with { Checksum = template.ComputeChecksum() };
             template.Validate();
             var json = JsonSerializer.SerializeToNode(template, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
@@ -31,6 +33,12 @@ public sealed class ChatTemplateManifestTests
             Assert.False(schema.Evaluate(malformed).IsValid);
             var bad = template with { Checksum = new string('f', 64) };
             Assert.Throws<ArgumentException>(() => bad.Validate());
+            var changedPrefix = template with { GenerationPrefix = generationPrefix + "changed" };
+            Assert.NotEqual(template.Checksum, changedPrefix.ComputeChecksum());
+            Assert.Throws<ArgumentException>(() => changedPrefix.Validate());
+            var emptyPrefix = template with { GenerationPrefix = "" };
+            emptyPrefix = emptyPrefix with { Checksum = emptyPrefix.ComputeChecksum() };
+            Assert.Throws<ArgumentException>(() => emptyPrefix.Validate());
 
             var prompt = new PromptManifest(1,
             [
@@ -50,8 +58,15 @@ public sealed class ChatTemplateManifestTests
             var text = new Dictionary<string, string> { ["s"] = "sys", ["r"] = "role", ["q"] = "ask", ["o"] = "json" };
             var rendered = registry.Render(template.Id, template.Revision, template.Checksum, prompt, text);
             Assert.True(rendered.Available);
-            Assert.Equal("<m>system|sys</m>\n<m>assistant|role</m>\n<m>user|ask</m>\n<m>tools|<tools>[{\"description\":\"desc\",\"id\":\"a\",\"name\":\"A\",\"schemaReference\":\"a-schema\",\"type\":\"function\"},{\"description\":\"desc\",\"id\":\"z\",\"name\":\"Z\",\"schemaReference\":\"z-schema\",\"type\":\"function\"}]</tools></m>\n<m>assistant|json</m><assistant>", rendered.Text);
+            var goldenPath = Path.Combine(AgentTool.FindToolkit(), "tests/fixtures/chat-templates", goldenName + ".golden.txt");
+            Assert.Equal(File.ReadAllText(goldenPath), rendered.Text);
+            Assert.Equal(File.ReadAllBytes(goldenPath), Encoding.UTF8.GetBytes(rendered.Text!));
+            Assert.EndsWith(template.MessageEnd + generationPrefix, rendered.Text);
             Assert.False(registry.Render("missing", "r1", template.Checksum, prompt, text).Available);
+            Assert.Equal(new ChatTemplateRenderResult(false, null, "chat-template-unavailable"),
+                registry.Render(template.Id, "missing", template.Checksum, prompt, text));
+            Assert.Equal(new ChatTemplateRenderResult(false, null, "chat-template-unavailable"),
+                registry.Render(template.Id, template.Revision, changedPrefix.ComputeChecksum(), prompt, text));
             Assert.False(registry.Render(template.Id, template.Revision, template.Checksum, prompt, new Dictionary<string, string>()).Available);
             var originalPrompt = JsonSerializer.Serialize(prompt);
             var originalText = text.ToArray();
