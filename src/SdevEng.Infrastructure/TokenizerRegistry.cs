@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using SdevEng;
 
 namespace SdevEng.Infrastructure;
@@ -32,7 +33,10 @@ public sealed class TokenizerRegistry(string assetRoot)
 
     public static TokenizerManifest ReadMetadata(string path)
     {
-        var manifest = JsonSerializer.Deserialize<TokenizerManifest>(File.ReadAllText(path), new JsonSerializerOptions(JsonSerializerDefaults.Web))
+        var json = JsonNode.Parse(File.ReadAllText(path))?.AsObject() ?? throw new JsonException("Tokenizer manifest is empty.");
+        // Version 1 metadata predates modelFamily; preserve existing manifests with an explicit legacy identity.
+        json["modelFamily"] ??= "legacy-unspecified";
+        var manifest = json.Deserialize<TokenizerManifest>(new JsonSerializerOptions(JsonSerializerDefaults.Web))
             ?? throw new JsonException("Tokenizer manifest is empty.");
         manifest.Validate();
         return manifest;

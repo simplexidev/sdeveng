@@ -20,6 +20,7 @@ public static class TokenizerAdapterId
 public sealed record TokenizerManifest(
     int SchemaVersion,
     string Id,
+    string ModelFamily,
     [property: JsonConverter(typeof(TokenizerAssetFamilyJsonConverter))] string Family,
     string Revision,
     IReadOnlyList<TokenizerAsset> Assets,
@@ -33,7 +34,7 @@ public sealed record TokenizerManifest(
     public void Validate()
     {
         if (SchemaVersion != CurrentSchemaVersion) throw new ArgumentException("Unsupported tokenizer manifest schema version.");
-        Require(Id, nameof(Id)); Require(Revision, nameof(Revision)); Require(Encoding, nameof(Encoding));
+        Require(Id, nameof(Id)); Require(ModelFamily, nameof(ModelFamily)); Require(Revision, nameof(Revision)); Require(Encoding, nameof(Encoding));
         if (Assets is null || Assets.Count == 0) throw new ArgumentException("At least one tokenizer asset is required.", nameof(Assets));
         if (Assets.Select(a => a.Path).Distinct(StringComparer.Ordinal).Count() != Assets.Count) throw new ArgumentException("Tokenizer asset paths must be unique.", nameof(Assets));
         foreach (var asset in Assets) asset.Validate();
