@@ -578,8 +578,9 @@ public class RepositoryIntegrityTests
     {
         var schemas = Path.Combine(AgentTool.FindToolkit(), "schemas");
         var contextSchema = JsonSchema.FromFile(Path.Combine(schemas, "context-budget-policy.schema.json"));
-        var context = JsonNode.Parse("""{"version":1,"maxContextTokens":32000,"reservedOutputTokens":4000}""")!;
+        var context = JsonNode.Parse("""{"version":1,"maxContextTokens":32000,"defaultInputTokens":4096,"reservedOutputTokens":4000,"evidenceShare":0.5,"skillsShare":0.25,"roleInputTokens":{"coder":8192}}""")!;
         Assert.True(contextSchema.Evaluate(context, new() { OutputFormat = OutputFormat.List }).IsValid);
+        Assert.True(contextSchema.Evaluate(JsonNode.Parse("""{"version":1,"maxContextTokens":32000,"reservedOutputTokens":4000}""")!, new() { OutputFormat = OutputFormat.List }).IsValid);
         context["maxContextTokens"] = 0;
         Assert.False(contextSchema.Evaluate(context).IsValid);
 

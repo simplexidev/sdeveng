@@ -1,0 +1,10 @@
+{
+  "$schema": "../schemas/context-budget-policy.schema.json",
+  "version": 1,
+  "maxContextTokens": 32000,
+  "defaultInputTokens": 4096,
+  "reservedOutputTokens": 1024,
+  "evidenceShare": 0.5,
+  "skillsShare": 0.25,
+  "roleInputTokens": {}
+}
