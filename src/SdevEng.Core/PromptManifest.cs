@@ -18,6 +18,19 @@ public enum PromptComponentId
     OutputContract
 }
 
+public enum PromptRequestContentKind
+{
+    Text,
+    FactMapping
+}
+
+public enum PromptRequestProjection
+{
+    Original,
+    Normalized,
+    Condensed
+}
+
 /// <summary>A prompt component's identity and attribution, separate from its referenced content.</summary>
 public sealed record PromptComponent(
     [property: JsonConverter(typeof(PromptComponentIdJsonConverter))]
@@ -26,7 +39,61 @@ public sealed record PromptComponent(
     string Provenance,
     string ContentReference,
     string ContentHash,
-    bool IsLoaded = true);
+    bool IsLoaded = true,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [property: JsonConverter(typeof(PromptRequestContentKindJsonConverter))]
+    PromptRequestContentKind? RequestContentKind = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [property: JsonConverter(typeof(PromptRequestProjectionJsonConverter))]
+    PromptRequestProjection? RequestProjection = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? OriginalArtifactReference = null);
+
+public sealed class PromptRequestContentKindJsonConverter : JsonConverter<PromptRequestContentKind?>
+{
+    public override PromptRequestContentKind? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) => reader.GetString() switch
+    {
+        null => null,
+        "text" => PromptRequestContentKind.Text,
+        "fact-mapping" => PromptRequestContentKind.FactMapping,
+        _ => throw new JsonException("Unknown request content kind.")
+    };
+
+    public override void Write(Utf8JsonWriter writer, PromptRequestContentKind? value, JsonSerializerOptions options)
+    {
+        if (value is null) { writer.WriteNullValue(); return; }
+        writer.WriteStringValue(value.Value switch
+        {
+            PromptRequestContentKind.Text => "text",
+            PromptRequestContentKind.FactMapping => "fact-mapping",
+            _ => throw new JsonException("Unknown request content kind.")
+        });
+    }
+}
+
+public sealed class PromptRequestProjectionJsonConverter : JsonConverter<PromptRequestProjection?>
+{
+    public override PromptRequestProjection? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) => reader.GetString() switch
+    {
+        null => null,
+        "original" => PromptRequestProjection.Original,
+        "normalized" => PromptRequestProjection.Normalized,
+        "condensed" => PromptRequestProjection.Condensed,
+        _ => throw new JsonException("Unknown request projection.")
+    };
+
+    public override void Write(Utf8JsonWriter writer, PromptRequestProjection? value, JsonSerializerOptions options)
+    {
+        if (value is null) { writer.WriteNullValue(); return; }
+        writer.WriteStringValue(value.Value switch
+        {
+            PromptRequestProjection.Original => "original",
+            PromptRequestProjection.Normalized => "normalized",
+            PromptRequestProjection.Condensed => "condensed",
+            _ => throw new JsonException("Unknown request projection.")
+        });
+    }
+}
 
 public sealed class PromptComponentIdJsonConverter : JsonConverter<PromptComponentId>
 {
@@ -99,6 +166,7 @@ public sealed record PromptManifest(int SchemaVersion, IReadOnlyList<PromptCompo
             Require(component.Provenance, nameof(component.Provenance));
             Require(component.ContentReference, nameof(component.ContentReference));
             Require(component.ContentHash, nameof(component.ContentHash));
+            ValidateRequestMetadata(component);
             if (component.Id == PromptComponentId.SkillReferences && component.IsLoaded)
                 throw new ArgumentException("Skill resource references cannot be marked as loaded content.", nameof(Components));
             if (isSkillComponent && !component.ContentReference.Contains('/', StringComparison.Ordinal))
@@ -110,6 +178,24 @@ public sealed record PromptManifest(int SchemaVersion, IReadOnlyList<PromptCompo
         foreach (var required in new[] { PromptComponentId.System, PromptComponentId.Role, PromptComponentId.Request, PromptComponentId.OutputContract })
             if (required is PromptComponentId.System or PromptComponentId.Role or PromptComponentId.Request or PromptComponentId.OutputContract && !seen.Contains(required))
                 throw new ArgumentException($"Required prompt component is missing: {required}.", nameof(Components));
+    }
+
+    private static void ValidateRequestMetadata(PromptComponent component)
+    {
+        if (component.Id != PromptComponentId.Request)
+        {
+            if (component.RequestContentKind.HasValue || component.RequestProjection.HasValue || component.OriginalArtifactReference is not null)
+                throw new ArgumentException("Request metadata is only valid on the request component.", nameof(Components));
+            return;
+        }
+
+        if (component.RequestContentKind is { } kind && !Enum.IsDefined(kind))
+            throw new ArgumentException("Unknown request content kind.", nameof(Components));
+        if (component.RequestProjection is { } projection && !Enum.IsDefined(projection))
+            throw new ArgumentException("Unknown request projection.", nameof(Components));
+        var hasMetadata = component.RequestContentKind.HasValue || component.RequestProjection.HasValue || component.OriginalArtifactReference is not null;
+        if (hasMetadata && (!component.RequestContentKind.HasValue || !component.RequestProjection.HasValue || string.IsNullOrWhiteSpace(component.OriginalArtifactReference)))
+            throw new ArgumentException("Request content kind, projection, and original artifact reference must be supplied together.", nameof(Components));
     }
 
     private static void Require(string value, string name)
