@@ -25,13 +25,35 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["id", "role", "provenance", "contentReference", "contentHash"],
+      "allOf": [
+        {
+          "if": { "properties": { "id": { "const": "request" } }, "required": ["id"] },
+          "then": {
+            "dependentRequired": {
+              "requestContentKind": ["requestProjection", "originalArtifactReference"],
+              "requestProjection": ["requestContentKind", "originalArtifactReference"],
+              "originalArtifactReference": ["requestContentKind", "requestProjection"]
+            }
+          },
+          "else": {
+            "not": { "anyOf": [
+              { "required": ["requestContentKind"] },
+              { "required": ["requestProjection"] },
+              { "required": ["originalArtifactReference"] }
+            ] }
+          }
+        }
+      ],
       "properties": {
         "id": { "enum": ["system", "role", "skill-metadata", "skill-instructions", "skill-references", "request", "evidence", "state", "tools", "output-contract"] },
         "role": { "type": "string", "minLength": 1 },
         "provenance": { "type": "string", "minLength": 1 },
         "contentReference": { "type": "string", "minLength": 1 },
         "contentHash": { "type": "string", "minLength": 1 },
-        "isLoaded": { "type": "boolean", "default": true }
+        "isLoaded": { "type": "boolean", "default": true },
+        "requestContentKind": { "enum": ["text", "fact-mapping"] },
+        "requestProjection": { "enum": ["original", "normalized", "condensed"] },
+        "originalArtifactReference": { "type": "string", "minLength": 1 }
       }
     }
   }
