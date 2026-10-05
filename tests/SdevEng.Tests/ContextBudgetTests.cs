@@ -14,6 +14,8 @@ public sealed class ContextBudgetTests
         Assert.Equal(4096, standard.InputTokens);
         Assert.Equal(1024, standard.ReservedOutputTokens);
         Assert.Equal(32000, standard.ModelContextTokens);
+        Assert.Equal(2048, standard.EvidenceTokens);
+        Assert.Equal(1024, standard.SkillsTokens);
 
         var json = File.ReadAllText(path).Replace("\"roleInputTokens\": {}", "\"roleInputTokens\": { \"coder\": 8192 }");
         var temp = Path.Combine(Path.GetTempPath(), $"context-budget-{Guid.NewGuid():N}.json");
@@ -48,7 +50,10 @@ public sealed class ContextBudgetTests
             var loaded = ContextBudgetPolicyReader.Read(path);
             Assert.Equal(evidence, loaded.EvidenceShare);
             Assert.Equal(skills, loaded.SkillsShare);
-            Assert.Equal(4096, new ContextBudgetService(path).ForRole("planner").InputTokens);
+            var budget = new ContextBudgetService(path).ForRole("planner");
+            Assert.Equal(4096, budget.InputTokens);
+            Assert.Equal((int)Math.Floor(4096 * evidence), budget.EvidenceTokens);
+            Assert.Equal((int)Math.Floor(4096 * skills), budget.SkillsTokens);
         });
     }
 
@@ -69,6 +74,8 @@ public sealed class ContextBudgetTests
             var budget = new ContextBudgetService(path).ForRole("planner");
             Assert.Equal(4096, budget.InputTokens);
             Assert.Equal(1024, budget.ReservedOutputTokens);
+            Assert.Equal(2048, budget.EvidenceTokens);
+            Assert.Equal(1024, budget.SkillsTokens);
         });
         WithPolicy("{\"version\":1,\"maxContextTokens\":32000,\"reservedOutputTokens\":4000}", path =>
             Assert.Equal(4000, ContextBudgetPolicyReader.Read(path).ReservedOutputTokens));
