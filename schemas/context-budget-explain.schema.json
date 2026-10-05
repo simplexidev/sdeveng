@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object", "additionalProperties": false,
+  "required": ["kind", "schemaVersion", "status", "budget", "measurementKind", "consumedTokens", "remainingTokens", "evidenceConsumedTokens", "skillsConsumedTokens", "dropped", "mandatoryOverflow"],
+  "properties": {
+    "kind": { "const": "context-budget-explain" }, "schemaVersion": { "const": 1 },
+    "status": { "enum": ["ok", "budget-exceeded"] }, "measurementKind": { "const": "synthetic" },
+    "consumedTokens": { "$ref": "#/$defs/count" }, "remainingTokens": { "$ref": "#/$defs/count" },
+    "evidenceConsumedTokens": { "$ref": "#/$defs/count" }, "skillsConsumedTokens": { "$ref": "#/$defs/count" },
+    "mandatoryOverflow": { "type": "boolean" },
+    "budget": {
+      "type": "object", "additionalProperties": false,
+      "required": ["role", "inputTokens", "reservedOutputTokens", "modelContextTokens", "evidenceTokens", "skillsTokens"],
+      "properties": {
+        "role": { "enum": ["planner", "coder", "test-author", "reviewer", "repair"] },
+        "inputTokens": { "$ref": "#/$defs/count" }, "reservedOutputTokens": { "$ref": "#/$defs/count" },
+        "modelContextTokens": { "type": "integer", "minimum": 1 }, "evidenceTokens": { "$ref": "#/$defs/count" }, "skillsTokens": { "$ref": "#/$defs/count" }
+      }
+    },
+    "dropped": { "type": "array", "maxItems": 1024, "items": {
+      "type": "object", "additionalProperties": false, "required": ["id", "reason"],
+      "properties": { "id": { "type": "string", "minLength": 1, "maxLength": 128 }, "reason": { "enum": ["input-limit", "evidence-share-limit", "skills-share-limit"] } }
+    } }
+  },
+  "$defs": { "count": { "type": "integer", "minimum": 0 } }
+}

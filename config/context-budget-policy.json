@@ -1,6 +1,7 @@
 {
   "$schema": "../schemas/context-budget-policy.schema.json",
   "version": 1,
+  "overflowBehavior": "drop-optional-evidence-then-references",
   "maxContextTokens": 32000,
   "defaultInputTokens": 4096,
   "reservedOutputTokens": 1024,

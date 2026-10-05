@@ -8,6 +8,7 @@
   "properties": {
     "$schema": { "type": "string" },
     "version": { "const": 1 },
+    "overflowBehavior": { "const": "drop-optional-evidence-then-references", "default": "drop-optional-evidence-then-references" },
     "maxContextTokens": { "type": "integer", "minimum": 1 },
     "reservedOutputTokens": { "type": "integer", "minimum": 0 },
     "defaultInputTokens": { "type": "integer", "minimum": 1 },
