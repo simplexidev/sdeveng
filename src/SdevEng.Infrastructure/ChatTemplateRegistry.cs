@@ -11,6 +11,13 @@ public sealed class ChatTemplateRegistry(TokenizerRegistry tokenizers)
 {
     private readonly Dictionary<(string Id, string Revision, string Checksum), ChatTemplateManifest> _templates = new();
 
+    internal ChatTemplateManifest? Find(string id, string revision, string checksum) =>
+        _templates.GetValueOrDefault((id, revision, checksum));
+
+    internal ITokenizerAdapter ResolveTokenizer(ChatTemplateManifest template) => tokenizers.Resolve(template.TokenizerId);
+
+    internal TokenizerManifest TokenizerMetadata(ChatTemplateManifest template) => tokenizers.Get(template.TokenizerId);
+
     public ChatTemplateManifest RegisterFile(string path)
     {
         var manifest = ReadMetadata(path);

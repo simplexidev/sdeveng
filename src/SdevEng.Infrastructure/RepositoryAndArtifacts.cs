@@ -985,6 +985,15 @@ public static class Output
 
 public static class Artifacts
 {
+    public static string WriteRenderedInputTokenMeasurement(string path, RenderedInputTokenMeasurement measurement)
+    {
+        ArgumentNullException.ThrowIfNull(measurement);
+        measurement.Validate();
+        path = Path.GetFullPath(path);
+        SafeFiles.Atomic(path, JsonSerializer.Serialize(measurement, InfrastructureJson.Options));
+        return path;
+    }
+
     public static string WritePromptManifestSizeMeasurement(string path, PromptManifestSizeMeasurement measurement)
     {
         ArgumentNullException.ThrowIfNull(measurement);

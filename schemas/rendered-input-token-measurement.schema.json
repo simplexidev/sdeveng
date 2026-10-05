@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://simplexidev.github.io/sdeveng/schemas/rendered-input-token-measurement.schema.json",
+  "title": "Rendered Input Token Measurement",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "kind", "measurementKind", "tokens", "method", "templateId", "templateRevision", "templateChecksum", "tokenizerId", "tokenizerRevision", "tokenizerAssets", "fixtureOnly", "renderedInputDigest", "utf8Bytes", "unavailableReason"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "rendered-input-token-measurement" },
+    "measurementKind": { "enum": ["exact", "estimated", "unavailable"] },
+    "tokens": { "type": ["integer", "null"], "minimum": 0 },
+    "method": { "enum": ["fixture-byte-v1", "ceil-utf8-bytes-div-4", null] },
+    "templateId": { "type": "string", "minLength": 1 },
+    "templateRevision": { "type": "string", "minLength": 1 },
+    "templateChecksum": { "$ref": "#/$defs/digest" },
+    "tokenizerId": { "type": ["string", "null"], "minLength": 1 },
+    "tokenizerRevision": { "type": ["string", "null"], "minLength": 1 },
+    "tokenizerAssets": {
+      "type": "array",
+      "items": {
+        "type": "object", "additionalProperties": false, "required": ["path", "sha256"],
+        "properties": { "path": { "type": "string", "minLength": 1, "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.?(?:/|$))(?!.*//)[^\\\\]+(?<!/)$" }, "sha256": { "$ref": "#/$defs/digest" } }
+      }
+    },
+    "fixtureOnly": { "type": "boolean" },
+    "renderedInputDigest": { "anyOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] },
+    "utf8Bytes": { "type": ["integer", "null"], "minimum": 0 },
+    "unavailableReason": { "type": ["string", "null"], "minLength": 1 }
+  },
+  "$defs": { "digest": { "type": "string", "pattern": "^[0-9a-fA-F]{64}$" } },
+  "allOf": [
+    {
+      "if": { "properties": { "measurementKind": { "const": "unavailable" } } },
+      "then": { "properties": { "tokens": { "type": "null" }, "method": { "type": "null" }, "unavailableReason": { "type": "string" } } },
+      "else": { "properties": { "tokens": { "type": "integer" }, "renderedInputDigest": { "$ref": "#/$defs/digest" }, "utf8Bytes": { "type": "integer" }, "tokenizerId": { "type": "string" }, "unavailableReason": { "type": "null" } } }
+    },
+    { "if": { "properties": { "measurementKind": { "const": "exact" } } }, "then": { "properties": { "method": { "const": "fixture-byte-v1" }, "fixtureOnly": { "const": true } } } },
+    { "if": { "properties": { "measurementKind": { "const": "estimated" } } }, "then": { "properties": { "method": { "const": "ceil-utf8-bytes-div-4" } } } },
+    {
+      "if": { "properties": { "tokenizerId": { "type": "null" } } },
+      "then": { "properties": { "tokenizerRevision": { "type": "null" }, "tokenizerAssets": { "maxItems": 0 } } },
+      "else": { "properties": { "tokenizerRevision": { "type": "string" }, "tokenizerAssets": { "minItems": 1 } } }
+    },
+    {
+      "if": { "properties": { "renderedInputDigest": { "type": "null" } } },
+      "then": { "properties": { "utf8Bytes": { "type": "null" } } },
+      "else": { "properties": { "utf8Bytes": { "type": "integer" } } }
+    }
+  ]
+}
