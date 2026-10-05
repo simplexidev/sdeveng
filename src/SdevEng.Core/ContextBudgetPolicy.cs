@@ -12,7 +12,13 @@ public sealed record ContextBudgetPolicy
     public Dictionary<string, int> RoleInputTokens { get; init; } = new(StringComparer.Ordinal);
 }
 
-public sealed record EffectiveContextBudget(string Role, int InputTokens, int ReservedOutputTokens, int ModelContextTokens);
+public sealed record EffectiveContextBudget(
+    string Role,
+    int InputTokens,
+    int ReservedOutputTokens,
+    int ModelContextTokens,
+    int EvidenceTokens,
+    int SkillsTokens);
 
 /// <summary>Validates a role's effective input/output allowances against the selected model context.</summary>
 public static class ContextBudgetEvaluator
@@ -34,7 +40,13 @@ public static class ContextBudgetEvaluator
         var context = modelContextTokens ?? policy.MaxContextTokens;
         if (context < 1 || input + (long)policy.ReservedOutputTokens > context)
             throw new ContextBudgetExceededException(role, input, policy.ReservedOutputTokens, context);
-        return new(role, input, policy.ReservedOutputTokens, context);
+        return new(
+            role,
+            input,
+            policy.ReservedOutputTokens,
+            context,
+            (int)Math.Floor(input * policy.EvidenceShare),
+            (int)Math.Floor(input * policy.SkillsShare));
     }
 }
 
