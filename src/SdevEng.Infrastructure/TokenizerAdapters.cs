@@ -16,6 +16,27 @@ public sealed class FixtureTokenizerAdapter : ITokenizerAdapter
         if (asset.Length == 0) throw new InvalidDataException("Fixture vocabulary is empty.");
         Vocabulary = Array.AsReadOnly(asset.Distinct().Order().ToArray());
     }
+
+    /// <summary>Fixture encoding: longest declared special token first, otherwise one vocabulary byte per token.</summary>
+    public long CountTokens(string renderedInput)
+    {
+        ArgumentNullException.ThrowIfNull(renderedInput);
+        var bytes = Encoding.UTF8.GetBytes(renderedInput);
+        var specials = Manifest.SpecialTokens.OrderByDescending(s => Encoding.UTF8.GetByteCount(s))
+            .ThenBy(s => s, StringComparer.Ordinal).Select(Encoding.UTF8.GetBytes).ToArray();
+        long count = 0;
+        for (var offset = 0; offset < bytes.Length; count++)
+        {
+            var special = specials.FirstOrDefault(s => bytes.AsSpan(offset).StartsWith(s));
+            if (special is not null) offset += special.Length;
+            else
+            {
+                if (!Vocabulary.Contains(bytes[offset])) throw new NotSupportedException("Rendered input contains a byte outside the fixture vocabulary.");
+                offset++;
+            }
+        }
+        return count;
+    }
 }
 
 /// <summary>Loads pinned tiktoken base64-token/integer-rank assets; does not perform inference or counting.</summary>
