@@ -53,6 +53,43 @@ public sealed class ChatTemplateManifestTests
             Assert.Equal("<m>system|sys</m>\n<m>assistant|role</m>\n<m>user|ask</m>\n<m>tools|<tools>[{\"description\":\"desc\",\"id\":\"a\",\"name\":\"A\",\"schemaReference\":\"a-schema\",\"type\":\"function\"},{\"description\":\"desc\",\"id\":\"z\",\"name\":\"Z\",\"schemaReference\":\"z-schema\",\"type\":\"function\"}]</tools></m>\n<m>assistant|json</m><assistant>", rendered.Text);
             Assert.False(registry.Render("missing", "r1", template.Checksum, prompt, text).Available);
             Assert.False(registry.Render(template.Id, template.Revision, template.Checksum, prompt, new Dictionary<string, string>()).Available);
+            var originalPrompt = JsonSerializer.Serialize(prompt);
+            var originalText = text.ToArray();
+            var reordered = prompt with
+            {
+                Components = prompt.Components.Select(component => component.Id == PromptComponentId.Tools
+                    ? component with { Tools = component.Tools!.Reverse().ToArray() }
+                    : component).ToArray()
+            };
+            var priorCulture = System.Globalization.CultureInfo.CurrentCulture;
+            try
+            {
+                foreach (var culture in new[] { "en-US", "tr-TR" })
+                {
+                    System.Globalization.CultureInfo.CurrentCulture = System.Globalization.CultureInfo.GetCultureInfo(culture);
+                    Assert.Equal(rendered, registry.Render(template.Id, template.Revision, template.Checksum, reordered, text));
+                    Assert.Equal(rendered, registry.Render(template.Id, template.Revision, template.Checksum, prompt, text));
+                }
+            }
+            finally { System.Globalization.CultureInfo.CurrentCulture = priorCulture; }
+
+            var invalidTools = prompt with
+            {
+                Components = prompt.Components.Select(component => component.Id == PromptComponentId.Tools
+                    ? component with { Tools = [component.Tools![0], component.Tools[0]] }
+                    : component).ToArray()
+            };
+            Assert.Equal(new ChatTemplateRenderResult(false, null, "chat-template-or-tokenizer-unavailable"),
+                registry.Render(template.Id, template.Revision, template.Checksum, invalidTools, text));
+            Assert.Equal(rendered, registry.Render(template.Id, template.Revision, template.Checksum, prompt, text));
+            Assert.Equal(originalPrompt, JsonSerializer.Serialize(prompt));
+            Assert.Equal(originalText, text.ToArray());
+
+            File.Delete(Path.Combine(root, "tokens.bin"));
+            Assert.Equal(new ChatTemplateRenderResult(false, null, "chat-template-or-tokenizer-unavailable"),
+                registry.Render(template.Id, template.Revision, template.Checksum, prompt, text));
+            File.WriteAllBytes(Path.Combine(root, "tokens.bin"), asset);
+            Assert.Equal(rendered, registry.Render(template.Id, template.Revision, template.Checksum, prompt, text));
         }
         finally { Directory.Delete(root, true); }
     }
