@@ -31,6 +31,18 @@ public enum PromptRequestProjection
     Condensed
 }
 
+public static class PromptEvidenceReferenceKind
+{
+    public const string EvidencePackItem = "evidence-pack-item";
+}
+
+public static class PromptStateContentKind
+{
+    public const string RunFacts = "run-facts";
+    public const string WorkUnitFacts = "work-unit-facts";
+    public const string SyntheticPlaceholder = "synthetic-placeholder";
+}
+
 /// <summary>A prompt component's identity and attribution, separate from its referenced content.</summary>
 public sealed record PromptComponent(
     [property: JsonConverter(typeof(PromptComponentIdJsonConverter))]
@@ -47,7 +59,47 @@ public sealed record PromptComponent(
     [property: JsonConverter(typeof(PromptRequestProjectionJsonConverter))]
     PromptRequestProjection? RequestProjection = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    string? OriginalArtifactReference = null);
+    string? OriginalArtifactReference = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [property: JsonConverter(typeof(PromptEvidenceReferenceKindJsonConverter))]
+    string? EvidenceReferenceKind = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    string? EvidenceItemId = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    [property: JsonConverter(typeof(PromptStateContentKindJsonConverter))]
+    string? StateContentKind = null);
+
+public sealed class PromptEvidenceReferenceKindJsonConverter : JsonConverter<string>
+{
+    public override string Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        var value = reader.GetString();
+        if (value != PromptEvidenceReferenceKind.EvidencePackItem) throw new JsonException("Unknown evidence reference kind.");
+        return value;
+    }
+    public override void Write(Utf8JsonWriter writer, string value, JsonSerializerOptions options)
+    {
+        if (value != PromptEvidenceReferenceKind.EvidencePackItem) throw new JsonException("Unknown evidence reference kind.");
+        writer.WriteStringValue(value);
+    }
+}
+
+public sealed class PromptStateContentKindJsonConverter : JsonConverter<string>
+{
+    public override string Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
+    {
+        var value = reader.GetString();
+        if (value is not (PromptStateContentKind.RunFacts or PromptStateContentKind.WorkUnitFacts or PromptStateContentKind.SyntheticPlaceholder))
+            throw new JsonException("Unknown state content kind.");
+        return value;
+    }
+    public override void Write(Utf8JsonWriter writer, string value, JsonSerializerOptions options)
+    {
+        if (value is not (PromptStateContentKind.RunFacts or PromptStateContentKind.WorkUnitFacts or PromptStateContentKind.SyntheticPlaceholder))
+            throw new JsonException("Unknown state content kind.");
+        writer.WriteStringValue(value);
+    }
+}
 
 public sealed class PromptRequestContentKindJsonConverter : JsonConverter<PromptRequestContentKind?>
 {
@@ -167,6 +219,7 @@ public sealed record PromptManifest(int SchemaVersion, IReadOnlyList<PromptCompo
             Require(component.ContentReference, nameof(component.ContentReference));
             Require(component.ContentHash, nameof(component.ContentHash));
             ValidateRequestMetadata(component);
+            ValidateEvidenceAndStateMetadata(component);
             if (component.Id == PromptComponentId.SkillReferences && component.IsLoaded)
                 throw new ArgumentException("Skill resource references cannot be marked as loaded content.", nameof(Components));
             if (isSkillComponent && !component.ContentReference.Contains('/', StringComparison.Ordinal))
@@ -196,6 +249,31 @@ public sealed record PromptManifest(int SchemaVersion, IReadOnlyList<PromptCompo
         var hasMetadata = component.RequestContentKind.HasValue || component.RequestProjection.HasValue || component.OriginalArtifactReference is not null;
         if (hasMetadata && (!component.RequestContentKind.HasValue || !component.RequestProjection.HasValue || string.IsNullOrWhiteSpace(component.OriginalArtifactReference)))
             throw new ArgumentException("Request content kind, projection, and original artifact reference must be supplied together.", nameof(Components));
+    }
+
+    private static void ValidateEvidenceAndStateMetadata(PromptComponent component)
+    {
+        if (component.Id == PromptComponentId.Evidence)
+        {
+            if (component.EvidenceReferenceKind is { } kind && kind != PromptEvidenceReferenceKind.EvidencePackItem)
+                throw new ArgumentException("Unknown evidence reference kind.", nameof(Components));
+            if (component.EvidenceReferenceKind is not null != !string.IsNullOrWhiteSpace(component.EvidenceItemId))
+                throw new ArgumentException("Evidence components must identify an EvidencePack item.", nameof(Components));
+            if (component.EvidenceItemId is { } evidenceId && !System.Text.RegularExpressions.Regex.IsMatch(evidenceId, "^evidence:[0-9a-f]{64}$", System.Text.RegularExpressions.RegexOptions.CultureInvariant))
+                throw new ArgumentException("Evidence item identity must be a canonical EvidencePack ID.", nameof(Components));
+            if (component.StateContentKind is not null)
+                throw new ArgumentException("State metadata is only valid on the state component.", nameof(Components));
+            return;
+        }
+        if (component.EvidenceReferenceKind is not null || component.EvidenceItemId is not null)
+            throw new ArgumentException("Evidence metadata is only valid on the evidence component.", nameof(Components));
+        if (component.Id == PromptComponentId.State)
+        {
+            if (component.StateContentKind is { } kind && kind is not (PromptStateContentKind.RunFacts or PromptStateContentKind.WorkUnitFacts or PromptStateContentKind.SyntheticPlaceholder))
+                throw new ArgumentException("Unknown state content kind.", nameof(Components));
+        }
+        else if (component.StateContentKind is not null)
+            throw new ArgumentException("State metadata is only valid on the state component.", nameof(Components));
     }
 
     private static void Require(string value, string name)

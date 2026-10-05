@@ -65,6 +65,71 @@ public class PromptManifestSchemaTests
                 : component).ToArray()
         }).Validate());
 
+        var evidenceId = "evidence:" + new string('a', 64);
+        var attributableManifest = manifest with
+        {
+            Components =
+            [
+                .. manifest.Components.Take(2),
+                .. manifest.Components.Skip(2).Take(1),
+                new(PromptComponentId.Evidence, "implementer", "evidence-pack", "evidence-pack/items/" + evidenceId, "sha256:evidence",
+                    EvidenceReferenceKind: "evidence-pack-item", EvidenceItemId: evidenceId),
+                new(PromptComponentId.State, "implementer", "synthetic", "state/placeholder", "sha256:state",
+                    StateContentKind: "synthetic-placeholder"),
+                .. manifest.Components.Skip(3)
+            ]
+        };
+        attributableManifest.Validate();
+        var attributableJson = JsonSerializer.SerializeToNode(attributableManifest, AgentTool.Json)!;
+        Assert.True(schema.Evaluate(attributableJson).IsValid, JsonSerializer.Serialize(attributableJson));
+        var evidenceIndex = Array.FindIndex(attributableManifest.Components.ToArray(), component => component.Id == PromptComponentId.Evidence);
+        var stateIndex = Array.FindIndex(attributableManifest.Components.ToArray(), component => component.Id == PromptComponentId.State);
+        Assert.Equal("evidence-pack-item", attributableJson["components"]![evidenceIndex]!["evidenceReferenceKind"]!.GetValue<string>());
+        Assert.Equal(evidenceId, attributableJson["components"]![evidenceIndex]!["evidenceItemId"]!.GetValue<string>());
+        Assert.Equal("synthetic-placeholder", attributableJson["components"]![stateIndex]!["stateContentKind"]!.GetValue<string>());
+
+        var malformedEvidence = attributableJson.DeepClone();
+        malformedEvidence["components"]![evidenceIndex]!["evidenceItemId"] = "arbitrary";
+        Assert.False(schema.Evaluate(malformedEvidence).IsValid);
+        Assert.Throws<ArgumentException>(() => (attributableManifest with
+        {
+            Components = attributableManifest.Components.Select(component => component.Id == PromptComponentId.Evidence
+                ? component with { EvidenceItemId = "arbitrary" }
+                : component).ToArray()
+        }).Validate());
+        var missingEvidenceIdentity = attributableJson.DeepClone();
+        missingEvidenceIdentity["components"]![evidenceIndex]!.AsObject().Remove("evidenceItemId");
+        Assert.False(schema.Evaluate(missingEvidenceIdentity).IsValid);
+        Assert.Throws<ArgumentException>(() => (attributableManifest with
+        {
+            Components = attributableManifest.Components.Select(component => component.Id == PromptComponentId.Evidence
+                ? component with { EvidenceItemId = null }
+                : component).ToArray()
+        }).Validate());
+
+        foreach (var (kind, wireValue) in new[]
+        {
+            ("run-facts", "run-facts"),
+            ("work-unit-facts", "work-unit-facts"),
+            ("synthetic-placeholder", "synthetic-placeholder")
+        })
+        {
+            var stateManifest = attributableManifest with
+            {
+                Components = attributableManifest.Components.Select(component => component.Id == PromptComponentId.State
+                    ? component with { StateContentKind = kind }
+                    : component).ToArray()
+            };
+            stateManifest.Validate();
+            var stateJson = JsonSerializer.SerializeToNode(stateManifest, AgentTool.Json)!;
+            Assert.True(schema.Evaluate(stateJson).IsValid, JsonSerializer.Serialize(stateJson));
+            Assert.Equal(wireValue, stateJson["components"]![stateIndex]!["stateContentKind"]!.GetValue<string>());
+        }
+        var unknownState = attributableJson.DeepClone();
+        unknownState["components"]![stateIndex]!["stateContentKind"] = "event-history";
+        Assert.False(schema.Evaluate(unknownState).IsValid);
+        Assert.Throws<JsonException>(() => JsonSerializer.Deserialize<PromptManifest>(JsonSerializer.Serialize(unknownState), AgentTool.Json));
+
         var skillManifest = manifest with
         {
             Components =
