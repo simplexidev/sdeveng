@@ -324,7 +324,7 @@ public sealed record PromptManifest(int SchemaVersion, IReadOnlyList<PromptCompo
 
 /// <summary>A deterministic measurement of a manifest text projection; this is not model-rendered input.</summary>
 public sealed record PromptManifestSizeMeasurement(int SchemaVersion, string Kind, string MeasurementKind, string RendererRevision,
-    IReadOnlyList<PromptComponentSizeMeasurement> Components)
+    IReadOnlyList<PromptComponentSizeMeasurement> Components, PromptTextSizeMeasurement? CompletePrompt)
 {
     public const int CurrentSchemaVersion = 1;
     public const string ProjectionKind = "manifest-text-projection";
@@ -345,9 +345,32 @@ public sealed record PromptManifestSizeMeasurement(int SchemaVersion, string Kin
             var lines = text.Length == 0 ? 0L : normalizedLines.Count(c => c == '\n') + 1L;
             return new PromptComponentSizeMeasurement(component.Id, component.ContentReference, component.Provenance, bytes, characters, lines, null);
         }).ToArray();
-        return new(CurrentSchemaVersion, "prompt-manifest-size-measurement", ProjectionKind, ProjectionRevision, components);
+        var completeText = new StringBuilder();
+        var completeAvailable = true;
+        foreach (var component in manifest.Components)
+        {
+            if (!component.IsLoaded || !textByContentReference.TryGetValue(component.ContentReference, out var text))
+            {
+                completeAvailable = false;
+                break;
+            }
+            completeText.Append(text);
+        }
+        var completePrompt = completeAvailable
+            ? MeasureText(completeText.ToString()) with { MeasurementKind = "complete-manifest-text-projection" }
+            : new PromptTextSizeMeasurement("complete-manifest-text-projection", null, null, null, "component-text-unavailable");
+        return new(CurrentSchemaVersion, "prompt-manifest-size-measurement", ProjectionKind, ProjectionRevision, components, completePrompt);
+    }
+
+    private static PromptTextSizeMeasurement MeasureText(string text)
+    {
+        var normalizedLines = text.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n');
+        return new("component-text", Encoding.UTF8.GetByteCount(text), text.EnumerateRunes().LongCount(),
+            text.Length == 0 ? 0 : normalizedLines.Count(c => c == '\n') + 1, null);
     }
 }
 
 public sealed record PromptComponentSizeMeasurement([property: JsonConverter(typeof(PromptComponentIdJsonConverter))] PromptComponentId ComponentId, string ContentReference, string Provenance,
     long? Utf8Bytes, long? UnicodeScalarValues, long? Lines, string? UnavailableReason);
+
+public sealed record PromptTextSizeMeasurement(string MeasurementKind, long? Utf8Bytes, long? UnicodeScalarValues, long? Lines, string? UnavailableReason);

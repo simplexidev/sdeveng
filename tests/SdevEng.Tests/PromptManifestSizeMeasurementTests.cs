@@ -19,11 +19,17 @@ public class PromptManifestSizeMeasurementTests
         {
             ["system"] = "é😀\r\nx\ry",
             ["role"] = "",
-            ["request"] = "abc"
+            ["request"] = "abc",
+            ["output"] = ""
         });
 
         Assert.Equal("manifest-text-projection", measured.MeasurementKind);
         Assert.Equal("manifest-text-projection/v1", measured.RendererRevision);
+        Assert.Equal("complete-manifest-text-projection", measured.CompletePrompt!.MeasurementKind);
+        Assert.Equal((long)14, measured.CompletePrompt.Utf8Bytes);
+        Assert.Equal((long)10, measured.CompletePrompt.UnicodeScalarValues);
+        Assert.Equal((long)3, measured.CompletePrompt.Lines);
+        Assert.Null(measured.CompletePrompt.UnavailableReason);
         Assert.Equal("prompt-manifest-size-measurement", measured.Kind);
         Assert.Equal(PromptComponentId.System, measured.Components[0].ComponentId);
         Assert.Equal("system", measured.Components[0].ContentReference);
@@ -34,8 +40,8 @@ public class PromptManifestSizeMeasurementTests
         Assert.Equal((long)0, measured.Components[1].Utf8Bytes);
         Assert.Equal((long)0, measured.Components[1].UnicodeScalarValues);
         Assert.Equal((long)0, measured.Components[1].Lines);
-        Assert.Equal("component-text-unavailable", measured.Components[3].UnavailableReason);
-        Assert.Null(measured.Components[3].Utf8Bytes);
+        Assert.Null(measured.Components[3].UnavailableReason);
+        Assert.Equal((long)0, measured.Components[3].Utf8Bytes);
 
         var path = Path.Combine(Path.GetTempPath(), $"prompt-size-{Guid.NewGuid():N}.json");
         try
@@ -72,5 +78,8 @@ public class PromptManifestSizeMeasurementTests
             new Dictionary<string, string> { ["system"] = "a\nb\n" }).Components[0].Lines);
         var unavailableManifest = manifest with { Components = manifest.Components.Select(component => component.Id == PromptComponentId.System ? component with { IsLoaded = false } : component).ToArray() };
         Assert.Equal("component-text-unavailable", PromptManifestSizeMeasurement.Measure(unavailableManifest, new Dictionary<string, string> { ["system"] = value }).Components[0].UnavailableReason);
+        var unavailable = PromptManifestSizeMeasurement.Measure(unavailableManifest, new Dictionary<string, string> { ["system"] = value });
+        Assert.Equal("component-text-unavailable", unavailable.CompletePrompt!.UnavailableReason);
+        Assert.Null(unavailable.CompletePrompt.Utf8Bytes);
     }
 }
