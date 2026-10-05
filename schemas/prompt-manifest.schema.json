@@ -53,6 +53,16 @@
         {
           "if": { "properties": { "id": { "const": "state" } }, "required": ["id"] },
           "else": { "not": { "required": ["stateContentKind"] } }
+        },
+        {
+          "if": { "properties": { "id": { "const": "tools" } }, "required": ["id"] },
+          "then": { "not": { "required": ["responseSchema"] } },
+          "else": { "not": { "required": ["tools"] } }
+        },
+        {
+          "if": { "properties": { "id": { "const": "output-contract" } }, "required": ["id"] },
+          "then": { "required": ["responseSchema"] },
+          "else": { "not": { "required": ["responseSchema"] } }
         }
       ],
       "properties": {
@@ -64,10 +74,24 @@
         "isLoaded": { "type": "boolean", "default": true },
         "requestContentKind": { "enum": ["text", "fact-mapping"] },
         "requestProjection": { "enum": ["original", "normalized", "condensed"] },
-        "originalArtifactReference": { "type": "string", "minLength": 1 }
-        ,"evidenceReferenceKind": { "const": "evidence-pack-item" }
-        ,"evidenceItemId": { "type": "string", "pattern": "^evidence:[0-9a-f]{64}$" }
-        ,"stateContentKind": { "enum": ["run-facts", "work-unit-facts", "synthetic-placeholder"] }
+        "originalArtifactReference": { "type": "string", "minLength": 1 },
+        "evidenceReferenceKind": { "const": "evidence-pack-item" },
+        "evidenceItemId": { "type": "string", "pattern": "^evidence:[0-9a-f]{64}$" },
+        "stateContentKind": { "enum": ["run-facts", "work-unit-facts", "synthetic-placeholder"] },
+        "tools": { "type": "array", "items": { "$ref": "#/$defs/tool" }, "uniqueItems": true },
+        "responseSchema": { "type": "string", "minLength": 1 }
+      }
+    },
+    "tool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "description", "schemaReference", "type"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "description": { "type": "string", "minLength": 1 },
+        "schemaReference": { "type": "string", "minLength": 1 },
+        "type": { "const": "function" }
       }
     }
   }

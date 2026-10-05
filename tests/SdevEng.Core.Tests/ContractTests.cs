@@ -3,7 +3,8 @@ using System.Text.Json;
 
 public class ContractTests
 {
-    private static PromptComponent Component(PromptComponentId id) => new(id, "implementer", "step-policy", $"content/{id}", $"sha256:{id}");
+    private static PromptComponent Component(PromptComponentId id) => new(id, "implementer", "step-policy", $"content/{id}", $"sha256:{id}",
+        ResponseSchema: id == PromptComponentId.OutputContract ? "schema:worker-response/v1" : null);
 
     [Fact]
     public void PromptManifestDefinesSystemAndRoleAndAllowsEmptyOptionalCategories()
@@ -68,6 +69,26 @@ public class ContractTests
         Assert.Throws<ArgumentException>(() => new PromptManifest(1, [.. prefix, reference with { IsLoaded = true }, .. suffix]).Validate());
         Assert.Throws<ArgumentException>(() => new PromptManifest(1, [.. prefix, metadata, metadata, .. suffix]).Validate());
         Assert.Throws<ArgumentException>(() => new PromptManifest(1, [.. prefix, otherMetadata, metadata, .. suffix]).Validate());
+    }
+
+    [Fact]
+    public void PromptManifestDefinesTypedToolsAndPinsOutputSchema()
+    {
+        var tools = Component(PromptComponentId.Tools) with
+        {
+            Tools = [new("repo.read", "Read repository file", "Read a bounded repository file.", "schema:repo-read/v1")]
+        };
+        var manifest = new PromptManifest(1,
+        [Component(PromptComponentId.System), Component(PromptComponentId.Role), Component(PromptComponentId.Request), tools, Component(PromptComponentId.OutputContract)]);
+        manifest.Validate();
+        Assert.Equal(PromptComponentId.Tools, manifest.Components[3].Id);
+        Assert.Equal("repo.read", Assert.Single(manifest.Components[3].Tools!).Id);
+        Assert.Throws<ArgumentException>(() => new PromptManifest(1,
+            [Component(PromptComponentId.System), Component(PromptComponentId.Role), Component(PromptComponentId.Request),
+             tools with { Tools = [tools.Tools![0], tools.Tools[0]] }, Component(PromptComponentId.OutputContract)]).Validate());
+        Assert.Throws<ArgumentException>(() => new PromptManifest(1,
+            [Component(PromptComponentId.System), Component(PromptComponentId.Role), Component(PromptComponentId.Request),
+             Component(PromptComponentId.OutputContract) with { ResponseSchema = null }]).Validate());
     }
 
     [Fact]
