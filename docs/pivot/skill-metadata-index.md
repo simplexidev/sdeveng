@@ -23,3 +23,21 @@ Deterministic regression cases in `SkillCompatibilityMapTests` cover the exact
 closing-delimiter read boundary, legacy projection with an unavailable resource
 and large instruction body, duplicate resolved identities through the index and
 validation caller, and unknown-tool diagnostics through `Validation.Run`.
+
+`SkillActivationService.Activate(root, context)` is the callable deterministic
+activation boundary over this catalog. Callers supply a declared role key,
+requested capability/tool IDs, available tool IDs and exact framework versions.
+Activation conditions are alternatives: an unversioned ID matches a requested
+capability, an available requested tool, or a framework ID; a versioned condition
+matches only that framework and exact version. Role restrictions and all required
+tools filter candidates before ordering. Exact framework matches have priority 2,
+other matches priority 1; ordinal canonical ID resolves equal priority. Skills
+without matching declarations remain inactive. Unknown roles and ambiguous
+framework facts fail the operation. The operation returns existing metadata only;
+it never loads instructions or resources. Semantic tie-breaking and budgeted lazy
+loading remain separate later operations; this selector uses deterministic order.
+
+`SkillActivationTests.CallableCatalogBoundaryFiltersAndOrdersWithoutLoadingContent`
+provides fixture evaluation of eligibility, equal-priority order, exact versions,
+required tools, repeated deterministic results and malformed caller facts through
+the real catalog-to-operation boundary, with unavailable references and large bodies.
