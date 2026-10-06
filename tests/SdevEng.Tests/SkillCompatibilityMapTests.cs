@@ -46,6 +46,13 @@ public class SkillCompatibilityMapTests
             var capabilities = SkillCompatibilityMapReader.ReadSkillMetadata(versioned);
             Assert.Equal(new[] { "coder", "reviewer" }, capabilities.SupportedRoles);
             Assert.Equal(new[] { "git-status", "read-file" }, capabilities.RequiredTools);
+            var reference = Path.Combine(root, "reference.md");
+            File.WriteAllText(reference, "Reference content\n");
+            var hash = "sha256:" + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(reference))).ToLowerInvariant();
+            File.WriteAllText(versioned, $"---\nname: prepare-commit\ncontextAllowance: 2400\nresources: '[{{\"path\":\"reference.md\",\"type\":\"reference\",\"hash\":\"{hash}\"}}]'\n---\nBody\n");
+            var budgetAndResources = SkillCompatibilityMapReader.ReadSkillMetadata(versioned);
+            Assert.Equal(2400, budgetAndResources.ContextAllowance);
+            Assert.Equal(new SkillResource("reference.md", "reference", hash), Assert.Single(budgetAndResources.Resources!));
             var malformed = Path.Combine(root, "malformed.md");
             File.WriteAllText(malformed, "---\nname: prepare-commit\nid: bad_id\nversion: x\n---\nBody\n");
             Assert.Throws<ArgumentException>(() => SkillCompatibilityMapReader.ReadSkillMetadata(malformed));
@@ -55,6 +62,12 @@ public class SkillCompatibilityMapTests
             Assert.Throws<ArgumentException>(() => SkillCompatibilityMapReader.ReadSkillMetadata(malformed));
             File.WriteAllText(malformed, "---\nname: prepare-commit\nrequiredTools: '[\"bad_id\"]'\n---\nBody\n");
             Assert.Throws<ArgumentException>(() => SkillCompatibilityMapReader.ReadSkillMetadata(malformed));
+            File.WriteAllText(malformed, "---\nname: prepare-commit\ncontextAllowance: 0\n---\nBody\n");
+            Assert.Throws<ArgumentException>(() => SkillCompatibilityMapReader.ReadSkillMetadata(malformed));
+            File.WriteAllText(malformed, $"---\nname: prepare-commit\nresources: '[{{\"path\":\"../escape.md\",\"type\":\"reference\",\"hash\":\"{hash}\"}}]'\n---\nBody\n");
+            Assert.Throws<ArgumentException>(() => SkillCompatibilityMapReader.ReadSkillMetadata(malformed));
+            File.WriteAllText(malformed, $"---\nname: prepare-commit\nresources: '[{{\"path\":\"reference.md\",\"type\":\"reference\",\"hash\":\"sha256:{new string('0', 64)}\"}}]'\n---\nBody\n");
+            Assert.Throws<ArgumentException>(() => SkillCompatibilityMapReader.ReadSkillMetadata(malformed));
             var schema = JsonSchema.FromFile(Path.Combine(Root, "schemas/skill-metadata.schema.json"));
             Assert.True(schema.Evaluate(JsonNode.Parse("""{"name":"prepare-commit","id":"prepare-commit","version":"3.0.0"}""")!).IsValid);
             Assert.False(schema.Evaluate(JsonNode.Parse("""{"name":"prepare-commit","id":"bad_id","version":"x"}""")!).IsValid);
@@ -63,6 +76,9 @@ public class SkillCompatibilityMapTests
             Assert.True(schema.Evaluate(JsonNode.Parse("""{"name":"prepare-commit","supportedRoles":["coder","reviewer"],"requiredTools":["git-status"]}""")!).IsValid);
             Assert.False(schema.Evaluate(JsonNode.Parse("""{"name":"prepare-commit","supportedRoles":["unknown"]}""")!).IsValid);
             Assert.False(schema.Evaluate(JsonNode.Parse("""{"name":"prepare-commit","requiredTools":["bad_id"]}""")!).IsValid);
+            Assert.True(schema.Evaluate(JsonNode.Parse("""{"contextAllowance":2400,"resources":[{"path":"references/guide.md","type":"reference","hash":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]}""")!).IsValid);
+            Assert.False(schema.Evaluate(JsonNode.Parse("""{"contextAllowance":0}""")!).IsValid);
+            Assert.False(schema.Evaluate(JsonNode.Parse("""{"resources":[{"path":"../guide.md","type":"reference","hash":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]}""")!).IsValid);
         }
         finally { Directory.Delete(root, true); }
     }

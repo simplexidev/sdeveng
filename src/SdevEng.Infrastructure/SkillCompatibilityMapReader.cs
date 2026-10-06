@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Security.Cryptography;
 
 namespace SdevEng;
 
@@ -53,8 +54,42 @@ public static class SkillCompatibilityMapReader
                 requiredTools.Any(tool => !System.Text.RegularExpressions.Regex.IsMatch(tool, "^[a-z0-9]+(?:-[a-z0-9]+)*$")))
                 throw new ArgumentException("Invalid required skill tools.");
         }
-        return new SkillMetadata(fields.GetValueOrDefault("name") ?? "", id, version, activation, supportedRoles, requiredTools);
+        int? contextAllowance = null;
+        if (fields.TryGetValue("contextAllowance", out var allowanceText))
+        {
+            if (!int.TryParse(allowanceText, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var allowance) || allowance <= 0)
+                throw new ArgumentException("Invalid skill context allowance.");
+            contextAllowance = allowance;
+        }
+        SkillResource[]? resources = null;
+        if (fields.TryGetValue("resources", out var resourcesJson))
+        {
+            if (resourcesJson.Length >= 2 && resourcesJson[0] == '\'' && resourcesJson[^1] == '\'')
+                resourcesJson = resourcesJson[1..^1].Replace("''", "'", StringComparison.Ordinal);
+            try { resources = JsonSerializer.Deserialize<SkillResource[]>(resourcesJson, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase }); }
+            catch (JsonException ex) { throw new ArgumentException("Invalid skill resources.", ex); }
+            if (resources is null || resources.Any(resource => resource is null) ||
+                resources.Select(resource => resource.Path).Distinct(StringComparer.Ordinal).Count() != resources.Length ||
+                resources.Any(resource => !IsSafeResourcePath(resource.Path) ||
+                    !System.Text.RegularExpressions.Regex.IsMatch(resource.Type ?? "", "^[a-z][a-z0-9-]*$") ||
+                    !System.Text.RegularExpressions.Regex.IsMatch(resource.Hash ?? "", "^sha256:[0-9a-f]{64}$")))
+                throw new ArgumentException("Invalid skill resources.");
+            var skillDirectory = Path.GetDirectoryName(Path.GetFullPath(path))!;
+            foreach (var resource in resources)
+            {
+                var fullPath = Path.GetFullPath(Path.Combine(skillDirectory, resource.Path.Replace('/', Path.DirectorySeparatorChar)));
+                if (!fullPath.StartsWith(skillDirectory + Path.DirectorySeparatorChar, StringComparison.Ordinal) || !File.Exists(fullPath))
+                    throw new ArgumentException("Skill resource must exist under its skill directory: " + resource.Path);
+                var actualHash = "sha256:" + Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(fullPath))).ToLowerInvariant();
+                if (actualHash != resource.Hash) throw new ArgumentException("Skill resource hash mismatch: " + resource.Path);
+            }
+        }
+        return new SkillMetadata(fields.GetValueOrDefault("name") ?? "", id, version, activation, supportedRoles, requiredTools, contextAllowance, resources);
     }
+
+    private static bool IsSafeResourcePath(string? path) => !string.IsNullOrWhiteSpace(path) &&
+        !Path.IsPathRooted(path) && path.Replace('\\', '/').Split('/').All(segment => segment.Length > 0 && segment != "." && segment != "..") &&
+        !path.Contains('\\');
 
     private static string[] ReadStringArray(string value, string description)
     {
@@ -97,6 +132,8 @@ public static class SkillCompatibilityMapReader
 }
 
 public sealed record SkillMetadata(string Name, string? Id, string? Version,
-    SkillActivationCondition[]? Activation = null, string[]? SupportedRoles = null, string[]? RequiredTools = null);
+    SkillActivationCondition[]? Activation = null, string[]? SupportedRoles = null, string[]? RequiredTools = null,
+    int? ContextAllowance = null, SkillResource[]? Resources = null);
 
 public sealed record SkillActivationCondition(string Id, string? FrameworkVersion = null);
+public sealed record SkillResource(string Path, string Type, string Hash);
