@@ -2703,6 +2703,7 @@ public static class PluginManifests
         var pluginRoot = Path.Combine(root, "plugins", "sdeveng");
         try
         {
+            SkillCompatibilityMapReader.Read(root);
             var portable = JsonNode.Parse(File.ReadAllText(Path.Combine(pluginRoot, "plugin.json"))) as JsonObject;
             var compatibility = JsonNode.Parse(File.ReadAllText(Path.Combine(pluginRoot, ".codex-plugin", "plugin.json"))) as JsonObject;
             if (portable is null || compatibility is null) { errors.Add("Plugin manifests must be JSON objects."); return; }
@@ -2720,7 +2721,7 @@ public static class PluginManifests
             if (!Directory.Exists(Path.Combine(pluginRoot, "skills")) || !Directory.GetDirectories(Path.Combine(pluginRoot, "skills")).Any())
                 errors.Add("Portable plugin skill discovery directory is missing or empty.");
         }
-        catch (Exception e) when (e is IOException or JsonException or InvalidOperationException)
+        catch (Exception e) when (e is IOException or JsonException or InvalidOperationException or ArgumentException)
         {
             errors.Add("Unable to validate plugin manifests: " + e.Message);
         }

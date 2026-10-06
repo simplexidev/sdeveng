@@ -1,0 +1,325 @@
+{
+  "$schema": "../schemas/skill-compatibility-map.schema.json",
+  "schemaVersion": 1,
+  "skills": [
+    {
+      "oldId": "address-pr-review",
+      "oldPath": "plugins/sdeveng/skills/address-pr-review/SKILL.md",
+      "canonicalId": "address-pr-review",
+      "canonicalPath": "plugins/sdeveng/skills/address-pr-review/SKILL.md",
+      "version": "3.0.0",
+      "aliases": [
+        "sdeveng-engineering-toolkit:address-pr-review"
+      ],
+      "migrationStatus": "retained"
+    },
+    {
+      "oldId": "agent-maintenance",
+      "oldPath": "plugins/sdeveng/skills/agent-maintenance/SKILL.md",
+      "canonicalId": "agent-maintenance",
+      "canonicalPath": "plugins/sdeveng/skills/agent-maintenance/SKILL.md",
+      "version": "3.0.0",
+      "aliases": [
+        "sdeveng-engineering-toolkit:agent-maintenance"
+      ],
+      "migrationStatus": "retained"
+    },
+    {
+      "oldId": "api-compatibility",
+      "oldPath": "plugins/sdeveng/skills/api-compatibility/SKILL.md",
+      "canonicalId": "api-compatibility",
+      "canonicalPath": "plugins/sdeveng/skills/api-compatibility/SKILL.md",
+      "version": "3.0.0",
+      "aliases": [
+        "sdeveng-engineering-toolkit:api-compatibility"
+      ],
+      "migrationStatus": "retained"
+    },
+    {
+      "oldId": "architecture-change",
+      "oldPath": "plugins/sdeveng/skills/architecture-change/SKILL.md",
+      "canonicalId": "architecture-change",
+      "canonicalPath": "plugins/sdeveng/skills/architecture-change/SKILL.md",
+      "version": "3.0.0",
+      "aliases": [
+        "sdeveng-engineering-toolkit:architecture-change"
+      ],
+      "migrationStatus": "retained"
+    },
+    {
+      "oldId": "benchmark",
+      "oldPath": "plugins/sdeveng/skills/benchmark/SKILL.md",
+      "canonicalId": "benchmark",
+      "canonicalPath": "plugins/sdeveng/skills/benchmark/SKILL.md",
+      "version": "3.0.0",
+      "aliases": [
+        "sdeveng-engineering-toolkit:benchmark"
+      ],
+      "migrationStatus": "retained"
+    },
+    {
+      "oldId": "ci-triage",
+      "oldPath": "plugins/sdeveng/skills/ci-triage/SKILL.md",
+      "canonicalId": "ci-triage",
+      "canonicalPath": "plugins/sdeveng/skills/ci-triage/SKILL.md",
+      "version": "3.0.0",
+      "aliases": [
+        "sdeveng-engineering-toolkit:ci-triage"
+      ],
+      "migrationStatus": "retained"
+    },
+    {
+      "oldId": "dependency-change",
+      "oldPath": "plugins/sdeveng/skills/dependency-change/SKILL.md",
+      "canonicalId": "dependency-change",
+      "canonicalPath": "plugins/sdeveng/skills/dependency-change/SKILL.md",
+      "version": "3.0.0",
+      "aliases": [
+        "sdeveng-engineering-toolkit:dependency-change"
+      ],
+      "migrationStatus": "retained"
+    },
+    {
+      "oldId": "diagnose-build",
+      "oldPath": "plugins/sdeveng/skills/diagnose-build/SKILL.md",
+      "canonicalId": "diagnose-build",
+      "canonicalPath": "plugins/sdeveng/skills/diagnose-build/SKILL.md",
+      "version": "3.0.0",
+      "aliases": [
+        "sdeveng-engineering-toolkit:diagnose-build"
+      ],
+      "migrationStatus": "retained"
+    },
+    {
+      "oldId": "diagnose-dotnet",
+      "oldPath": "plugins/sdeveng/skills/diagnose-dotnet/SKILL.md",
+      "canonicalId": "diagnose-dotnet",
+      "canonicalPath": "plugins/sdeveng/skills/diagnose-dotnet/SKILL.md",
+      "version": "3.0.0",
+      "aliases": [
+        "sdeveng-engineering-toolkit:diagnose-dotnet"
+      ],
+      "migrationStatus": "retained"
+    },
+    {
+      "oldId": "docs-impact",
+      "oldPath": "plugins/sdeveng/skills/docs-impact/SKILL.md",
+      "canonicalId": "docs-impact",
+      "canonicalPath": "plugins/sdeveng/skills/docs-impact/SKILL.md",
+      "version": "3.0.0",
+      "aliases": [
+        "sdeveng-engineering-toolkit:docs-impact"
+      ],
+      "migrationStatus": "retained"
+    },
+    {
+      "oldId": "dotnet-coverage",
+      "oldPath": "plugins/sdeveng/skills/dotnet-coverage/SKILL.md",
+      "canonicalId": "dotnet-coverage",
+      "canonicalPath": "plugins/sdeveng/skills/dotnet-coverage/SKILL.md",
+      "version": "3.0.0",
+      "aliases": [
+        "sdeveng-engineering-toolkit:dotnet-coverage"
+      ],
+      "migrationStatus": "retained"
+    },
+    {
+      "oldId": "dotnet-format",
+      "oldPath": "plugins/sdeveng/skills/dotnet-format/SKILL.md",
+      "canonicalId": "dotnet-format",
+      "canonicalPath": "plugins/sdeveng/skills/dotnet-format/SKILL.md",
+      "version": "3.0.0",
+      "aliases": [
+        "sdeveng-engineering-toolkit:dotnet-format"
+      ],
+      "migrationStatus": "retained"
+    },
+    {
+      "oldId": "dotnet-test-quality",
+      "oldPath": "plugins/sdeveng/skills/dotnet-test-quality/SKILL.md",
+      "canonicalId": "dotnet-test-quality",
+      "canonicalPath": "plugins/sdeveng/skills/dotnet-test-quality/SKILL.md",
+      "version": "3.0.0",
+      "aliases": [
+        "sdeveng-engineering-toolkit:dotnet-test-quality"
+      ],
+      "migrationStatus": "retained"
+    },
+    {
+      "oldId": "finish-pr",
+      "oldPath": "plugins/sdeveng/skills/finish-pr/SKILL.md",
+      "canonicalId": "finish-pr",
+      "canonicalPath": "plugins/sdeveng/skills/finish-pr/SKILL.md",
+      "version": "3.0.0",
+      "aliases": [
+        "sdeveng-engineering-toolkit:finish-pr"
+      ],
+      "migrationStatus": "retained"
+    },
+    {
+      "oldId": "investigate-dotnet-performance",
+      "oldPath": "plugins/sdeveng/skills/investigate-dotnet-performance/SKILL.md",
+      "canonicalId": "investigate-dotnet-performance",
+      "canonicalPath": "plugins/sdeveng/skills/investigate-dotnet-performance/SKILL.md",
+      "version": "3.0.0",
+      "aliases": [
+        "sdeveng-engineering-toolkit:investigate-dotnet-performance"
+      ],
+      "migrationStatus": "retained"
+    },
+    {
+      "oldId": "issue-start",
+      "oldPath": "plugins/sdeveng/skills/issue-start/SKILL.md",
+      "canonicalId": "issue-start",
+      "canonicalPath": "plugins/sdeveng/skills/issue-start/SKILL.md",
+      "version": "3.0.0",
+      "aliases": [
+        "sdeveng-engineering-toolkit:issue-start"
+      ],
+      "migrationStatus": "retained"
+    },
+    {
+      "oldId": "jev-judgment",
+      "oldPath": "plugins/sdeveng/skills/jev-judgment/SKILL.md",
+      "canonicalId": "jev-judgment",
+      "canonicalPath": "plugins/sdeveng/skills/jev-judgment/SKILL.md",
+      "version": "3.0.0",
+      "aliases": [
+        "sdeveng-engineering-toolkit:jev-judgment"
+      ],
+      "migrationStatus": "retained"
+    },
+    {
+      "oldId": "optimize-build",
+      "oldPath": "plugins/sdeveng/skills/optimize-build/SKILL.md",
+      "canonicalId": "optimize-build",
+      "canonicalPath": "plugins/sdeveng/skills/optimize-build/SKILL.md",
+      "version": "3.0.0",
+      "aliases": [
+        "sdeveng-engineering-toolkit:optimize-build"
+      ],
+      "migrationStatus": "retained"
+    },
+    {
+      "oldId": "package-audit",
+      "oldPath": "plugins/sdeveng/skills/package-audit/SKILL.md",
+      "canonicalId": "package-audit",
+      "canonicalPath": "plugins/sdeveng/skills/package-audit/SKILL.md",
+      "version": "3.0.0",
+      "aliases": [
+        "sdeveng-engineering-toolkit:package-audit"
+      ],
+      "migrationStatus": "retained"
+    },
+    {
+      "oldId": "prepare-commit",
+      "oldPath": "plugins/sdeveng/skills/prepare-commit/SKILL.md",
+      "canonicalId": "prepare-commit",
+      "canonicalPath": "plugins/sdeveng/skills/prepare-commit/SKILL.md",
+      "version": "3.0.0",
+      "aliases": [
+        "sdeveng-engineering-toolkit:prepare-commit"
+      ],
+      "migrationStatus": "retained"
+    },
+    {
+      "oldId": "release-verify",
+      "oldPath": "plugins/sdeveng/skills/release-verify/SKILL.md",
+      "canonicalId": "release-verify",
+      "canonicalPath": "plugins/sdeveng/skills/release-verify/SKILL.md",
+      "version": "3.0.0",
+      "aliases": [
+        "sdeveng-engineering-toolkit:release-verify"
+      ],
+      "migrationStatus": "retained"
+    },
+    {
+      "oldId": "repo-health",
+      "oldPath": "plugins/sdeveng/skills/repo-health/SKILL.md",
+      "canonicalId": "repo-health",
+      "canonicalPath": "plugins/sdeveng/skills/repo-health/SKILL.md",
+      "version": "3.0.0",
+      "aliases": [
+        "sdeveng-engineering-toolkit:repo-health"
+      ],
+      "migrationStatus": "retained"
+    },
+    {
+      "oldId": "reproducible-build",
+      "oldPath": "plugins/sdeveng/skills/reproducible-build/SKILL.md",
+      "canonicalId": "reproducible-build",
+      "canonicalPath": "plugins/sdeveng/skills/reproducible-build/SKILL.md",
+      "version": "3.0.0",
+      "aliases": [
+        "sdeveng-engineering-toolkit:reproducible-build"
+      ],
+      "migrationStatus": "retained"
+    },
+    {
+      "oldId": "roadmap-next",
+      "oldPath": "plugins/sdeveng/skills/roadmap-next/SKILL.md",
+      "canonicalId": "roadmap-next",
+      "canonicalPath": "plugins/sdeveng/skills/roadmap-next/SKILL.md",
+      "version": "3.0.0",
+      "aliases": [
+        "sdeveng-engineering-toolkit:roadmap-next"
+      ],
+      "migrationStatus": "retained"
+    },
+    {
+      "oldId": "run-dotnet-tests",
+      "oldPath": "plugins/sdeveng/skills/run-dotnet-tests/SKILL.md",
+      "canonicalId": "run-dotnet-tests",
+      "canonicalPath": "plugins/sdeveng/skills/run-dotnet-tests/SKILL.md",
+      "version": "3.0.0",
+      "aliases": [
+        "sdeveng-engineering-toolkit:run-dotnet-tests"
+      ],
+      "migrationStatus": "retained"
+    },
+    {
+      "oldId": "sbom",
+      "oldPath": "plugins/sdeveng/skills/sbom/SKILL.md",
+      "canonicalId": "sbom",
+      "canonicalPath": "plugins/sdeveng/skills/sbom/SKILL.md",
+      "version": "3.0.0",
+      "aliases": [
+        "sdeveng-engineering-toolkit:sbom"
+      ],
+      "migrationStatus": "retained"
+    },
+    {
+      "oldId": "security-scan",
+      "oldPath": "plugins/sdeveng/skills/security-scan/SKILL.md",
+      "canonicalId": "security-scan",
+      "canonicalPath": "plugins/sdeveng/skills/security-scan/SKILL.md",
+      "version": "3.0.0",
+      "aliases": [
+        "sdeveng-engineering-toolkit:security-scan"
+      ],
+      "migrationStatus": "retained"
+    },
+    {
+      "oldId": "versioning",
+      "oldPath": "plugins/sdeveng/skills/versioning/SKILL.md",
+      "canonicalId": "versioning",
+      "canonicalPath": "plugins/sdeveng/skills/versioning/SKILL.md",
+      "version": "3.0.0",
+      "aliases": [
+        "sdeveng-engineering-toolkit:versioning"
+      ],
+      "migrationStatus": "retained"
+    },
+    {
+      "oldId": "write-dotnet-tests",
+      "oldPath": "plugins/sdeveng/skills/write-dotnet-tests/SKILL.md",
+      "canonicalId": "write-dotnet-tests",
+      "canonicalPath": "plugins/sdeveng/skills/write-dotnet-tests/SKILL.md",
+      "version": "3.0.0",
+      "aliases": [
+        "sdeveng-engineering-toolkit:write-dotnet-tests"
+      ],
+      "migrationStatus": "retained"
+    }
+  ]
+}

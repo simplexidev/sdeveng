@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Canonical skill compatibility map",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "schemaVersion",
+    "skills"
+  ],
+  "properties": {
+    "$schema": {
+      "const": "../schemas/skill-compatibility-map.schema.json"
+    },
+    "schemaVersion": {
+      "const": 1
+    },
+    "skills": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "oldId",
+          "oldPath",
+          "canonicalId",
+          "canonicalPath",
+          "version",
+          "aliases",
+          "migrationStatus"
+        ],
+        "properties": {
+          "oldId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "oldPath": {
+            "type": "string",
+            "minLength": 1
+          },
+          "canonicalId": {
+            "type": "string",
+            "pattern": "^[a-z0-9-]+$"
+          },
+          "canonicalPath": {
+            "type": "string",
+            "pattern": "^plugins/sdeveng/skills/[a-z0-9-]+/SKILL\\.md$"
+          },
+          "version": {
+            "type": "string",
+            "pattern": "^\\d+\\.\\d+\\.\\d+$"
+          },
+          "aliases": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "migrationStatus": {
+            "enum": [
+              "retained",
+              "extension-required",
+              "migration-required"
+            ]
+          }
+        }
+      }
+    }
+  }
+}
