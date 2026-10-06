@@ -2,15 +2,16 @@ namespace SdevEng;
 
 /// <summary>Explicit request text variants and caller supplied evidence that normalization retained required facts.</summary>
 public sealed record RequestVariantTokenInput(string OriginalText, string NormalizedText, string CondensedText,
-    IReadOnlyDictionary<string, string> RequiredFactMappings);
+    IReadOnlyList<string> RequiredFacts, IReadOnlyDictionary<string, string> RequiredFactMappings);
 
 /// <summary>Versioned, attributable token counts for supplied request variants.</summary>
 public sealed record RequestVariantTokenMeasurement(int SchemaVersion, string Kind, string MeasurementKind,
     string Method, string TokenizerId, string TokenizerRevision, IReadOnlyList<TokenizerAsset> TokenizerAssets,
     bool FixtureOnly, RequestTextTokenMeasurement Original, RequestTextTokenMeasurement Normalized,
-    RequestTextTokenMeasurement Condensed, long RequestTokensSaved)
+    RequestTextTokenMeasurement Condensed, long RequestTokensSaved, decimal? CompressionRatio,
+    string? CompressionRatioUnavailableReason, IReadOnlyDictionary<string, string> RetainedFactMappings)
 {
-    public const int CurrentSchemaVersion = 1;
+    public const int CurrentSchemaVersion = 2;
     public const string ResultKind = "request-variant-token-measurement";
 
     public void Validate()
@@ -18,7 +19,10 @@ public sealed record RequestVariantTokenMeasurement(int SchemaVersion, string Ki
         if (SchemaVersion != CurrentSchemaVersion || Kind != ResultKind || MeasurementKind != "exact" ||
             string.IsNullOrWhiteSpace(Method) || string.IsNullOrWhiteSpace(TokenizerId) || string.IsNullOrWhiteSpace(TokenizerRevision) ||
             TokenizerAssets is null || TokenizerAssets.Count == 0 || Original is null || Normalized is null || Condensed is null ||
-            RequestTokensSaved != Original.Tokens - Condensed.Tokens)
+            RetainedFactMappings is null || RequestTokensSaved != Original.Tokens - Condensed.Tokens ||
+            (Original.Tokens == 0 ? CompressionRatio is not null || CompressionRatioUnavailableReason != "original-token-count-zero" :
+                CompressionRatio != (decimal)Condensed.Tokens / Original.Tokens || CompressionRatioUnavailableReason is not null) ||
+            RetainedFactMappings.Any(pair => string.IsNullOrWhiteSpace(pair.Key) || string.IsNullOrWhiteSpace(pair.Value)))
             throw new ArgumentException("Invalid request variant measurement.");
         foreach (var asset in TokenizerAssets) asset.Validate();
         Original.Validate();
