@@ -171,7 +171,7 @@ public sealed class PromptComponentIdJsonConverter : JsonConverter<PromptCompone
         writer.WriteStringValue(ToWireValue(value));
     }
 
-    private static string ToWireValue(PromptComponentId value) => value switch
+    public static string ToWireValue(PromptComponentId value) => value switch
     {
         PromptComponentId.SkillMetadata => "skill-metadata",
         PromptComponentId.SkillInstructions => "skill-instructions",
