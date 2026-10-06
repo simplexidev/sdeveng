@@ -4,9 +4,9 @@
   "title": "Request Variant Token Measurement",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "kind", "measurementKind", "method", "tokenizerId", "tokenizerRevision", "tokenizerAssets", "fixtureOnly", "original", "normalized", "condensed", "requestTokensSaved"],
+  "required": ["schemaVersion", "kind", "measurementKind", "method", "tokenizerId", "tokenizerRevision", "tokenizerAssets", "fixtureOnly", "original", "normalized", "condensed", "requestTokensSaved", "compressionRatio", "compressionRatioUnavailableReason", "retainedFactMappings"],
   "properties": {
-    "schemaVersion": { "const": 1 },
+    "schemaVersion": { "const": 2 },
     "kind": { "const": "request-variant-token-measurement" },
     "measurementKind": { "const": "exact" },
     "method": { "enum": ["fixture-byte-v1", "tiktoken-v1"] },
@@ -17,7 +17,10 @@
     "original": { "$ref": "#/$defs/text" },
     "normalized": { "$ref": "#/$defs/text" },
     "condensed": { "$ref": "#/$defs/text" },
-    "requestTokensSaved": { "type": "integer" }
+    "requestTokensSaved": { "type": "integer" },
+    "compressionRatio": { "type": ["number", "null"], "minimum": 0 },
+    "compressionRatioUnavailableReason": { "type": ["string", "null"], "enum": ["original-token-count-zero", null] },
+    "retainedFactMappings": { "type": "object", "additionalProperties": { "type": "string", "minLength": 1 } }
   },
   "$defs": {
     "digest": { "type": "string", "pattern": "^[0-9a-fA-F]{64}$" },
