@@ -4,6 +4,25 @@ namespace SdevEng;
 
 public static class SkillCompatibilityMapReader
 {
+    public static SkillMetadata ReadSkillMetadata(string path)
+    {
+        var text = File.ReadAllText(path);
+        if (!text.StartsWith("---\n", StringComparison.Ordinal))
+            throw new ArgumentException("Skill front matter is missing.");
+        var end = text.IndexOf("\n---", 4, StringComparison.Ordinal);
+        if (end < 0) throw new ArgumentException("Skill front matter is unterminated.");
+        var fields = text[4..end].Split('\n').Select(line => line.Split(':', 2))
+            .Where(parts => parts.Length == 2)
+            .ToDictionary(parts => parts[0].Trim(), parts => parts[1].Trim(), StringComparer.Ordinal);
+        fields.TryGetValue("id", out var id);
+        fields.TryGetValue("version", out var version);
+        if ((id is null) != (version is null)) throw new ArgumentException("Skill id and version must be declared together.");
+        if (id is not null && (!System.Text.RegularExpressions.Regex.IsMatch(id, "^[a-z0-9]+(?:-[a-z0-9]+)*$") ||
+                               !System.Text.RegularExpressions.Regex.IsMatch(version!, "^\\d+\\.\\d+\\.\\d+$")))
+            throw new ArgumentException("Invalid skill identity or version.");
+        return new SkillMetadata(fields.GetValueOrDefault("name") ?? "", id, version);
+    }
+
     public static SkillCompatibilityMap Read(string root)
     {
         var map = JsonSerializer.Deserialize<SkillCompatibilityMap>(
@@ -18,9 +37,12 @@ public static class SkillCompatibilityMapReader
             {
                 var body = Path.Combine(root, skill.CanonicalPath);
                 if (skill.Version != version.RootElement.GetProperty("version").GetString() || !File.Exists(body) ||
-                    !File.ReadAllText(body).Contains("\nname: " + skill.CanonicalId + "\n", StringComparison.Ordinal) ||
                     !File.Exists(Path.Combine(Path.GetDirectoryName(body)!, "agents/openai.yaml")))
                     throw new ArgumentException("Unresolved skill compatibility entry: " + skill.CanonicalId);
+                var metadata = ReadSkillMetadata(body);
+                if (metadata.Name != skill.CanonicalId || (metadata.Id is not null &&
+                    (metadata.Id != skill.CanonicalId || metadata.Version != skill.Version)))
+                    throw new ArgumentException("Skill metadata differs from compatibility entry: " + skill.CanonicalId);
             }
         }
         var discovered = Directory.GetDirectories(Path.Combine(root, "plugins/sdeveng/skills")).Select(Path.GetFileName).Order(StringComparer.Ordinal);
@@ -29,3 +51,5 @@ public static class SkillCompatibilityMapReader
         return map;
     }
 }
+
+public sealed record SkillMetadata(string Name, string? Id, string? Version);

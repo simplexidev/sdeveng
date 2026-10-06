@@ -27,6 +27,29 @@ public class SkillCompatibilityMapTests
     }
 
     [Fact]
+    public void SkillIdentityVersionVariantAndLegacyFrontMatterAreCompatible()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "skill-metadata-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        try
+        {
+            var legacy = Path.Combine(root, "legacy.md");
+            File.WriteAllText(legacy, "---\nname: prepare-commit\ndescription: Legacy skill description.\n---\nBody\n");
+            Assert.Equal(new SkillMetadata("prepare-commit", null, null), SkillCompatibilityMapReader.ReadSkillMetadata(legacy));
+            var versioned = Path.Combine(root, "versioned.md");
+            File.WriteAllText(versioned, "---\nname: prepare-commit\nid: prepare-commit\nversion: 3.0.0\ndescription: Versioned skill description.\n---\nBody\n");
+            Assert.Equal(new SkillMetadata("prepare-commit", "prepare-commit", "3.0.0"), SkillCompatibilityMapReader.ReadSkillMetadata(versioned));
+            var malformed = Path.Combine(root, "malformed.md");
+            File.WriteAllText(malformed, "---\nname: prepare-commit\nid: bad_id\nversion: x\n---\nBody\n");
+            Assert.Throws<ArgumentException>(() => SkillCompatibilityMapReader.ReadSkillMetadata(malformed));
+            var schema = JsonSchema.FromFile(Path.Combine(Root, "schemas/skill-metadata.schema.json"));
+            Assert.True(schema.Evaluate(JsonNode.Parse("""{"name":"prepare-commit","id":"prepare-commit","version":"3.0.0"}""")!).IsValid);
+            Assert.False(schema.Evaluate(JsonNode.Parse("""{"name":"prepare-commit","id":"bad_id","version":"x"}""")!).IsValid);
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
+    [Fact]
     public void MinimalContractAndMigrationAliasRemainCompatible()
     {
         Minimal.Validate();
