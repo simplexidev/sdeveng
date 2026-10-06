@@ -1,5 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://simplexidev.dev/schemas/skill-metadata.schema.json",
   "title": "Skill metadata",
   "description": "Optional additive SKILL.md front matter fields. Legacy name and description front matter remains supported.",
   "type": "object",

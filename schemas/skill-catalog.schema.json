@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://simplexidev.dev/schemas/skill-catalog.schema.json",
+  "title": "Skill catalog",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["kind", "schemaVersion", "skills", "diagnostics"],
+  "properties": {
+    "kind": { "const": "skill-catalog" },
+    "schemaVersion": { "const": 1 },
+    "skills": { "type": "array", "items": { "$ref": "skill-metadata.schema.json" } },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "message"],
+        "properties": {
+          "code": { "enum": ["unknown-tool", "invalid-skill-catalog"] },
+          "message": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
+}

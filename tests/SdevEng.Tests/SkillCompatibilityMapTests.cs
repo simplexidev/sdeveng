@@ -52,6 +52,8 @@ public class SkillCompatibilityMapTests
             var missing = Validation.Run(root);
             Assert.Equal(1, missing.ExitCode);
             Assert.Contains("Skill resource must exist", JsonSerializer.Serialize(missing));
+            File.WriteAllText(path, original.Replace("\nname: prepare-commit\n", "\nname: prepare-commit\nsupportedRoles: '[\"unknown\"]'\n", StringComparison.Ordinal));
+            Assert.Contains("Invalid supported skill roles", JsonSerializer.Serialize(Validation.Run(root)));
         }
         finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
     }
@@ -94,6 +96,43 @@ public class SkillCompatibilityMapTests
             var errors = new List<string>();
             PluginManifests.Validate(root, errors);
             Assert.Contains(errors, error => error.Contains("Duplicate skill identity", StringComparison.Ordinal));
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
+    [Theory]
+    [InlineData("supportedRoles: '[\"planner\",\"coder\",\"test-author\",\"reviewer\",\"repair\"]'", null)]
+    [InlineData("supportedRoles: '[\"Coder\"]'", "Invalid supported skill roles")]
+    [InlineData("supportedRoles: '[\"coder\",\"coder\"]'", "Invalid supported skill roles")]
+    [InlineData("requiredTools: '[\"unknown-tool\"]'", "Unknown required tool")]
+    [InlineData("resources: '[{\"path\":\"reference.md\",\"type\":\"reference\",\"hash\":\"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}]'", null)]
+    [InlineData("resources: '[{\"path\":\"missing.md\",\"type\":\"reference\",\"hash\":\"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}]'", "Skill resource must exist")]
+    public async Task CatalogNormalDispatchValidatesMetadataWithoutLoadingBodies(string fields, string? error)
+    {
+        var root = Path.Combine(Path.GetTempPath(), "skill-catalog-" + Guid.NewGuid().ToString("N"));
+        var directory = Path.Combine(root, "plugins/sdeveng/skills/prepare-commit");
+        Directory.CreateDirectory(Path.Combine(directory, "agents"));
+        Directory.CreateDirectory(Path.Combine(root, "config"));
+        try
+        {
+            File.WriteAllText(Path.Combine(root, "config/skill-compatibility-map.json"), JsonSerializer.Serialize(Minimal, AgentTool.Json));
+            File.Copy(Path.Combine(Root, "config/agent-tool-contracts.json"), Path.Combine(root, "config/agent-tool-contracts.json"));
+            File.WriteAllText(Path.Combine(root, "plugins/sdeveng/plugin.json"), "{\"version\":\"3.0.0\"}");
+            File.WriteAllText(Path.Combine(directory, "agents/openai.yaml"), "interface: {}");
+            // Deliberately differs from the declared hash: catalog checks existence only.
+            File.WriteAllText(Path.Combine(directory, "reference.md"), "REFERENCE_SENTINEL");
+            File.WriteAllText(Path.Combine(directory, "SKILL.md"), $"---\nname: prepare-commit\n{fields}\n---\nINSTRUCTION_SENTINEL");
+            var result = await CommandTestRuntime.Execute(Cli.Parse(["skills", "list", "--json"]), root, root, new(new(), new(), new(), new()));
+            var json = JsonSerializer.SerializeToNode(result.Data, AgentTool.Json)!;
+            Assert.Equal(error is null ? 0 : 1, result.ExitCode);
+            Assert.DoesNotContain("INSTRUCTION_SENTINEL", json.ToJsonString());
+            Assert.DoesNotContain("REFERENCE_SENTINEL", json.ToJsonString());
+            if (error is not null) Assert.Contains(error, json["diagnostics"]!.ToJsonString());
+            else Assert.Empty(json["diagnostics"]!.AsArray());
+            var options = new EvaluationOptions();
+            var metadataPath = Path.Combine(Root, "schemas/skill-metadata.schema.json");
+            options.SchemaRegistry.Register(JsonSchema.FromFile(metadataPath));
+            Assert.True(JsonSchema.FromFile(Path.Combine(Root, "schemas/skill-catalog.schema.json")).Evaluate(json, options).IsValid);
         }
         finally { Directory.Delete(root, true); }
     }

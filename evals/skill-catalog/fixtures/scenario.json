@@ -1,0 +1,7 @@
+{
+  "command": "skills list",
+  "validRoles": ["planner", "coder", "test-author", "reviewer", "repair"],
+  "rejections": ["unknown role", "duplicate role", "unknown tool", "missing resource"],
+  "excludedContent": ["instruction body", "reference body"],
+  "proof": "CatalogNormalDispatchValidatesMetadataWithoutLoadingBodies"
+}

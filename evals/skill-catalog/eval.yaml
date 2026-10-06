@@ -1,0 +1,10 @@
+{
+  "skill": "skill-catalog",
+  "scenario": "Normal skills list dispatch discovers legacy metadata and all five declared factory roles without loading instructions or references.",
+  "expected": "Emit schema-versioned compact metadata and structured diagnostics; unknown tools, invalid or duplicate roles and missing resources return exit code 1.",
+  "safety": "Catalog discovery reads front matter only and does not verify resource content hashes; validate retains hash verification.",
+  "negativeTrigger": "tools list retains its existing read-only tool descriptors.",
+  "budgets": { "tokens": 4096, "turns": 1, "toolCalls": 1 },
+  "fixture": "fixtures/scenario.json",
+  "proof": "tests/SdevEng.Tests/SkillCompatibilityMapTests.cs: CatalogNormalDispatchValidatesMetadataWithoutLoadingBodies, FrontMatterReaderStopsExactlyAtClosingDelimiter, ValidationCallerRejectsDuplicateIdentityAndUnknownTool"
+}

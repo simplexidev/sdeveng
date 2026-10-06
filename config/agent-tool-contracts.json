@@ -23,6 +23,7 @@
   ],
   "contracts": [
     { "command": "tools list", "kind": "tool-descriptors", "schemaVersion": 1, "mode": "facts" },
+    { "command": "skills list", "kind": "skill-catalog", "schemaVersion": 1, "mode": "facts" },
     { "command": "repo describe", "kind": "repository-description", "schemaVersion": 1, "mode": "facts" },
     { "command": "repo locate", "kind": "repository-file-search", "schemaVersion": 1, "mode": "facts" },
     { "command": "repo affected-projects", "kind": "affected-projects", "schemaVersion": 1, "mode": "facts" },

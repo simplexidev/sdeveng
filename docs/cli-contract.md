@@ -12,6 +12,13 @@ top-level `schemaVersion` versions the envelope; `command`, `status`, `exitCode`
 their versions are listed in `config/agent-tool-contracts.json`. Human/default output
 is not a parsing contract.
 
+`sdeveng skills list --json` returns schema-versioned compact front matter metadata
+and structured diagnostics (`schemas/skill-catalog.schema.json`). Invalid roles,
+unknown tools, and missing or unsafe resources fail with exit code 1. Catalog mode
+never reads instruction bodies or resource contents; `validate` additionally verifies
+resource hashes. Supported roles are planner, coder, test-author, reviewer and repair;
+no model registry is required. Legacy launchers use the same command dispatch.
+
 `sdeveng tools list --json` returns versioned, read-only worker tool descriptors from
 that same manifest. Each descriptor names its canonical CLI command, result kind and
 input JSON Schema; invoke the listed command through the existing CLI path.
