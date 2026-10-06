@@ -5,8 +5,10 @@ namespace SdevEng.Tests;
 
 public sealed class SkillActivationTests
 {
-    [Fact]
-    public void CallableCatalogBoundaryFiltersAndOrdersWithoutLoadingContent()
+    [Theory]
+    [InlineData(0)]
+    [InlineData(26)]
+    public async Task CallableCatalogBoundaryFiltersAndOrdersWithoutLoadingContent(int extraCandidates)
     {
         var root = Path.Combine(Path.GetTempPath(), "skill-activation-" + Guid.NewGuid().ToString("N"));
         try
@@ -26,6 +28,8 @@ public sealed class SkillActivationTests
                 ["legacy"] = "",
                 ["tool"] = "activation: '[{\"id\":\"compile\"}]'\nrequiredTools: '[\"compile\"]'\n"
             };
+            for (var index = 0; index < extraCandidates; index++)
+                definitions.Add($"extra-{index:D2}", "activation: '[{\"id\":\"build\"}]'\n");
             var entries = definitions.Select(pair =>
             {
                 var path = $"plugins/sdeveng/skills/{pair.Key}/SKILL.md";
@@ -41,11 +45,31 @@ public sealed class SkillActivationTests
                 new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase }));
             var service = new SkillActivationService();
             var facts = new SkillActivationContext("coder", ["build"], ["compile"], ["compile"], [new("dotnet", "10.0.0")]);
-            var expected = new[] { "exact", "a-match", "tool", "z-match" };
+            var expected = new[] { "exact" }.Concat(definitions.Keys
+                .Where(id => id is "a-match" or "tool" or "z-match" || id.StartsWith("extra-", StringComparison.Ordinal))
+                .Order(StringComparer.Ordinal)).ToArray();
             Assert.Equal(expected, service.Activate(root, facts).Select(skill => skill.Id));
             Assert.Equal(expected, service.Activate(root, facts).Select(skill => skill.Id));
+            Assert.Equal(expected, (await service.ActivateAsync(root, facts)).Select(skill => skill.Id));
+            foreach (var confidence in new double?[] { null, .79, .80 })
+            {
+                var provider = new RecordingTieBreak(confidence);
+                var ranked = await new SkillActivationService(provider).ActivateAsync(root, facts);
+                var accepted = confidence == .80 && extraCandidates == 0;
+                Assert.Equal(accepted ? new[] { "exact", "z-match", "a-match", "tool" } : expected,
+                    ranked.Select(skill => skill.Id));
+                if (extraCandidates == 0)
+                {
+                    var input = Assert.Single(provider.Inputs);
+                    Assert.Equal(new[] { "a-match", "tool", "z-match" }, input.Candidates.Select(candidate => candidate.Id));
+                    Assert.All(input.Candidates, candidate => Assert.Equal(candidate.Id, candidate.Text));
+                }
+                else Assert.Empty(provider.Inputs);
+            }
+            Assert.Equal(expected, (await new SkillActivationService(new RecordingTieBreak(.80),
+                new RelevanceRankingPolicy { MinConfidence = .90 }).ActivateAsync(root, facts)).Select(skill => skill.Id));
             var schema = JsonSchema.FromFile(Path.Combine(AgentTool.FindToolkit(), "schemas/skill-metadata.schema.json"));
-            foreach (var skill in service.Activate(root, facts))
+            foreach (var skill in await service.ActivateAsync(root, facts))
                 Assert.True(schema.Evaluate(JsonSerializer.SerializeToNode(skill, new JsonSerializerOptions
                 {
                     PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -56,5 +80,24 @@ public sealed class SkillActivationTests
             Assert.Throws<ArgumentException>(() => service.Activate(root, facts with { Frameworks = [new("dotnet", "10.0.0"), new("dotnet", "9.0.0")] }));
         }
         finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+    }
+
+    private sealed class RecordingTieBreak(double? confidence) : ISkillSemanticTieBreakProvider
+    {
+        public List<RelevanceRankingInput> Inputs { get; } = [];
+
+        public Task<IReadOnlyList<RelevanceRankingScore>> RankAsync(
+            RelevanceRankingInput input, CancellationToken cancellationToken = default)
+        {
+            input.Validate();
+            Inputs.Add(input);
+            return Task.FromResult<IReadOnlyList<RelevanceRankingScore>>([
+                new("z-match", 1) { Confidence = confidence },
+                new("wrong-role", 1) { Confidence = 1 },
+                new("wrong-version", 1) { Confidence = 1 },
+                new("missing-tool", 1) { Confidence = 1 },
+                new("exact", 0) { Confidence = 1 }
+            ]);
+        }
     }
 }

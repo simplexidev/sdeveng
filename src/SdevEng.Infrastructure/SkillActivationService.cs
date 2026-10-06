@@ -1,8 +1,43 @@
 namespace SdevEng;
 
 /// <summary>Selects canonical skill metadata without loading instructions or references.</summary>
-public sealed class SkillActivationService
+public sealed class SkillActivationService(
+    ISkillSemanticTieBreakProvider? tieBreakProvider = null,
+    RelevanceRankingPolicy? rankingPolicy = null)
 {
+    private readonly ISkillSemanticTieBreakProvider tieBreak = tieBreakProvider ?? new AbstainingSkillSemanticTieBreakProvider();
+
+    /// <summary>Optional bounded semantic ordering; eligibility and deterministic priority remain authoritative.</summary>
+    public async Task<IReadOnlyList<SkillMetadata>> ActivateAsync(
+        string toolkitRoot, SkillActivationContext context, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var policy = rankingPolicy ?? new RelevanceRankingPolicy();
+        policy.Validate();
+        var eligible = Activate(toolkitRoot, context);
+        var result = new List<SkillMetadata>();
+        foreach (var group in eligible.GroupBy(skill => Priority(skill, context)))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var skills = group.ToArray();
+            if (skills.Length is < 2 or > RelevanceRankingInput.CandidateLimit)
+            {
+                result.AddRange(skills);
+                continue;
+            }
+            var input = new RelevanceRankingInput
+            {
+                Query = $"Skill activation for role {context.Role}",
+                Candidates = skills.Select(skill => new RelevanceRankingCandidate { Id = skill.Id!, Text = skill.Id! }).ToArray()
+            };
+            input.Validate();
+            var scores = await tieBreak.RankAsync(input, cancellationToken).ConfigureAwait(false);
+            var byId = skills.ToDictionary(skill => skill.Id!, StringComparer.Ordinal);
+            result.AddRange(RelevanceRankingOrder.Apply(input, scores, policy).Select(candidate => byId[candidate.Id]));
+        }
+        return result;
+    }
+
     public IReadOnlyList<SkillMetadata> Activate(string toolkitRoot, SkillActivationContext context)
     {
         ArgumentNullException.ThrowIfNull(context);
