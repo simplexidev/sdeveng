@@ -160,7 +160,17 @@ public static class SkillCompatibilityMapReader
         return metadata;
     }
 
-    public static void ValidateResources(string root, IEnumerable<SkillMetadata> metadata)
+    public static void ValidateRequiredTools(string root, IEnumerable<SkillMetadata> metadata, List<string> errors)
+    {
+        using var tools = JsonDocument.Parse(File.ReadAllText(Path.Combine(root, "config/agent-tool-contracts.json")));
+        var names = tools.RootElement.GetProperty("toolDescriptors").EnumerateArray()
+            .Select(tool => tool.GetProperty("name").GetString()).ToHashSet(StringComparer.Ordinal);
+        foreach (var skill in metadata)
+            foreach (var tool in skill.RequiredTools ?? [])
+                if (!names.Contains(tool)) errors.Add($"Unknown required tool for skill {skill.Id}: {tool}");
+    }
+
+    public static void ValidateResources(string root, IEnumerable<SkillMetadata> metadata, bool verifyHashes = true)
     {
         var skillsRoot = Path.GetFullPath(Path.Combine(root, "plugins", "sdeveng", "skills"));
         foreach (var skill in metadata)
@@ -177,6 +187,7 @@ public static class SkillCompatibilityMapReader
                     throw new ArgumentException("Skill resource must exist under its skill directory: " + resource.Path);
                 EnsureNoLinks(skillDirectory, fullPath);
                 if (!File.Exists(fullPath)) throw new ArgumentException("Skill resource must exist under its skill directory: " + resource.Path);
+                if (!verifyHashes) continue;
                 using var stream = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, FileOptions.SequentialScan);
                 var actualHash = "sha256:" + Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant();
                 if (actualHash != resource.Hash) throw new ArgumentException("Skill resource hash mismatch: " + resource.Path);

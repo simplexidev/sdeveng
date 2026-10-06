@@ -1004,6 +1004,7 @@ public static class AgentTool
         install | update [--home DIR] [--codex-home DIR] [--dry-run] [--bin]
         uninstall [--home DIR] [--codex-home DIR] [--dry-run]
         doctor
+        tools list | skills list
         repo describe | changed-files [--base REF] | summary [--base REF] | locate (--query TEXT | --path PATH | --name TEXT) | health | hygiene
         repo affected-projects [--base REF] | ownership --file PATH
         git state | summary [--base REF] | conflict-forecast --base REF | prepare-commit
@@ -1186,6 +1187,7 @@ public static class AgentTool
             services.AddSingleton<ICommandModule, InstallerCommandModule>();
             services.AddSingleton<ICommandModule, ConfigurationCommandModule>();
             services.AddSingleton<ICommandModule, ToolDiscoveryCommandModule>();
+            services.AddSingleton<ICommandModule, SkillDiscoveryCommandModule>();
             services.AddSingleton<ICommandModule, DoctorCommandModule>();
             services.AddSingleton<ICommandModule, GitCommandModule>();
             services.AddSingleton<ICommandModule, RepoCommandModule>();
@@ -1253,6 +1255,40 @@ public static class AgentTool
             var tools = manifest.RootElement.GetProperty("toolDescriptors").Deserialize<ToolDescriptor[]>(Json)
                 ?? throw new JsonException("Tool descriptor catalog is empty.");
             return Result.Ok(new { kind = "tool-descriptors", schemaVersion = 1, tools });
+        }
+    }
+
+    public sealed class SkillDiscoveryCommandModule : ICommandModule
+    {
+        public bool CanHandle(Cli command) => command.Command == "skills list";
+
+        public Task<Result> Execute(Cli command, string toolkit, string root, Settings settings, CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            command.ValidateCommand("skills list");
+            SkillMetadata[] skills = [];
+            var diagnostics = new List<object>();
+            try
+            {
+                skills = SkillCompatibilityMapReader.ReadMetadataIndex(toolkit);
+                var errors = new List<string>();
+                SkillCompatibilityMapReader.ValidateRequiredTools(toolkit, skills, errors);
+                diagnostics.AddRange(errors.Select(message => (object)new { code = "unknown-tool", message }));
+                SkillCompatibilityMapReader.ValidateResources(toolkit, skills, verifyHashes: false);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException or ArgumentException)
+            {
+                diagnostics.Add(new { code = "invalid-skill-catalog", message = e.Message });
+            }
+            var data = new
+            {
+                kind = "skill-catalog",
+                schemaVersion = 1,
+                skills = JsonSerializer.SerializeToNode(skills, new JsonSerializerOptions(Json)
+                { DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull }),
+                diagnostics
+            };
+            return Task.FromResult(new Result(diagnostics.Count == 0 ? "ok" : "error", data, diagnostics.Count == 0 ? 0 : 1));
         }
     }
 
@@ -2704,14 +2740,7 @@ public static class PluginManifests
         try
         {
             var index = SkillCompatibilityMapReader.ReadMetadataIndex(root);
-            using (var tools = JsonDocument.Parse(File.ReadAllText(Path.Combine(root, "config/agent-tool-contracts.json"))))
-            {
-                var names = tools.RootElement.GetProperty("toolDescriptors").EnumerateArray()
-                    .Select(tool => tool.GetProperty("name").GetString()).ToHashSet(StringComparer.Ordinal);
-                foreach (var skill in index)
-                    foreach (var tool in skill.RequiredTools ?? [])
-                        if (!names.Contains(tool)) errors.Add($"Unknown required tool for skill {skill.Id}: {tool}");
-            }
+            SkillCompatibilityMapReader.ValidateRequiredTools(root, index, errors);
             SkillCompatibilityMapReader.ValidateResources(root, index);
             var portable = JsonNode.Parse(File.ReadAllText(Path.Combine(pluginRoot, "plugin.json"))) as JsonObject;
             var compatibility = JsonNode.Parse(File.ReadAllText(Path.Combine(pluginRoot, ".codex-plugin", "plugin.json"))) as JsonObject;
