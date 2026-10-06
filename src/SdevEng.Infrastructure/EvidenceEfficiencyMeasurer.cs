@@ -26,6 +26,7 @@ public sealed class EvidenceEfficiencyMeasurer(TokenizerRegistry tokenizers) : I
             if (measured.TryGetValue(item.EvidenceId, out var prior))
             {
                 if (prior.SourceRevision != item.SourceRevision || prior.Text != item.Text || prior.Utf8Bytes != bytes ||
+                    prior.FileLocationKey != item.FileLocationKey || prior.SymbolLocationKey != item.SymbolLocationKey ||
                     item.Tokens is not null && prior.Tokens != item.Tokens || tokens is not null && prior.Tokens != tokens)
                     throw new ArgumentException("Duplicate evidence IDs must have identical revision, text, and measurements.", nameof(candidates));
                 continue;
@@ -46,8 +47,12 @@ public sealed class EvidenceEfficiencyMeasurer(TokenizerRegistry tokenizers) : I
         var selectionRatioUnavailableReason = candidateTokens is null || selectedTokens is null
             ? "token-measurement-unavailable" : candidateTokens == 0 ? "candidate-tokens-zero" : null;
         var result = new EvidenceEfficiencyMeasurement(EvidenceEfficiencyMeasurement.CurrentSchemaVersion,
-            EvidenceEfficiencyMeasurement.ResultKind, candidateArray, selected, candidateBytes, candidateTokens,
-            selectedBytes, selectedTokens, selectionRatio, selectionRatioUnavailableReason,
+            EvidenceEfficiencyMeasurement.ResultKind, candidateArray, selected,
+            candidateArray.Select(item => item.FileLocationKey).Where(key => !string.IsNullOrWhiteSpace(key)).Distinct(StringComparer.Ordinal).Count(),
+            selected.Select(item => item.FileLocationKey).Where(key => !string.IsNullOrWhiteSpace(key)).Distinct(StringComparer.Ordinal).Count(),
+            candidateArray.Select(item => item.SymbolLocationKey).Where(key => !string.IsNullOrWhiteSpace(key)).Distinct(StringComparer.Ordinal).Count(),
+            selected.Select(item => item.SymbolLocationKey).Where(key => !string.IsNullOrWhiteSpace(key)).Distinct(StringComparer.Ordinal).Count(),
+            candidateBytes, candidateTokens, selectedBytes, selectedTokens, selectionRatio, selectionRatioUnavailableReason,
             role, roleInputBudgetTokens, renderedInputTokens,
             roleInputBudgetTokens == 0 || renderedInputTokens is null ? null : 100m * renderedInputTokens.Value / roleInputBudgetTokens,
             roleInputBudgetTokens == 0 ? "role-input-budget-zero" : renderedInputTokens is null ? "rendered-input-tokens-unavailable" : null);

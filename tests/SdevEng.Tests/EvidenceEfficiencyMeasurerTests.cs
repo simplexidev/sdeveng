@@ -10,10 +10,15 @@ public sealed class EvidenceEfficiencyMeasurerTests
     public void CountsUniqueCandidateAndSelectedEvidenceAndEmitsVersionedSchemaResult()
     {
         using var fixture = new Fixture();
-        var input = new[] { new EvidenceEfficiencyItem("a", "rev1", "alpha", null, null),
-            new EvidenceEfficiencyItem("a", "rev1", "alpha", null, null), new EvidenceEfficiencyItem("b", "rev2", "β", null, null) };
+        var input = new[] { new EvidenceEfficiencyItem("a", "rev1", "alpha", null, null, "repo:src/a.cs", "repo:src/a.cs#A"),
+            new EvidenceEfficiencyItem("a", "rev1", "alpha", null, null, "repo:src/a.cs", "repo:src/a.cs#A"),
+            new EvidenceEfficiencyItem("b", "rev2", "β", null, null, "repo:src/a.cs", "repo:src/a.cs#B") };
         var result = new EvidenceEfficiencyMeasurer(fixture.Registry).Measure("fixture", input, ["b"], "coder", 10, 4);
         Assert.Equal(2, result.Candidates.Count);
+        Assert.Equal(1, result.CandidateFileCount);
+        Assert.Equal(1, result.SelectedFileCount);
+        Assert.Equal(2, result.CandidateSymbolCount);
+        Assert.Equal(1, result.SelectedSymbolCount);
         Assert.Equal(7, result.CandidateBytes);
         Assert.Equal(7, result.CandidateTokens);
         Assert.Equal(2, result.SelectedBytes);
@@ -24,6 +29,23 @@ public sealed class EvidenceEfficiencyMeasurerTests
         var json = JsonNode.Parse(JsonSerializer.Serialize(result, new JsonSerializerOptions(JsonSerializerDefaults.Web)))!;
         var schema = JsonSchema.FromFile(Path.Combine(AgentTool.FindToolkit(), "schemas/evidence-efficiency-measurement.schema.json"));
         Assert.True(schema.Evaluate(json).IsValid, json.ToJsonString());
+    }
+
+    [Fact]
+    public void CountsDistinctLocationsAcrossDifferentEvidenceIds()
+    {
+        using var fixture = new Fixture();
+        var result = new EvidenceEfficiencyMeasurer(fixture.Registry).Measure(null,
+            [new("one", "rev", "x", 1, 1, "repo:a.cs", "repo:a.cs#M"),
+             new("two", "rev", "y", 1, 1, "repo:a.cs", "repo:a.cs#M"),
+             new("three", "rev", "z", 1, 1, "repo:b.cs", "repo:b.cs#N")],
+            ["two", "three"], "coder", 10, 2);
+
+        Assert.Equal(2, result.CandidateFileCount);
+        Assert.Equal(2, result.SelectedFileCount);
+        Assert.Equal(2, result.CandidateSymbolCount);
+        Assert.Equal(2, result.SelectedSymbolCount);
+        result.Validate();
     }
 
     [Fact]
