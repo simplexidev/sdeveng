@@ -14,6 +14,7 @@ public sealed class RequestVariantTokenMeasurer(TokenizerRegistry tokenizers) : 
         ArgumentNullException.ThrowIfNull(input.RequiredFactMappings);
         ArgumentNullException.ThrowIfNull(input.OriginalText);
         ArgumentNullException.ThrowIfNull(input.NormalizedText);
+        ArgumentNullException.ThrowIfNull(input.CondensedText);
         if (input.RequiredFactMappings.Any(pair => string.IsNullOrWhiteSpace(pair.Key) || string.IsNullOrWhiteSpace(pair.Value) ||
             !input.NormalizedText.Contains(pair.Value, StringComparison.Ordinal)))
             throw new ArgumentException("Every required fact mapping must identify nonempty text retained in the normalized request.", nameof(input));
@@ -23,7 +24,9 @@ public sealed class RequestVariantTokenMeasurer(TokenizerRegistry tokenizers) : 
             RequestVariantTokenMeasurement.ResultKind, "exact",
             tokenizer.Manifest.Adapter == TokenizerAdapterId.Tiktoken ? "tiktoken-v1" : "fixture-byte-v1",
             tokenizer.Manifest.Id, tokenizer.Manifest.Revision, tokenizer.Manifest.Assets, tokenizer.Manifest.FixtureOnly,
-            MeasureText(input.OriginalText, tokenizer), MeasureText(input.NormalizedText, tokenizer));
+            MeasureText(input.OriginalText, tokenizer), MeasureText(input.NormalizedText, tokenizer),
+            MeasureText(input.CondensedText, tokenizer), 0);
+        result = result with { RequestTokensSaved = result.Original.Tokens - result.Condensed.Tokens };
         result.Validate();
         return result;
     }

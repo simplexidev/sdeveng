@@ -23,11 +23,12 @@ public sealed class RequestVariantTokenMeasurerTests
             registry.RegisterFile(metadataPath);
 
             var result = new RequestVariantTokenMeasurer(registry).Measure("fixture",
-                new("keep alpha and beta", "alpha beta", new Dictionary<string, string> { ["alpha"] = "alpha", ["beta"] = "beta" }));
+                new("keep alpha and beta", "alpha beta", "alpha", new Dictionary<string, string> { ["alpha"] = "alpha", ["beta"] = "beta" }));
 
             Assert.Equal(19, result.Original.Tokens);
             Assert.Equal(10, result.Normalized.Tokens);
-            Assert.True(result.Original.Tokens - result.Normalized.Tokens > 0);
+            Assert.Equal(5, result.Condensed.Tokens);
+            Assert.Equal(14, result.RequestTokensSaved);
             Assert.Equal("fixture", result.TokenizerId);
             result.Validate();
             var json = JsonNode.Parse(JsonSerializer.Serialize(result, new JsonSerializerOptions(JsonSerializerDefaults.Web)))!;
@@ -53,7 +54,7 @@ public sealed class RequestVariantTokenMeasurerTests
             var registry = new TokenizerRegistry(root);
             registry.RegisterFile(path);
             Assert.Throws<ArgumentException>(() => new RequestVariantTokenMeasurer(registry).Measure("fixture",
-                new("include safeguard", "short request", new Dictionary<string, string> { ["safeguard"] = "safeguard" })));
+                new("include safeguard", "short request", "short", new Dictionary<string, string> { ["safeguard"] = "safeguard" })));
         }
         finally { Directory.Delete(root, true); }
     }
