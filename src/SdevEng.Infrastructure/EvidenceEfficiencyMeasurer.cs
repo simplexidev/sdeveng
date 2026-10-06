@@ -26,7 +26,7 @@ public sealed class EvidenceEfficiencyMeasurer(TokenizerRegistry tokenizers) : I
             if (measured.TryGetValue(item.EvidenceId, out var prior))
             {
                 if (prior.SourceRevision != item.SourceRevision || prior.Text != item.Text || prior.Utf8Bytes != bytes ||
-                    item.Tokens is not null && prior.Tokens != item.Tokens)
+                    item.Tokens is not null && prior.Tokens != item.Tokens || tokens is not null && prior.Tokens != tokens)
                     throw new ArgumentException("Duplicate evidence IDs must have identical revision, text, and measurements.", nameof(candidates));
                 continue;
             }

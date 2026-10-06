@@ -41,6 +41,32 @@ public sealed class EvidenceEfficiencyMeasurerTests
         result.Validate();
     }
 
+    [Fact]
+    public void DoesNotTreatUnavailableCandidateMeasurementAsZero()
+    {
+        using var fixture = new Fixture();
+        var result = new EvidenceEfficiencyMeasurer(fixture.Registry).Measure(null,
+            [new EvidenceEfficiencyItem("known", "rev1", "x", null, 2),
+             new EvidenceEfficiencyItem("unknown", "rev2", "yy", null, null)], ["unknown"], "coder", 5, null);
+
+        Assert.Equal(3, result.CandidateBytes);
+        Assert.Null(result.CandidateTokens);
+        Assert.Null(result.SelectedTokens);
+        Assert.Equal(2, result.SelectedBytes);
+        result.Validate();
+    }
+
+    [Fact]
+    public void RejectsDuplicateIdWithConflictingMeasuredTokens()
+    {
+        using var fixture = new Fixture();
+        var input = new[] { new EvidenceEfficiencyItem("a", "rev1", "x", null, 1),
+            new EvidenceEfficiencyItem("a", "rev1", "x", null, 2) };
+
+        Assert.Throws<ArgumentException>(() => new EvidenceEfficiencyMeasurer(fixture.Registry)
+            .Measure(null, input, ["a"], "coder", 5, 1));
+    }
+
     private sealed class Fixture : IDisposable
     {
         private readonly string _root = Path.Combine(Path.GetTempPath(), "evidence-efficiency-" + Guid.NewGuid().ToString("N"));
