@@ -12,6 +12,92 @@ public class SkillCompatibilityMapTests
         ["sdeveng-engineering-toolkit:prepare-commit"], "retained");
     static SkillCompatibilityMap Minimal => new("../schemas/skill-compatibility-map.schema.json", 1, [Entry]);
 
+    sealed class HeaderOnlyStream(byte[] header) : MemoryStream(header)
+    {
+        public override int ReadByte() => Position == Length
+            ? throw new InvalidOperationException("Instruction body must not be read.") : base.ReadByte();
+    }
+
+    [Fact]
+    public void FrontMatterReaderStopsExactlyAtClosingDelimiter()
+    {
+        using var stream = new HeaderOnlyStream(System.Text.Encoding.UTF8.GetBytes("---\nname: prepare-commit\n---\n"));
+        Assert.Equal("prepare-commit", SkillCompatibilityMapReader.ReadSkillFrontMatter(stream).Name);
+        Assert.Equal(stream.Length, stream.Position);
+    }
+
+    [Fact]
+    public void ValidationCallerRejectsDuplicateIdentityAndUnknownTool()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "skill-validation-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            foreach (var file in SafeFiles.Enumerate(Root))
+            {
+                var destination = Path.Combine(root, Path.GetRelativePath(Root, file));
+                Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+                File.Copy(file, destination);
+            }
+            var path = Path.Combine(root, "plugins/sdeveng/skills/prepare-commit/SKILL.md");
+            var original = File.ReadAllText(path);
+            File.WriteAllText(path, original.Replace("\nname: prepare-commit\n", "\nname: prepare-commit\nid: ci-triage\nversion: 3.0.0\n", StringComparison.Ordinal));
+            var duplicate = Validation.Run(root);
+            Assert.Equal(1, duplicate.ExitCode);
+            Assert.Contains("Duplicate skill identity", JsonSerializer.Serialize(duplicate));
+            File.WriteAllText(path, original.Replace("\nname: prepare-commit\n", "\nname: prepare-commit\nrequiredTools: '[\"unknown-tool\"]'\n", StringComparison.Ordinal));
+            var unknown = Validation.Run(root);
+            Assert.Equal(1, unknown.ExitCode);
+            Assert.Contains("Unknown required tool", JsonSerializer.Serialize(unknown));
+            File.WriteAllText(path, original.Replace("\nname: prepare-commit\n", $"\nname: prepare-commit\nresources: '[{{\"path\":\"missing.md\",\"type\":\"reference\",\"hash\":\"sha256:{new string('0', 64)}\"}}]'\n", StringComparison.Ordinal));
+            var missing = Validation.Run(root);
+            Assert.Equal(1, missing.ExitCode);
+            Assert.Contains("Skill resource must exist", JsonSerializer.Serialize(missing));
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+    }
+
+    [Fact]
+    public void MetadataIndexProjectsLegacyIdentityWithoutLoadingResourcesOrBody()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "skill-index-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Combine(root, "config"));
+        var directory = Path.Combine(root, "plugins/sdeveng/skills/prepare-commit");
+        Directory.CreateDirectory(Path.Combine(directory, "agents"));
+        try
+        {
+            File.WriteAllText(Path.Combine(root, "config/skill-compatibility-map.json"), JsonSerializer.Serialize(Minimal,
+                new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase }));
+            File.WriteAllText(Path.Combine(root, "plugins/sdeveng/plugin.json"), "{\"version\":\"3.0.0\"}");
+            File.WriteAllText(Path.Combine(directory, "agents/openai.yaml"), "interface: {}");
+            var path = Path.Combine(directory, "SKILL.md");
+            File.WriteAllText(path, $"---\nname: prepare-commit\nresources: '[{{\"path\":\"missing.md\",\"type\":\"reference\",\"hash\":\"sha256:{new string('0', 64)}\"}}]'\n---\n" + new string('x', 2_000_000));
+            var item = Assert.Single(SkillCompatibilityMapReader.ReadMetadataIndex(root));
+            Assert.Equal("prepare-commit", item.Id);
+            Assert.Equal("3.0.0", item.Version);
+            Assert.Equal("missing.md", Assert.Single(item.Resources!).Path);
+            var schema = JsonSchema.FromFile(Path.Combine(Root, "schemas/skill-metadata.schema.json"));
+            Assert.True(schema.Evaluate(JsonSerializer.SerializeToNode(item, new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+            })!).IsValid);
+            Assert.Throws<ArgumentException>(() => SkillCompatibilityMapReader.Read(root));
+            File.WriteAllText(path, "---\nname: sdeveng-engineering-toolkit:prepare-commit\n---\nBody\n");
+            Assert.Equal("prepare-commit", Assert.Single(SkillCompatibilityMapReader.ReadMetadataIndex(root)).Id);
+            File.WriteAllText(path, "---\nname: prepare-commit\n---\n");
+            var second = Entry with { OldId = "other", CanonicalId = "other", OldPath = "plugins/sdeveng/skills/other/SKILL.md", CanonicalPath = "plugins/sdeveng/skills/other/SKILL.md", Aliases = [] };
+            Directory.CreateDirectory(Path.Combine(root, "plugins/sdeveng/skills/other"));
+            File.WriteAllText(Path.Combine(root, second.CanonicalPath), "---\nname: other\nid: prepare-commit\nversion: 3.0.0\n---\n");
+            File.WriteAllText(Path.Combine(root, "config/skill-compatibility-map.json"), JsonSerializer.Serialize(Minimal with { Skills = [Entry, second] },
+                new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase }));
+            Assert.Contains("Duplicate skill identity", Assert.Throws<ArgumentException>(() => SkillCompatibilityMapReader.ReadMetadataIndex(root)).Message);
+            var errors = new List<string>();
+            PluginManifests.Validate(root, errors);
+            Assert.Contains(errors, error => error.Contains("Duplicate skill identity", StringComparison.Ordinal));
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
     [Fact]
     public void ExistingSkillResolvesThroughCurrentMetadataValidation()
     {
