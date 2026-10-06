@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://simplexidev.github.io/sdeveng/schemas/evidence-efficiency-measurement.schema.json",
+  "title": "Evidence Efficiency Measurement",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "kind", "candidates", "selected", "candidateBytes", "candidateTokens", "selectedBytes", "selectedTokens", "selectionRatio", "selectionRatioUnavailableReason", "role", "roleInputBudgetTokens", "renderedInputTokens", "utilizationPercent", "utilizationUnavailableReason"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "evidence-efficiency-measurement" },
+    "candidates": { "type": "array", "items": { "$ref": "#/$defs/item" } },
+    "selected": { "type": "array", "items": { "$ref": "#/$defs/item" } },
+    "candidateBytes": { "type": "integer", "minimum": 0 },
+    "candidateTokens": { "type": ["integer", "null"], "minimum": 0 },
+    "selectedBytes": { "type": "integer", "minimum": 0 },
+    "selectedTokens": { "type": ["integer", "null"], "minimum": 0 },
+    "selectionRatio": { "type": ["number", "null"], "minimum": 0 },
+    "selectionRatioUnavailableReason": { "type": ["string", "null"], "enum": ["candidate-bytes-zero", null] },
+    "role": { "type": "string", "minLength": 1 },
+    "roleInputBudgetTokens": { "type": "integer", "minimum": 0 },
+    "renderedInputTokens": { "type": ["integer", "null"], "minimum": 0 },
+    "utilizationPercent": { "type": ["number", "null"], "minimum": 0 },
+    "utilizationUnavailableReason": { "type": ["string", "null"], "enum": ["role-input-budget-zero", "rendered-input-tokens-unavailable", null] }
+  },
+  "$defs": {
+    "item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["evidenceId", "sourceRevision", "text", "utf8Bytes", "tokens"],
+      "properties": {
+        "evidenceId": { "type": "string", "minLength": 1 },
+        "sourceRevision": { "type": "string", "minLength": 1 },
+        "text": { "type": "string" },
+        "utf8Bytes": { "type": ["integer", "null"], "minimum": 0 },
+        "tokens": { "type": ["integer", "null"], "minimum": 0 }
+      }
+    }
+  }
+}
