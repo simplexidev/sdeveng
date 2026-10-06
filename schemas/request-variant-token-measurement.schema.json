@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://simplexidev.github.io/sdeveng/schemas/request-variant-token-measurement.schema.json",
+  "title": "Request Variant Token Measurement",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "kind", "measurementKind", "method", "tokenizerId", "tokenizerRevision", "tokenizerAssets", "fixtureOnly", "original", "normalized"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "request-variant-token-measurement" },
+    "measurementKind": { "const": "exact" },
+    "method": { "enum": ["fixture-byte-v1", "tiktoken-v1"] },
+    "tokenizerId": { "type": "string", "minLength": 1 },
+    "tokenizerRevision": { "type": "string", "minLength": 1 },
+    "tokenizerAssets": { "type": "array", "minItems": 1, "items": { "type": "object", "additionalProperties": false, "required": ["path", "sha256"], "properties": { "path": { "type": "string", "minLength": 1 }, "sha256": { "$ref": "#/$defs/digest" } } } },
+    "fixtureOnly": { "type": "boolean" },
+    "original": { "$ref": "#/$defs/text" },
+    "normalized": { "$ref": "#/$defs/text" }
+  },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^[0-9a-fA-F]{64}$" },
+    "text": { "type": "object", "additionalProperties": false, "required": ["textDigest", "utf8Bytes", "tokens"], "properties": { "textDigest": { "$ref": "#/$defs/digest" }, "utf8Bytes": { "type": "integer", "minimum": 0 }, "tokens": { "type": "integer", "minimum": 0 } } }
+  }
+}
