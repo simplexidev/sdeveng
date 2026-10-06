@@ -35,9 +35,21 @@ public sealed class EvidenceEfficiencyMeasurerTests
         Assert.Null(result.CandidateTokens);
         Assert.Null(result.SelectedTokens);
         Assert.Null(result.SelectionRatio);
-        Assert.Equal("candidate-bytes-zero", result.SelectionRatioUnavailableReason);
+        Assert.Equal("token-measurement-unavailable", result.SelectionRatioUnavailableReason);
         Assert.Null(result.UtilizationPercent);
         Assert.Equal("role-input-budget-zero", result.UtilizationUnavailableReason);
+        result.Validate();
+    }
+
+    [Fact]
+    public void ReturnsNullRatioWhenMeasuredCandidateTokenTotalIsZero()
+    {
+        using var fixture = new Fixture();
+        var result = new EvidenceEfficiencyMeasurer(fixture.Registry).Measure(null,
+            [new EvidenceEfficiencyItem("empty", "rev1", "", 0, 0)], ["empty"], "coder", 5, 0);
+
+        Assert.Null(result.SelectionRatio);
+        Assert.Equal("candidate-tokens-zero", result.SelectionRatioUnavailableReason);
         result.Validate();
     }
 
@@ -53,6 +65,8 @@ public sealed class EvidenceEfficiencyMeasurerTests
         Assert.Null(result.CandidateTokens);
         Assert.Null(result.SelectedTokens);
         Assert.Equal(2, result.SelectedBytes);
+        Assert.Null(result.SelectionRatio);
+        Assert.Equal("token-measurement-unavailable", result.SelectionRatioUnavailableReason);
         result.Validate();
     }
 

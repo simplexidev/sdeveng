@@ -29,8 +29,11 @@ public sealed record EvidenceEfficiencyMeasurement(int SchemaVersion, string Kin
             throw new ArgumentException("Evidence efficiency totals do not reconcile.");
         if (Candidates.Concat(Selected).GroupBy(item => item.EvidenceId, StringComparer.Ordinal).Any(group => group.Select(item => item.SourceRevision).Distinct(StringComparer.Ordinal).Count() > 1))
             throw new ArgumentException("An evidence ID cannot refer to multiple source revisions.");
-        if (SelectionRatio != (CandidateBytes == 0 ? null : (decimal)SelectedBytes / CandidateBytes) ||
-            SelectionRatioUnavailableReason != (CandidateBytes == 0 ? "candidate-bytes-zero" : null))
+        decimal? expectedRatio = CandidateTokens is null || SelectedTokens is null || CandidateTokens == 0
+            ? null : (decimal)SelectedTokens.Value / CandidateTokens.Value;
+        var expectedReason = CandidateTokens is null || SelectedTokens is null
+            ? "token-measurement-unavailable" : CandidateTokens == 0 ? "candidate-tokens-zero" : null;
+        if (SelectionRatio != expectedRatio || SelectionRatioUnavailableReason != expectedReason)
             throw new ArgumentException("Invalid selection ratio.");
         if (RoleInputBudgetTokens == 0 ? UtilizationPercent is not null || UtilizationUnavailableReason != "role-input-budget-zero" :
             UtilizationPercent != (RenderedInputTokens is null ? null : 100m * RenderedInputTokens.Value / RoleInputBudgetTokens) ||

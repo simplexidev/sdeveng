@@ -41,10 +41,14 @@ public sealed class EvidenceEfficiencyMeasurer(TokenizerRegistry tokenizers) : I
         var candidateTokens = candidateArray.All(item => item.Tokens.HasValue) ? candidateArray.Sum(item => item.Tokens!.Value) : (long?)null;
         var selectedBytes = selected.Sum(item => item.Utf8Bytes!.Value);
         var selectedTokens = selected.All(item => item.Tokens.HasValue) ? selected.Sum(item => item.Tokens!.Value) : (long?)null;
+        decimal? selectionRatio = candidateTokens is null || selectedTokens is null || candidateTokens == 0
+            ? null : (decimal)selectedTokens.Value / candidateTokens.Value;
+        var selectionRatioUnavailableReason = candidateTokens is null || selectedTokens is null
+            ? "token-measurement-unavailable" : candidateTokens == 0 ? "candidate-tokens-zero" : null;
         var result = new EvidenceEfficiencyMeasurement(EvidenceEfficiencyMeasurement.CurrentSchemaVersion,
             EvidenceEfficiencyMeasurement.ResultKind, candidateArray, selected, candidateBytes, candidateTokens,
-            selectedBytes, selectedTokens, candidateBytes == 0 ? null : (decimal)selectedBytes / candidateBytes,
-            candidateBytes == 0 ? "candidate-bytes-zero" : null, role, roleInputBudgetTokens, renderedInputTokens,
+            selectedBytes, selectedTokens, selectionRatio, selectionRatioUnavailableReason,
+            role, roleInputBudgetTokens, renderedInputTokens,
             roleInputBudgetTokens == 0 || renderedInputTokens is null ? null : 100m * renderedInputTokens.Value / roleInputBudgetTokens,
             roleInputBudgetTokens == 0 ? "role-input-budget-zero" : renderedInputTokens is null ? "rendered-input-tokens-unavailable" : null);
         result.Validate();
