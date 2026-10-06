@@ -26,10 +26,48 @@
     "fixtureOnly": { "type": "boolean" },
     "renderedInputDigest": { "anyOf": [{ "$ref": "#/$defs/digest" }, { "type": "null" }] },
     "utf8Bytes": { "type": ["integer", "null"], "minimum": 0 },
-    "unavailableReason": { "type": ["string", "null"], "minLength": 1 }
+    "unavailableReason": { "type": ["string", "null"], "minLength": 1 },
+    "attribution": { "$ref": "#/$defs/attribution" }
   },
-  "$defs": { "digest": { "type": "string", "pattern": "^[0-9a-fA-F]{64}$" } },
+  "$defs": {
+    "digest": { "type": "string", "pattern": "^[0-9a-fA-F]{64}$" },
+    "attribution": {
+      "type": "object", "additionalProperties": false,
+      "required": ["schemaVersion", "algorithm", "renderedLength", "emptyTokens", "totalTokens", "attributedTokens", "reconciled", "components"],
+      "properties": {
+        "schemaVersion": { "const": 1 },
+        "algorithm": { "const": "ordered-cumulative-prefix/v1" },
+        "renderedLength": { "type": "integer", "minimum": 0 },
+        "emptyTokens": { "const": 0 },
+        "totalTokens": { "type": "integer", "minimum": 0 },
+        "attributedTokens": { "type": "integer", "minimum": 0 },
+        "reconciled": { "const": true },
+        "components": {
+          "type": "array", "minItems": 1,
+          "items": {
+            "type": "object", "additionalProperties": false,
+            "required": ["span", "prefixTokens", "tokens"],
+            "properties": {
+              "prefixTokens": { "type": "integer", "minimum": 0 },
+              "tokens": { "type": "integer" },
+              "span": {
+                "type": "object", "additionalProperties": false,
+                "required": ["componentId", "contentReference", "start", "length"],
+                "properties": {
+                  "componentId": { "enum": ["system", "role", "skill-metadata", "skill-instructions", "skill-references", "request", "evidence", "state", "tools", "output-contract", "chat-template-overhead"] },
+                  "contentReference": { "type": "string", "minLength": 1 },
+                  "start": { "type": "integer", "minimum": 0 },
+                  "length": { "type": "integer", "minimum": 0 }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
   "allOf": [
+    { "if": { "required": ["attribution"] }, "then": { "properties": { "measurementKind": { "const": "exact" } } } },
     {
       "if": { "properties": { "measurementKind": { "const": "unavailable" } } },
       "then": { "properties": { "tokens": { "type": "null" }, "method": { "type": "null" }, "unavailableReason": { "type": "string" } } },

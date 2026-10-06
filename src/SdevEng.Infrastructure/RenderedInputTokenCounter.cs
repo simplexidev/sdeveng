@@ -4,11 +4,19 @@ using SdevEng;
 
 namespace SdevEng.Infrastructure;
 
-/// <summary>Resolves verified assets and tokenizes the final chat rendering once, without inference.</summary>
+/// <summary>Resolves verified assets and counts the final rendering, optionally with ordered prefix attribution, without inference.</summary>
 public sealed class RenderedInputTokenCounter(ChatTemplateRegistry templates) : IRenderedInputTokenCounter
 {
     public RenderedInputTokenMeasurement Count(string templateId, string templateRevision, string templateChecksum,
         PromptManifest prompt, IReadOnlyDictionary<string, string> textByContentReference, RenderedInputTokenPolicy? policy = null)
+        => CountCore(templateId, templateRevision, templateChecksum, prompt, textByContentReference, policy, false);
+
+    public RenderedInputTokenMeasurement CountAttributed(string templateId, string templateRevision, string templateChecksum,
+        PromptManifest prompt, IReadOnlyDictionary<string, string> textByContentReference)
+        => CountCore(templateId, templateRevision, templateChecksum, prompt, textByContentReference, new(), true);
+
+    private RenderedInputTokenMeasurement CountCore(string templateId, string templateRevision, string templateChecksum,
+        PromptManifest prompt, IReadOnlyDictionary<string, string> textByContentReference, RenderedInputTokenPolicy? policy, bool attribute)
     {
         ArgumentNullException.ThrowIfNull(prompt);
         ArgumentNullException.ThrowIfNull(textByContentReference);
@@ -38,7 +46,7 @@ public sealed class RenderedInputTokenCounter(ChatTemplateRegistry templates) : 
             TokenizerAssets = adapter.Manifest.Assets,
             FixtureOnly = template.FixtureOnly || adapter.Manifest.FixtureOnly
         };
-        var rendering = templates.Render(templateId, templateRevision, templateChecksum, prompt, textByContentReference);
+        var rendering = templates.Render(templateId, templateRevision, templateChecksum, prompt, textByContentReference, includeSpans: attribute);
         if (!rendering.Available) return Checked(result with { UnavailableReason = rendering.Reason });
         var bytes = Encoding.UTF8.GetBytes(rendering.Text!);
         result = result with { RenderedInputDigest = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant(), Utf8Bytes = bytes.LongLength };
@@ -49,6 +57,7 @@ public sealed class RenderedInputTokenCounter(ChatTemplateRegistry templates) : 
             {
                 MeasurementKind = "exact",
                 Tokens = count,
+                Attribution = attribute ? OrderedComponentAttributionCalculator.Measure(rendering.Text!, rendering.Spans!, adapter, count) : null,
                 Method = adapter.Manifest.Adapter == TokenizerAdapterId.Tiktoken ? "tiktoken-v1" : "fixture-byte-v1",
                 UnavailableReason = null
             });

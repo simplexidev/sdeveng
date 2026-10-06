@@ -96,3 +96,42 @@ with no network, process or inference dependency. Run the focused suite with:
 ```sh
 dotnet test tests/SdevEng.Tests/SdevEng.Tests.csproj --filter 'FullyQualifiedName~TiktokenCountingTests|FullyQualifiedName~RenderedInputTokenCounterTests|FullyQualifiedName~ChatTemplateManifestTests|FullyQualifiedName~TokenizerManifestTests'
 ```
+
+## Ordered component attribution
+
+`IRenderedInputTokenCounter.CountAttributed` is the reusable exact-only collector
+route. It uses the same verified template, tokenizer, full rendering and authoritative
+total as `Count`, and emits optional version 1 `attribution` inside the existing
+measurement artifact. Existing version 1 artifacts without that field remain valid.
+There is no new CLI or worker invocation.
+
+`ChatTemplateRegistry.Render(..., includeSpans: true)` records ordered UTF-16 offsets
+and lengths while building the final string. Component bodies retain their canonical
+identity and content reference; message headers/footers, separators, tool wrappers
+and generation prefix use explicit `chat-template-overhead` spans. Empty tools retain
+a zero-length component span. Every state and skill component is represented,
+including each skill reference: reference components accept explicitly supplied
+reference text despite `IsLoaded=false`, without loading the referenced resource.
+Missing reference text fails closed, as does missing loaded component text.
+
+`OrderedComponentAttributionCalculator.Measure` consumes that final string, its spans,
+the canonical tokenizer adapter and authoritative total. Algorithm
+`ordered-cumulative-prefix/v1` measures `C("") = 0`, then each prefix ending at a span
+boundary. For span `i`, the attribution is `C(prefix_i) - C(prefix_(i-1))`.
+Signed differences are preserved, including negative values caused by cross-boundary
+merges; separately tokenized fragments are never added. Complete ordered coverage
+and intact Unicode scalar boundaries are checked before counting. The last prefix
+covers the full input. Result validation checks every prefix transition and the sum
+against the authoritative total, including overhead exactly once. Unsupported exact
+encoding returns an unavailable measurement without partial attribution or estimates.
+Schema validation checks shape and signed integer types; the owning validator checks
+coverage, arithmetic and reconciliation before artifact persistence.
+
+Focused regression/evaluation cases in `RenderedInputTokenCounterTests` exercise the
+normal attributed collector route with both fixture and pinned production vocabulary.
+They verify system attribution (a fixture merge yields **-6**), state, multiple skill
+references, Unicode, wrappers and generation-prefix coverage, every final-string
+prefix, exact reconciliation, schema/artifact replay, missing reference text,
+unsupported encoding, malformed spans, scalar splits and rejected arithmetic.
+Fixture numbers qualify only the fixture encoding; production proof uses the existing
+verified cl100k asset and remains local with no inference calls.

@@ -6,6 +6,9 @@ public interface IRenderedInputTokenCounter
 {
     RenderedInputTokenMeasurement Count(string templateId, string templateRevision, string templateChecksum,
         PromptManifest prompt, IReadOnlyDictionary<string, string> textByContentReference, RenderedInputTokenPolicy? policy = null);
+
+    RenderedInputTokenMeasurement CountAttributed(string templateId, string templateRevision, string templateChecksum,
+        PromptManifest prompt, IReadOnlyDictionary<string, string> textByContentReference);
 }
 
 /// <summary>Serializable attribution for one full rendered input, never a sum of component counts.</summary>
@@ -15,6 +18,9 @@ public sealed record RenderedInputTokenMeasurement(
     string? TokenizerId, string? TokenizerRevision, IReadOnlyList<TokenizerAsset> TokenizerAssets,
     bool FixtureOnly, string? RenderedInputDigest, long? Utf8Bytes, string? UnavailableReason)
 {
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public OrderedComponentAttribution? Attribution { get; init; }
+
     public const int CurrentSchemaVersion = 1;
     public const string ResultKind = "rendered-input-token-measurement";
 
@@ -41,5 +47,11 @@ public sealed record RenderedInputTokenMeasurement(
                 throw new ArgumentException("Invalid token measurement.");
         }
         else throw new ArgumentException("Unknown token measurement kind.");
+        if (Attribution is not null)
+        {
+            if (MeasurementKind != "exact") throw new ArgumentException("Attribution requires exact counting.");
+            Attribution.Validate();
+            if (Attribution.TotalTokens != Tokens) throw new ArgumentException("Attribution does not reconcile to the authoritative total.");
+        }
     }
 }

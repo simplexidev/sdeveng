@@ -7,6 +7,132 @@ using SdevEng.Infrastructure;
 
 public sealed class RenderedInputTokenCounterTests
 {
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void AttributedRouteMeasuresFinalPrefixesIncludingSystemStateSkillsAndOverhead(bool production)
+    {
+        using var fixture = new Fixture("<assistant>", productionFormat: production, completeVocabulary: production,
+            declaredSpecialTokens: production ? [] : ["system|sys", "</m>\n<m>"]);
+        var additions = new PromptComponent[]
+        {
+            new(PromptComponentId.SkillMetadata, "system", "test", "skill/v1/meta", "h"),
+            new(PromptComponentId.SkillInstructions, "system", "test", "skill/v1/instructions", "h"),
+            new(PromptComponentId.SkillReferences, "system", "test", "skill/v1/a", "h", IsLoaded: false),
+            new(PromptComponentId.SkillReferences, "system", "test", "skill/v1/b", "h", IsLoaded: false)
+        };
+        var components = fixture.Prompt.Components.ToList();
+        components.InsertRange(2, additions);
+        components.Insert(components.FindIndex(c => c.Id == PromptComponentId.Tools),
+            new(PromptComponentId.State, "system", "test", "state", "h", StateContentKind: PromptStateContentKind.RunFacts));
+        var prompt = fixture.Prompt with { Components = components };
+        foreach (var component in additions) fixture.Text[component.ContentReference] = "é🌍";
+        fixture.Text["state"] = "facts";
+        var ordinary = fixture.Count(prompt: prompt);
+        var result = fixture.Counter.CountAttributed(fixture.Template.Id, fixture.Template.Revision, fixture.Template.Checksum, prompt, fixture.Text);
+        Assert.Equal("exact", result.MeasurementKind);
+        Assert.Equal(ordinary.Tokens, result.Tokens);
+        Assert.Equal(ordinary.RenderedInputDigest, result.RenderedInputDigest);
+        Assert.Null(ordinary.Attribution);
+        var attribution = Assert.IsType<OrderedComponentAttribution>(result.Attribution);
+        Assert.True(attribution.Reconciled);
+        Assert.Equal(result.Tokens, attribution.Components.Sum(c => c.Tokens));
+        Assert.Equal(prompt.Components.Select(c => c.ContentReference), attribution.Components
+            .Where(c => c.Span.ComponentId != RenderedComponentSpan.Overhead).Select(c => c.Span.ContentReference));
+        var system = Assert.Single(attribution.Components, c => c.Span.ComponentId == "system");
+        if (!production) Assert.Equal(-6, system.Tokens); // system| + sys merges to a single declared fixture token.
+        Assert.Equal("generation-prefix", attribution.Components[^1].Span.ContentReference);
+        Assert.Equal(RenderedComponentSpan.Overhead, attribution.Components[^1].Span.ComponentId);
+        var rendering = fixture.Templates.Render(fixture.Template.Id, fixture.Template.Revision, fixture.Template.Checksum, prompt, fixture.Text, true);
+        Assert.Equal("sys", rendering.Text!.Substring(system.Span.Start, system.Span.Length));
+        var adapter = fixture.Tokenizers.Resolve(fixture.Tokenizer.Id);
+        long previous = adapter.CountTokens("");
+        foreach (var delta in attribution.Components)
+        {
+            var prefix = adapter.CountTokens(rendering.Text[..(delta.Span.Start + delta.Span.Length)]);
+            Assert.Equal(prefix, delta.PrefixTokens);
+            Assert.Equal(prefix - previous, delta.Tokens);
+            previous = prefix;
+        }
+        fixture.AssertArtifact(result);
+        Assert.Equal(JsonSerializer.Serialize(result), JsonSerializer.Serialize(fixture.Counter.CountAttributed(
+            fixture.Template.Id, fixture.Template.Revision, fixture.Template.Checksum, prompt, fixture.Text)));
+        var broken = result with { Attribution = attribution with { TotalTokens = attribution.TotalTokens + 1 } };
+        Assert.Throws<ArgumentException>(() => Artifacts.WriteRenderedInputTokenMeasurement(Path.Combine(fixture.Root, "bad.json"), broken));
+        Assert.False(File.Exists(Path.Combine(fixture.Root, "bad.json")));
+        var badJson = JsonSerializer.SerializeToNode(result, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+        badJson["attribution"]!["algorithm"] = "unknown";
+        Assert.False(fixture.Schema.Evaluate(badJson).IsValid);
+        fixture.Text.Remove("skill/v1/b");
+        AssertUnavailable(fixture, fixture.Counter.CountAttributed(fixture.Template.Id, fixture.Template.Revision, fixture.Template.Checksum, prompt, fixture.Text), "prompt-content-unavailable");
+    }
+
+    [Fact]
+    public void ProductionBpeMergeUsesCumulativePrefixesRatherThanIndependentFragmentCounts()
+    {
+        using var fixture = new Fixture("<assistant>", productionFormat: true, completeVocabulary: true, declaredSpecialTokens: []);
+        var adapter = fixture.Tokenizers.Resolve("tok");
+        var total = adapter.CountTokens("hello");
+        Assert.Equal(1, total);
+        Assert.Equal(2, adapter.CountTokens("h") + adapter.CountTokens("ello"));
+        var result = OrderedComponentAttributionCalculator.Measure("hello",
+            [new("system", "s", 0, 1), new(RenderedComponentSpan.Overhead, "generation-prefix", 1, 4)], adapter, total);
+        Assert.Equal(new long[] { 1, 0 }, result.Components.Select(c => c.Tokens));
+        Assert.Equal(total, result.AttributedTokens);
+    }
+
+    [Fact]
+    public void EmptyComponentsRetainZeroLengthSpansWithoutAddingTemplateOverhead()
+    {
+        using var fixture = new Fixture("<assistant>");
+        fixture.Text["s"] = "";
+        var prompt = fixture.Prompt with
+        {
+            Components = fixture.Prompt.Components.Select(c =>
+            c.Id == PromptComponentId.Tools ? c with { Tools = [] } : c).ToArray()
+        };
+        var result = fixture.Counter.CountAttributed(fixture.Template.Id, fixture.Template.Revision, fixture.Template.Checksum, prompt, fixture.Text);
+        var attribution = Assert.IsType<OrderedComponentAttribution>(result.Attribution);
+        foreach (var identity in new[] { "system", "tools" })
+        {
+            var delta = Assert.Single(attribution.Components, c => c.Span.ComponentId == identity);
+            Assert.Equal(0, delta.Span.Length);
+            Assert.Equal(0, delta.Tokens);
+        }
+        Assert.DoesNotContain(attribution.Components, c => c.Span.ContentReference is "tool-header" or "tool-footer");
+        Assert.Equal(fixture.Count(prompt: prompt).Tokens, attribution.Components.Sum(c => c.Tokens));
+        fixture.AssertArtifact(result);
+    }
+
+    [Fact]
+    public void AttributedRouteNeverEstimatesWhenExactEncodingIsUnavailable()
+    {
+        using var fixture = new Fixture("<assistant>", asciiOnly: true);
+        fixture.Text["s"] = "é";
+        var result = fixture.Counter.CountAttributed(fixture.Template.Id, fixture.Template.Revision, fixture.Template.Checksum, fixture.Prompt, fixture.Text);
+        AssertUnavailable(fixture, result, "exact-tokenization-unavailable");
+        Assert.Null(result.Attribution);
+    }
+
+    [Fact]
+    public void CalculatorRejectsGapsOverlapOrderScalarSplitsAndFalseReconciliationBeforeEmission()
+    {
+        using var fixture = new Fixture("<assistant>");
+        var adapter = fixture.Tokenizers.Resolve("tok");
+        var text = "a🌍b";
+        var total = adapter.CountTokens(text);
+        RenderedComponentSpan Span(int start, int length) => new("system", "s", start, length);
+        foreach (var spans in new RenderedComponentSpan[][]
+        {
+            [], [Span(1, 3)], [Span(0, 1), Span(0, 3)], [Span(0, 1)],
+            [Span(0, 2), Span(2, 2)], [Span(0, 5)], [new("unknown", "s", 0, 4)]
+        })
+            Assert.Throws<ArgumentException>(() => OrderedComponentAttributionCalculator.Measure(text, spans, adapter, total));
+        Assert.Throws<ArgumentException>(() => OrderedComponentAttributionCalculator.Measure(text, [Span(0, 4)], adapter, total + 1));
+        var valid = OrderedComponentAttributionCalculator.Measure(text, [Span(0, 1), Span(1, 2), Span(3, 1)], adapter, total);
+        Assert.Throws<ArgumentException>(() => (valid with { Components = valid.Components.Select((c, i) => i == 1 ? c with { Tokens = c.Tokens + 1 } : c).ToArray() }).Validate());
+    }
+
     [Fact]
     public void ProductionCounterPersistsCompleteRenderingAndRejectsChangedOrMissingAssets()
     {
@@ -161,6 +287,8 @@ public sealed class RenderedInputTokenCounterTests
         public TokenizerManifest Tokenizer { get; }
         public ChatTemplateManifest Template { get; }
         public IRenderedInputTokenCounter Counter { get; }
+        public TokenizerRegistry Tokenizers { get; }
+        public ChatTemplateRegistry Templates { get; }
         public JsonSchema Schema { get; } = JsonSchema.FromFile(Path.Combine(AgentTool.FindToolkit(), "schemas/rendered-input-token-measurement.schema.json"));
         public Dictionary<string, string> Text { get; } = new() { ["s"] = "sys", ["r"] = "role", ["q"] = "ask", ["o"] = "json" };
         public PromptManifest Prompt { get; } = new(1,
@@ -183,6 +311,7 @@ public sealed class RenderedInputTokenCounterTests
                 productionFormat ? "sha256:" + digest : "r1", [new("vocab.bin", digest)], productionFormat ? "cl100k_base" : "fixture",
                 declaredSpecialTokens ?? (completeVocabulary ? [] : ["</m>\n<m>"]), productionFormat ? "tiktoken-v1" : "fixture-v1", !productionFormat);
             var tokenizers = new TokenizerRegistry(Root);
+            Tokenizers = tokenizers;
             var tokenizerPath = Path.Combine(Root, "tokenizer.json");
             File.WriteAllText(tokenizerPath, JsonSerializer.Serialize(Tokenizer, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
             tokenizers.RegisterFile(tokenizerPath);
@@ -190,6 +319,7 @@ public sealed class RenderedInputTokenCounterTests
                 "<m>", "|", "</m>", "\n", "<tools>", "</tools>", prefix, !productionFormat);
             Template = Template with { Checksum = Template.ComputeChecksum() };
             var templates = new ChatTemplateRegistry(tokenizers);
+            Templates = templates;
             var templatePath = Path.Combine(Root, "template.json");
             File.WriteAllText(templatePath, JsonSerializer.Serialize(Template, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
             templates.RegisterFile(templatePath);

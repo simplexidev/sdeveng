@@ -4,7 +4,10 @@ using SdevEng;
 
 namespace SdevEng.Infrastructure;
 
-public sealed record ChatTemplateRenderResult(bool Available, string? Text, string? Reason);
+public sealed record ChatTemplateRenderResult(bool Available, string? Text, string? Reason)
+{
+    public IReadOnlyList<RenderedComponentSpan>? Spans { get; init; }
+}
 
 /// <summary>Validates template metadata, binds the exact registered tokenizer, and renders deterministic prompt bytes.</summary>
 public sealed class ChatTemplateRegistry(TokenizerRegistry tokenizers)
@@ -44,7 +47,8 @@ public sealed class ChatTemplateRegistry(TokenizerRegistry tokenizers)
         _templates.Add((manifest.Id, manifest.Revision, manifest.Checksum), manifest);
     }
 
-    public ChatTemplateRenderResult Render(string id, string revision, string checksum, PromptManifest prompt, IReadOnlyDictionary<string, string> textByContentReference)
+    public ChatTemplateRenderResult Render(string id, string revision, string checksum, PromptManifest prompt, IReadOnlyDictionary<string, string> textByContentReference,
+        bool includeSpans = false)
     {
         if (!_templates.TryGetValue((id, revision, checksum), out var template)) return new(false, null, "chat-template-unavailable");
         try
@@ -54,15 +58,26 @@ public sealed class ChatTemplateRegistry(TokenizerRegistry tokenizers)
             _ = tokenizers.Resolve(template.TokenizerId);
             if (!StringComparer.Ordinal.Equals(tokenizer.Revision, template.TokenizerRevision)) return new(false, null, "tokenizer-unavailable");
             var output = new StringBuilder();
+            var spans = new List<RenderedComponentSpan>();
+            void Append(string text, string componentId, string reference)
+            {
+                if (includeSpans) spans.Add(new(componentId, reference, output.Length, text.Length));
+                output.Append(text);
+            }
+            void Overhead(string text, string reference) => Append(text, RenderedComponentSpan.Overhead, reference);
             var first = true;
             foreach (var component in prompt.Components)
             {
                 if (component.Id == PromptComponentId.Tools)
                 {
                     var tools = component.Tools;
-                    if (tools is not { Count: > 0 }) continue;
-                    if (!first) output.Append(template.MessageSeparator);
-                    output.Append(template.MessageStart).Append("tools").Append(template.HeaderBodySeparator).Append(template.ToolSectionStart);
+                    if (tools is not { Count: > 0 })
+                    {
+                        Append("", "tools", component.ContentReference);
+                        continue;
+                    }
+                    if (!first) Overhead(template.MessageSeparator, "message-separator");
+                    Overhead(template.MessageStart + "tools" + template.HeaderBodySeparator + template.ToolSectionStart, "tool-header");
                     using var stream = new MemoryStream();
                     using (var writer = new Utf8JsonWriter(stream))
                     {
@@ -76,17 +91,21 @@ public sealed class ChatTemplateRegistry(TokenizerRegistry tokenizers)
                         }
                         writer.WriteEndArray();
                     }
-                    output.Append(Encoding.UTF8.GetString(stream.ToArray())).Append(template.ToolSectionEnd).Append(template.MessageEnd);
+                    Append(Encoding.UTF8.GetString(stream.ToArray()), "tools", component.ContentReference);
+                    Overhead(template.ToolSectionEnd + template.MessageEnd, "tool-footer");
                     first = false;
                     continue;
                 }
-                if (!component.IsLoaded || !textByContentReference.TryGetValue(component.ContentReference, out var body)) return new(false, null, "prompt-content-unavailable");
-                if (!first) output.Append(template.MessageSeparator);
-                output.Append(template.MessageStart).Append(component.Role).Append(template.HeaderBodySeparator).Append(body).Append(template.MessageEnd);
+                if ((!component.IsLoaded && component.Id != PromptComponentId.SkillReferences) ||
+                    !textByContentReference.TryGetValue(component.ContentReference, out var body)) return new(false, null, "prompt-content-unavailable");
+                if (!first) Overhead(template.MessageSeparator, "message-separator");
+                Overhead(template.MessageStart + component.Role + template.HeaderBodySeparator, "message-header");
+                Append(body, PromptComponentIdJsonConverter.ToWireValue(component.Id), component.ContentReference);
+                Overhead(template.MessageEnd, "message-footer");
                 first = false;
             }
-            output.Append(template.GenerationPrefix);
-            return new(true, output.ToString(), null);
+            Overhead(template.GenerationPrefix, "generation-prefix");
+            return new(true, output.ToString(), null) { Spans = includeSpans ? spans.ToArray() : null };
         }
         catch (Exception ex) when (ex is ArgumentException or KeyNotFoundException or IOException or InvalidDataException or UnauthorizedAccessException)
         {
