@@ -103,6 +103,34 @@ public sealed class EvidenceEfficiencyMeasurerTests
             .Measure(null, input, ["a"], "coder", 5, 1));
     }
 
+    [Fact]
+    public void RecordsAttributableTruncationAndOverflowEventsInVersionedResult()
+    {
+        using var fixture = new Fixture();
+        var result = new EvidenceEfficiencyMeasurer(fixture.Registry).Measure(null,
+            [new("a", "rev1", "short", 5, 2)], ["a"], "coder", 5, 6,
+            [new("truncation", "a", "rev1", "evidence-token-limit", 12, 5, 6, 2)],
+            [new("overflow", "a", "rev1", "mandatory-evidence-exceeded-budget", 5, 5, 2, 2)]);
+
+        Assert.Equal(2, result.SchemaVersion);
+        Assert.Single(result.TruncationEvents);
+        Assert.Equal(12, result.TruncationEvents[0].OriginalBytes);
+        Assert.Equal("mandatory-evidence-exceeded-budget", result.OverflowEvents[0].Reason);
+        result.Validate();
+        var json = JsonNode.Parse(JsonSerializer.Serialize(result, new JsonSerializerOptions(JsonSerializerDefaults.Web)))!;
+        var schema = JsonSchema.FromFile(Path.Combine(AgentTool.FindToolkit(), "schemas/evidence-efficiency-measurement.schema.json"));
+        Assert.True(schema.Evaluate(json).IsValid, json.ToJsonString());
+    }
+
+    [Fact]
+    public void RejectsObservationEventWithMismatchedSourceRevision()
+    {
+        using var fixture = new Fixture();
+        Assert.Throws<ArgumentException>(() => new EvidenceEfficiencyMeasurer(fixture.Registry).Measure(null,
+            [new("a", "rev1", "short", 5, 2)], ["a"], "coder", 5, 5,
+            [new("truncation", "a", "rev2", "limit", 8, 5)]));
+    }
+
     private sealed class Fixture : IDisposable
     {
         private readonly string _root = Path.Combine(Path.GetTempPath(), "evidence-efficiency-" + Guid.NewGuid().ToString("N"));
