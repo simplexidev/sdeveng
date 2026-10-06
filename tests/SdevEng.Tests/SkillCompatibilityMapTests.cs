@@ -39,12 +39,19 @@ public class SkillCompatibilityMapTests
             var versioned = Path.Combine(root, "versioned.md");
             File.WriteAllText(versioned, "---\nname: prepare-commit\nid: prepare-commit\nversion: 3.0.0\ndescription: Versioned skill description.\n---\nBody\n");
             Assert.Equal(new SkillMetadata("prepare-commit", "prepare-commit", "3.0.0"), SkillCompatibilityMapReader.ReadSkillMetadata(versioned));
+            File.WriteAllText(versioned, "---\nname: prepare-commit\nid: prepare-commit\nversion: 3.0.0\nactivation: '[{\"id\":\"dotnet-build\",\"frameworkVersion\":\"10.0.0\"}]'\n---\nBody\n");
+            var activated = SkillCompatibilityMapReader.ReadSkillMetadata(versioned);
+            Assert.Equal(new SkillActivationCondition("dotnet-build", "10.0.0"), Assert.Single(activated.Activation!));
             var malformed = Path.Combine(root, "malformed.md");
             File.WriteAllText(malformed, "---\nname: prepare-commit\nid: bad_id\nversion: x\n---\nBody\n");
+            Assert.Throws<ArgumentException>(() => SkillCompatibilityMapReader.ReadSkillMetadata(malformed));
+            File.WriteAllText(malformed, "---\nname: prepare-commit\nid: prepare-commit\nversion: 3.0.0\nactivation: '[{\"id\":\"bad_id\"}]'\n---\nBody\n");
             Assert.Throws<ArgumentException>(() => SkillCompatibilityMapReader.ReadSkillMetadata(malformed));
             var schema = JsonSchema.FromFile(Path.Combine(Root, "schemas/skill-metadata.schema.json"));
             Assert.True(schema.Evaluate(JsonNode.Parse("""{"name":"prepare-commit","id":"prepare-commit","version":"3.0.0"}""")!).IsValid);
             Assert.False(schema.Evaluate(JsonNode.Parse("""{"name":"prepare-commit","id":"bad_id","version":"x"}""")!).IsValid);
+            Assert.True(schema.Evaluate(JsonNode.Parse("""{"name":"prepare-commit","activation":[{"id":"dotnet-build","frameworkVersion":"10.0.0"}]}""")!).IsValid);
+            Assert.False(schema.Evaluate(JsonNode.Parse("""{"name":"prepare-commit","activation":[{"id":"bad_id"}]}""")!).IsValid);
         }
         finally { Directory.Delete(root, true); }
     }
