@@ -1,5 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <ItemGroup>
+    <PackageReference Include="Microsoft.ML.Tokenizers" />
     <PackageReference Include="Microsoft.Build.Locator" />
     <PackageReference Include="System.Security.Cryptography.Xml" />
     <PackageReference Include="Microsoft.CodeAnalysis.Workspaces.MSBuild" />

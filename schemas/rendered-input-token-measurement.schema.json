@@ -10,7 +10,7 @@
     "kind": { "const": "rendered-input-token-measurement" },
     "measurementKind": { "enum": ["exact", "estimated", "unavailable"] },
     "tokens": { "type": ["integer", "null"], "minimum": 0 },
-    "method": { "enum": ["fixture-byte-v1", "ceil-utf8-bytes-div-4", null] },
+    "method": { "enum": ["fixture-byte-v1", "tiktoken-v1", "ceil-utf8-bytes-div-4", null] },
     "templateId": { "type": "string", "minLength": 1 },
     "templateRevision": { "type": "string", "minLength": 1 },
     "templateChecksum": { "$ref": "#/$defs/digest" },
@@ -35,7 +35,10 @@
       "then": { "properties": { "tokens": { "type": "null" }, "method": { "type": "null" }, "unavailableReason": { "type": "string" } } },
       "else": { "properties": { "tokens": { "type": "integer" }, "renderedInputDigest": { "$ref": "#/$defs/digest" }, "utf8Bytes": { "type": "integer" }, "tokenizerId": { "type": "string" }, "unavailableReason": { "type": "null" } } }
     },
-    { "if": { "properties": { "measurementKind": { "const": "exact" } } }, "then": { "properties": { "method": { "const": "fixture-byte-v1" }, "fixtureOnly": { "const": true } } } },
+    { "if": { "properties": { "measurementKind": { "const": "exact" } } }, "then": { "oneOf": [
+      { "properties": { "method": { "const": "fixture-byte-v1" }, "fixtureOnly": { "const": true } } },
+      { "properties": { "method": { "const": "tiktoken-v1" }, "fixtureOnly": { "const": false } } }
+    ] } },
     { "if": { "properties": { "measurementKind": { "const": "estimated" } } }, "then": { "properties": { "method": { "const": "ceil-utf8-bytes-div-4" } } } },
     {
       "if": { "properties": { "tokenizerId": { "type": "null" } } },

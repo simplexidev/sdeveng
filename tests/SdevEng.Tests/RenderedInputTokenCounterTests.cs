@@ -7,6 +7,51 @@ using SdevEng.Infrastructure;
 
 public sealed class RenderedInputTokenCounterTests
 {
+    [Fact]
+    public void ProductionCounterPersistsCompleteRenderingAndRejectsChangedOrMissingAssets()
+    {
+        using var fixture = new Fixture("<assistant>", productionFormat: true, completeVocabulary: true);
+        var result = fixture.Count();
+        Assert.Equal("exact", result.MeasurementKind);
+        Assert.Equal("tiktoken-v1", result.Method);
+        Assert.False(result.FixtureOnly);
+        Assert.Equal(298, result.Utf8Bytes);
+        var golden = File.ReadAllBytes(Path.Combine(AgentTool.FindToolkit(), "tests/fixtures/chat-templates/compact.golden.txt"));
+        // Counter composition proof against the complete golden rendering. Independent
+        // encoding expectations (including exact IDs) live in TiktokenCountingTests.
+        using var vocabularyStream = new MemoryStream(fixture.Asset, writable: false);
+        var referenceEncoder = Microsoft.ML.Tokenizers.TiktokenTokenizer.CreateForModel("gpt-4", vocabularyStream);
+        Assert.Equal(referenceEncoder.CountTokens(Encoding.UTF8.GetString(golden)), result.Tokens);
+        Assert.Equal(Hash(golden), result.RenderedInputDigest);
+        Assert.Equal(fixture.Tokenizer.Assets, result.TokenizerAssets);
+        Assert.Equal(fixture.Tokenizer.Revision, result.TokenizerRevision);
+        Assert.Equal(fixture.Template.Checksum, result.TemplateChecksum);
+        fixture.AssertArtifact(result);
+        var bad = result with { FixtureOnly = true };
+        Assert.Throws<ArgumentException>(bad.Validate);
+        Assert.False(fixture.Schema.Evaluate(JsonSerializer.SerializeToNode(bad, new JsonSerializerOptions(JsonSerializerDefaults.Web))!).IsValid);
+        File.WriteAllBytes(fixture.AssetPath, [0]);
+        AssertUnavailable(fixture, fixture.Count(new(false, true)), "tokenizer-unavailable");
+        File.Delete(fixture.AssetPath);
+        AssertUnavailable(fixture, fixture.Count(), "tokenizer-unavailable");
+        File.WriteAllBytes(fixture.AssetPath, fixture.Asset);
+        Assert.Equal(JsonSerializer.Serialize(result), JsonSerializer.Serialize(fixture.Count()));
+    }
+
+    [Fact]
+    public void CompleteProductionVocabularyWithUnknownSpecialPolicyCannotSatisfyExactRequirement()
+    {
+        using var fixture = new Fixture("<assistant>", productionFormat: true, completeVocabulary: true, declaredSpecialTokens: ["<unknown>"]);
+        AssertUnavailable(fixture, fixture.Count(), "exact-tokenization-unavailable");
+        AssertUnavailable(fixture, fixture.Count(new(true, true)), "exact-tokenization-unavailable");
+        var estimate = fixture.Count(new(false, true));
+        Assert.Equal("estimated", estimate.MeasurementKind);
+        Assert.Equal("ceil-utf8-bytes-div-4", estimate.Method);
+        Assert.Equal(75, estimate.Tokens);
+        Assert.False(estimate.FixtureOnly);
+        fixture.AssertArtifact(estimate);
+    }
+
     [Theory]
     [InlineData("compact", "<assistant>", 270, 298)]
     [InlineData("separated", "\n<m>assistant|", 266, 301)]
@@ -127,16 +172,16 @@ public sealed class RenderedInputTokenCounterTests
             new(PromptComponentId.OutputContract, "assistant", "test", "o", "h", ResponseSchema: "schema")
         ]);
 
-        public Fixture(string prefix, bool productionFormat = false, bool asciiOnly = false)
+        public Fixture(string prefix, bool productionFormat = false, bool asciiOnly = false, bool completeVocabulary = false, string[]? declaredSpecialTokens = null)
         {
             Directory.CreateDirectory(Root);
-            Asset = productionFormat ? Encoding.UTF8.GetBytes("YQ== 0\nYg== 1\n") : Enumerable.Range(0, asciiOnly ? 128 : 256).Select(i => (byte)i).ToArray();
+            Asset = completeVocabulary ? TiktokenCountingTests.LoadVocabulary() : productionFormat ? Encoding.UTF8.GetBytes("YQ== 0\nYg== 1\n") : Enumerable.Range(0, asciiOnly ? 128 : 256).Select(i => (byte)i).ToArray();
             File.WriteAllBytes(AssetPath, Asset);
             File.WriteAllText(Path.Combine(Root, "unrelated.txt"), "unrelated");
             var digest = Hash(Asset);
             Tokenizer = new(1, "tok", productionFormat ? "gpt-family" : "fixture-model", productionFormat ? "tiktoken" : "fixture",
                 productionFormat ? "sha256:" + digest : "r1", [new("vocab.bin", digest)], productionFormat ? "cl100k_base" : "fixture",
-                ["</m>\n<m>"], productionFormat ? "tiktoken-v1" : "fixture-v1", !productionFormat);
+                declaredSpecialTokens ?? (completeVocabulary ? [] : ["</m>\n<m>"]), productionFormat ? "tiktoken-v1" : "fixture-v1", !productionFormat);
             var tokenizers = new TokenizerRegistry(Root);
             var tokenizerPath = Path.Combine(Root, "tokenizer.json");
             File.WriteAllText(tokenizerPath, JsonSerializer.Serialize(Tokenizer, new JsonSerializerOptions(JsonSerializerDefaults.Web)));

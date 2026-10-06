@@ -45,7 +45,13 @@ public sealed class RenderedInputTokenCounter(ChatTemplateRegistry templates) : 
         try
         {
             var count = adapter.CountTokens(rendering.Text!);
-            return Checked(result with { MeasurementKind = "exact", Tokens = count, Method = "fixture-byte-v1", UnavailableReason = null });
+            return Checked(result with
+            {
+                MeasurementKind = "exact",
+                Tokens = count,
+                Method = adapter.Manifest.Adapter == TokenizerAdapterId.Tiktoken ? "tiktoken-v1" : "fixture-byte-v1",
+                UnavailableReason = null
+            });
         }
         catch (NotSupportedException)
         {

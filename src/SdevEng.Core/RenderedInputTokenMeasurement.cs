@@ -36,7 +36,8 @@ public sealed record RenderedInputTokenMeasurement(
         else if (MeasurementKind is "exact" or "estimated")
         {
             if (Tokens is null or < 0 || RenderedInputDigest is null || TokenizerId is null || UnavailableReason is not null ||
-                (MeasurementKind == "exact" ? Method != "fixture-byte-v1" || !FixtureOnly : Method != "ceil-utf8-bytes-div-4" || Tokens != (Utf8Bytes + 3) / 4))
+                (MeasurementKind == "exact" ? !((Method == "fixture-byte-v1" && FixtureOnly) || (Method == "tiktoken-v1" && !FixtureOnly))
+                    : Method != "ceil-utf8-bytes-div-4" || Tokens != (Utf8Bytes + 3) / 4))
                 throw new ArgumentException("Invalid token measurement.");
         }
         else throw new ArgumentException("Unknown token measurement kind.");
