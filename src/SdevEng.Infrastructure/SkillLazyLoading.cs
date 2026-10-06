@@ -24,6 +24,13 @@ public sealed partial class SkillActivationService
         ArgumentException.ThrowIfNullOrWhiteSpace(skillId);
         var skill = (await ActivateAsync(toolkitRoot, context, cancellationToken).ConfigureAwait(false))
             .SingleOrDefault(candidate => candidate.Id == skillId);
+        return await LoadActivatedAsync(toolkitRoot, skillId, skill, referencePath, cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task<SkillLoadResult> LoadActivatedAsync(string toolkitRoot, string skillId,
+        SkillMetadata? skill, string? referencePath, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
         SkillLoadResult Omit(string reason) => new(skillId, referencePath, "omitted", null, reason, 0, 0);
         if (skill is null) return Omit("skill-not-activated");
         var resource = referencePath is null ? null :

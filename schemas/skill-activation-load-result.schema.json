@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Budgeted skill activation and load evidence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "context", "skillsTokenBudget", "tokenizer", "activatedSkillIds", "consumedTokens", "remainingTokens", "evidence"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "context": {
+      "type": "object", "additionalProperties": false,
+      "required": ["role", "requestedCapabilities", "requestedTools", "availableTools", "frameworks"],
+      "properties": {
+        "role": {"enum": ["planner", "coder", "test-author", "reviewer", "repair"]},
+        "requestedCapabilities": {"$ref": "#/$defs/ids"},
+        "requestedTools": {"$ref": "#/$defs/ids"},
+        "availableTools": {"$ref": "#/$defs/ids"},
+        "frameworks": {"type": "array", "items": {
+          "type": "object", "additionalProperties": false, "required": ["id", "version"],
+          "properties": {"id": {"type": "string", "minLength": 1}, "version": {"type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?$"}}
+        }}
+      }
+    },
+    "skillsTokenBudget": {"type": "integer", "minimum": 0},
+    "tokenizer": {"$ref": "https://simplexidev.github.io/sdeveng/schemas/tokenizer-manifest.schema.json"},
+    "activatedSkillIds": {"$ref": "#/$defs/uniqueIds"},
+    "consumedTokens": {"type": "integer", "minimum": 0},
+    "remainingTokens": {"type": "integer", "minimum": 0},
+    "evidence": {"type": "array", "items": {
+      "type": "object", "additionalProperties": false, "required": ["load", "tokens"],
+      "properties": {"load": {"$ref": "skill-load-result.schema.json"}, "tokens": {"type": "integer", "minimum": 0}}
+    }}
+  },
+  "$defs": {
+    "ids": {"type": "array", "items": {"type": "string", "minLength": 1}},
+    "uniqueIds": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}}
+  }
+}

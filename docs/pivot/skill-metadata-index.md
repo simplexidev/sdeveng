@@ -34,7 +34,7 @@ tools filter candidates before ordering. Exact framework matches have priority 2
 other matches priority 1; ordinal canonical ID resolves equal priority. Skills
 without matching declarations remain inactive. Unknown roles and ambiguous
 framework facts fail the operation. The operation returns existing metadata only;
-it never loads instructions or resources. Budgeted lazy loading remains deferred.
+it never loads instructions or resources. Budgeted loading uses the entry point below.
 
 `SkillActivationService.ActivateAsync(root, context)` adds the optional
 `ISkillSemanticTieBreakProvider` seam, defaulting to abstention without external
@@ -69,8 +69,43 @@ still fails discovery. No CLI or worker workflow is introduced.
 
 `SkillLoadResult` records loaded/omitted status, content or omission reason, UTF-8
 byte count and .NET character count, under `schemas/skill-load-result.schema.json`.
-Budget admission/enforcement remains assigned to Step 6.3.3; these operations do
-not yet claim over-budget rejection. `SkillLazyLoadingTests` evaluates the real
+The individual load methods remain compatible unbudgeted primitives.
+`SkillLazyLoadingTests` evaluates the real
 selector-to-loader boundary with unavailable unrelated references, role exclusion,
 default abstention order, individual body/reference loads, unknown and non-reference
 resources, traversal, links, tampering, cancellation and result schema checks.
+
+`SkillActivationService.ActivateAndLoadAsync(root, context, tokenizers, tokenizerId,
+references, modelContextTokens)` is the budgeted activation/load boundary. It reads
+`config/context-budget-policy.json` through the canonical budget service, applies
+the current role's input override and skills share, and resolves an explicitly
+registered, verified tokenizer. Missing or unsupported encoding fails closed;
+there is no estimated token fallback. Activation runs once with the same bounded
+semantic seam and default abstention. Instruction bodies are admitted in activation
+order, followed by at most 1024 unique, explicitly requested individual references
+in caller order. References require an accepted instruction body. No recursive
+reference loading or CLI/worker workflow is added.
+
+The allowance covers the sum of exact, individually encoded accepted instruction
+and reference contents, excluding front matter; it is not a rendered chat-input
+measurement. Over-budget content is discarded with `skills-budget-exceeded`
+evidence and its measured token cost, without consuming budget. A reference whose
+body was omitted returns `instructions-not-loaded`; unknown references remain
+explicit omissions. Other loader safety/hash/availability checks are preserved.
+
+`SkillActivationLoadResult` records caller role/WorkUnit facts, selected canonical
+IDs in order, effective skill allowance, complete tokenizer attribution (including
+fixture-only provenance), accepted/omitted load evidence, measured tokens and
+consumed/remaining totals. Its owning validator checks admission order, reference
+prerequisites, content byte/character counts and budget arithmetic before return;
+`schemas/skill-activation-load-result.schema.json` checks serialized shape. Evidence
+is returned to the caller, without adding a persistence store.
+
+The `SkillLazyLoadingTests` fixture evaluation calls this entry point to prove
+role exclusion, default abstention order, exact-fit instruction admission,
+cumulative body/reference overflow, references omitted with their bodies,
+unknown references, per-role allowances, repeated deterministic evidence,
+cancellation, unavailable tokenizer rejection, invalid model context and duplicate
+requests. It validates result schemas and rejects inconsistent evidence totals.
+The byte-tokenizer fixture proves this boundary only, not production-model
+qualification or full worker prompt admission.

@@ -9,7 +9,7 @@
     "referencePath": {"type": ["string", "null"]},
     "status": {"enum": ["loaded", "omitted"]},
     "content": {"type": ["string", "null"]},
-    "omissionReason": {"enum": [null, "skill-not-activated", "unknown-reference", "unsafe-path", "hash-mismatch", "content-unavailable", "invalid-instructions", "invalid-utf8"]},
+    "omissionReason": {"enum": [null, "skill-not-activated", "unknown-reference", "unsafe-path", "hash-mismatch", "content-unavailable", "invalid-instructions", "invalid-utf8", "skills-budget-exceeded", "instructions-not-loaded"]},
     "utf8Bytes": {"type": "integer", "minimum": 0},
     "characters": {"type": "integer", "minimum": 0}
   },
