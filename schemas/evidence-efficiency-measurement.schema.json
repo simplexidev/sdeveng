@@ -4,12 +4,16 @@
   "title": "Evidence Efficiency Measurement",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "kind", "candidates", "selected", "candidateBytes", "candidateTokens", "selectedBytes", "selectedTokens", "selectionRatio", "selectionRatioUnavailableReason", "role", "roleInputBudgetTokens", "renderedInputTokens", "utilizationPercent", "utilizationUnavailableReason"],
+  "required": ["schemaVersion", "kind", "candidates", "selected", "candidateFileCount", "selectedFileCount", "candidateSymbolCount", "selectedSymbolCount", "candidateBytes", "candidateTokens", "selectedBytes", "selectedTokens", "selectionRatio", "selectionRatioUnavailableReason", "role", "roleInputBudgetTokens", "renderedInputTokens", "utilizationPercent", "utilizationUnavailableReason"],
   "properties": {
     "schemaVersion": { "const": 1 },
     "kind": { "const": "evidence-efficiency-measurement" },
     "candidates": { "type": "array", "items": { "$ref": "#/$defs/item" } },
     "selected": { "type": "array", "items": { "$ref": "#/$defs/item" } },
+    "candidateFileCount": { "type": "integer", "minimum": 0 },
+    "selectedFileCount": { "type": "integer", "minimum": 0 },
+    "candidateSymbolCount": { "type": "integer", "minimum": 0 },
+    "selectedSymbolCount": { "type": "integer", "minimum": 0 },
     "candidateBytes": { "type": "integer", "minimum": 0 },
     "candidateTokens": { "type": ["integer", "null"], "minimum": 0 },
     "selectedBytes": { "type": "integer", "minimum": 0 },
@@ -26,13 +30,15 @@
     "item": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["evidenceId", "sourceRevision", "text", "utf8Bytes", "tokens"],
+      "required": ["evidenceId", "sourceRevision", "text", "utf8Bytes", "tokens", "fileLocationKey", "symbolLocationKey"],
       "properties": {
         "evidenceId": { "type": "string", "minLength": 1 },
         "sourceRevision": { "type": "string", "minLength": 1 },
         "text": { "type": "string" },
         "utf8Bytes": { "type": ["integer", "null"], "minimum": 0 },
-        "tokens": { "type": ["integer", "null"], "minimum": 0 }
+        "tokens": { "type": ["integer", "null"], "minimum": 0 },
+        "fileLocationKey": { "type": ["string", "null"], "minLength": 1 },
+        "symbolLocationKey": { "type": ["string", "null"], "minLength": 1 }
       }
     }
   }
