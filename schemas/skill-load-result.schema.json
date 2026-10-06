@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Individual skill content load result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["skillId", "referencePath", "status", "content", "omissionReason", "utf8Bytes", "characters"],
+  "properties": {
+    "skillId": {"type": "string", "minLength": 1},
+    "referencePath": {"type": ["string", "null"]},
+    "status": {"enum": ["loaded", "omitted"]},
+    "content": {"type": ["string", "null"]},
+    "omissionReason": {"enum": [null, "skill-not-activated", "unknown-reference", "unsafe-path", "hash-mismatch", "content-unavailable", "invalid-instructions", "invalid-utf8"]},
+    "utf8Bytes": {"type": "integer", "minimum": 0},
+    "characters": {"type": "integer", "minimum": 0}
+  },
+  "if": {"properties": {"status": {"const": "loaded"}}},
+  "then": {"properties": {"content": {"type": "string"}, "omissionReason": {"type": "null"}}},
+  "else": {"properties": {"content": {"type": "null"}, "omissionReason": {"type": "string"}, "utf8Bytes": {"const": 0}, "characters": {"const": 0}}}
+}

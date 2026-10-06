@@ -1,7 +1,7 @@
 namespace SdevEng;
 
 /// <summary>Selects canonical skill metadata without loading instructions or references.</summary>
-public sealed class SkillActivationService(
+public sealed partial class SkillActivationService(
     ISkillSemanticTieBreakProvider? tieBreakProvider = null,
     RelevanceRankingPolicy? rankingPolicy = null)
 {
