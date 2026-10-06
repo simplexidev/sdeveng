@@ -8,7 +8,8 @@ public sealed class EvidenceEfficiencyMeasurer(TokenizerRegistry tokenizers) : I
 {
     public EvidenceEfficiencyMeasurement Measure(string? tokenizerId, IReadOnlyList<EvidenceEfficiencyItem> candidates,
         IReadOnlyList<string> selectedEvidenceIds, string role, long roleInputBudgetTokens,
-        long? renderedInputTokens)
+        long? renderedInputTokens, IReadOnlyList<EvidenceEfficiencyEvent>? truncationEvents = null,
+        IReadOnlyList<EvidenceEfficiencyEvent>? overflowEvents = null)
     {
         ArgumentNullException.ThrowIfNull(candidates);
         ArgumentNullException.ThrowIfNull(selectedEvidenceIds);
@@ -55,7 +56,8 @@ public sealed class EvidenceEfficiencyMeasurer(TokenizerRegistry tokenizers) : I
             candidateBytes, candidateTokens, selectedBytes, selectedTokens, selectionRatio, selectionRatioUnavailableReason,
             role, roleInputBudgetTokens, renderedInputTokens,
             roleInputBudgetTokens == 0 || renderedInputTokens is null ? null : 100m * renderedInputTokens.Value / roleInputBudgetTokens,
-            roleInputBudgetTokens == 0 ? "role-input-budget-zero" : renderedInputTokens is null ? "rendered-input-tokens-unavailable" : null);
+            roleInputBudgetTokens == 0 ? "role-input-budget-zero" : renderedInputTokens is null ? "rendered-input-tokens-unavailable" : null,
+            (truncationEvents ?? []).ToArray(), (overflowEvents ?? []).ToArray());
         result.Validate();
         return result;
     }

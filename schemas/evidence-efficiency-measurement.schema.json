@@ -4,9 +4,9 @@
   "title": "Evidence Efficiency Measurement",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "kind", "candidates", "selected", "candidateFileCount", "selectedFileCount", "candidateSymbolCount", "selectedSymbolCount", "candidateBytes", "candidateTokens", "selectedBytes", "selectedTokens", "selectionRatio", "selectionRatioUnavailableReason", "role", "roleInputBudgetTokens", "renderedInputTokens", "utilizationPercent", "utilizationUnavailableReason"],
+  "required": ["schemaVersion", "kind", "candidates", "selected", "candidateFileCount", "selectedFileCount", "candidateSymbolCount", "selectedSymbolCount", "candidateBytes", "candidateTokens", "selectedBytes", "selectedTokens", "selectionRatio", "selectionRatioUnavailableReason", "role", "roleInputBudgetTokens", "renderedInputTokens", "utilizationPercent", "utilizationUnavailableReason", "truncationEvents", "overflowEvents"],
   "properties": {
-    "schemaVersion": { "const": 1 },
+    "schemaVersion": { "const": 2 },
     "kind": { "const": "evidence-efficiency-measurement" },
     "candidates": { "type": "array", "items": { "$ref": "#/$defs/item" } },
     "selected": { "type": "array", "items": { "$ref": "#/$defs/item" } },
@@ -24,9 +24,26 @@
     "roleInputBudgetTokens": { "type": "integer", "minimum": 0 },
     "renderedInputTokens": { "type": ["integer", "null"], "minimum": 0 },
     "utilizationPercent": { "type": ["number", "null"], "minimum": 0 },
-    "utilizationUnavailableReason": { "type": ["string", "null"], "enum": ["role-input-budget-zero", "rendered-input-tokens-unavailable", null] }
+    "utilizationUnavailableReason": { "type": ["string", "null"], "enum": ["role-input-budget-zero", "rendered-input-tokens-unavailable", null] },
+    "truncationEvents": { "type": "array", "items": { "$ref": "#/$defs/event" } },
+    "overflowEvents": { "type": "array", "items": { "$ref": "#/$defs/event" } }
   },
   "$defs": {
+    "event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["eventType", "evidenceId", "sourceRevision", "reason", "originalBytes", "resultBytes", "originalTokens", "resultTokens"],
+      "properties": {
+        "eventType": { "enum": ["truncation", "overflow"] },
+        "evidenceId": { "type": "string", "minLength": 1 },
+        "sourceRevision": { "type": "string", "minLength": 1 },
+        "reason": { "type": "string", "minLength": 1 },
+        "originalBytes": { "type": "integer", "minimum": 0 },
+        "resultBytes": { "type": "integer", "minimum": 0 },
+        "originalTokens": { "type": ["integer", "null"], "minimum": 0 },
+        "resultTokens": { "type": ["integer", "null"], "minimum": 0 }
+      }
+    },
     "item": {
       "type": "object",
       "additionalProperties": false,

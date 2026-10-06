@@ -4,6 +4,10 @@ namespace SdevEng;
 public sealed record EvidenceEfficiencyItem(string EvidenceId, string SourceRevision, string Text,
     long? Utf8Bytes, long? Tokens, string? FileLocationKey = null, string? SymbolLocationKey = null);
 
+/// <summary>A privacy-safe observation that evidence was reduced or exceeded its budget.</summary>
+public sealed record EvidenceEfficiencyEvent(string EventType, string EvidenceId, string SourceRevision,
+    string Reason, long OriginalBytes, long ResultBytes, long? OriginalTokens = null, long? ResultTokens = null);
+
 /// <summary>Versioned counts for the evidence candidates and selections supplied for one role.</summary>
 public sealed record EvidenceEfficiencyMeasurement(int SchemaVersion, string Kind,
     IReadOnlyList<EvidenceEfficiencyItem> Candidates, IReadOnlyList<EvidenceEfficiencyItem> Selected,
@@ -11,18 +15,25 @@ public sealed record EvidenceEfficiencyMeasurement(int SchemaVersion, string Kin
     long CandidateBytes, long? CandidateTokens, long SelectedBytes, long? SelectedTokens,
     decimal? SelectionRatio, string? SelectionRatioUnavailableReason,
     string Role, long RoleInputBudgetTokens, long? RenderedInputTokens,
-    decimal? UtilizationPercent, string? UtilizationUnavailableReason)
+    decimal? UtilizationPercent, string? UtilizationUnavailableReason,
+    IReadOnlyList<EvidenceEfficiencyEvent> TruncationEvents, IReadOnlyList<EvidenceEfficiencyEvent> OverflowEvents)
 {
-    public const int CurrentSchemaVersion = 1;
+    public const int CurrentSchemaVersion = 2;
     public const string ResultKind = "evidence-efficiency-measurement";
 
     public void Validate()
     {
         if (SchemaVersion != CurrentSchemaVersion || Kind != ResultKind || Candidates is null || Selected is null ||
             string.IsNullOrWhiteSpace(Role) || RoleInputBudgetTokens < 0 || RenderedInputTokens < 0 ||
+            TruncationEvents is null || OverflowEvents is null ||
             Candidates.Concat(Selected).Any(item => item is null || string.IsNullOrWhiteSpace(item.EvidenceId) ||
                 string.IsNullOrWhiteSpace(item.SourceRevision) || item.Text is null || item.Utf8Bytes < 0 || item.Tokens < 0))
             throw new ArgumentException("Invalid evidence efficiency measurement.");
+        ValidateEvents(TruncationEvents, "truncation");
+        ValidateEvents(OverflowEvents, "overflow");
+        var sources = Candidates.ToDictionary(item => item.EvidenceId, item => item.SourceRevision, StringComparer.Ordinal);
+        if (TruncationEvents.Concat(OverflowEvents).Any(item => !sources.TryGetValue(item.EvidenceId, out var revision) || revision != item.SourceRevision))
+            throw new ArgumentException("Observation events must refer to a candidate evidence ID and source revision.");
         if (CandidateFileCount != CountLocations(Candidates, item => item.FileLocationKey) ||
             SelectedFileCount != CountLocations(Selected, item => item.FileLocationKey) ||
             CandidateSymbolCount != CountLocations(Candidates, item => item.SymbolLocationKey) ||
@@ -49,11 +60,20 @@ public sealed record EvidenceEfficiencyMeasurement(int SchemaVersion, string Kin
 
     private static int CountLocations(IEnumerable<EvidenceEfficiencyItem> items, Func<EvidenceEfficiencyItem, string?> key) =>
         items.Select(key).Where(value => !string.IsNullOrWhiteSpace(value)).Distinct(StringComparer.Ordinal).Count();
+
+    private static void ValidateEvents(IEnumerable<EvidenceEfficiencyEvent> events, string eventType)
+    {
+        if (events.Any(item => item is null || item.EventType != eventType || string.IsNullOrWhiteSpace(item.EvidenceId) ||
+            string.IsNullOrWhiteSpace(item.SourceRevision) || string.IsNullOrWhiteSpace(item.Reason) ||
+            item.OriginalBytes < 0 || item.ResultBytes < 0 || item.OriginalTokens < 0 || item.ResultTokens < 0))
+            throw new ArgumentException("Invalid evidence efficiency observation event.");
+    }
 }
 
 public interface IEvidenceEfficiencyMeasurer
 {
     EvidenceEfficiencyMeasurement Measure(string? tokenizerId, IReadOnlyList<EvidenceEfficiencyItem> candidates,
         IReadOnlyList<string> selectedEvidenceIds, string role, long roleInputBudgetTokens,
-        long? renderedInputTokens);
+        long? renderedInputTokens, IReadOnlyList<EvidenceEfficiencyEvent>? truncationEvents = null,
+        IReadOnlyList<EvidenceEfficiencyEvent>? overflowEvents = null);
 }
