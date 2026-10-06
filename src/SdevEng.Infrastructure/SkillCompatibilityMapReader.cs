@@ -37,7 +37,34 @@ public static class SkillCompatibilityMapReader
                     "^\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?$"))))
                 throw new ArgumentException("Invalid skill activation conditions.");
         }
-        return new SkillMetadata(fields.GetValueOrDefault("name") ?? "", id, version, activation);
+        string[]? supportedRoles = null;
+        if (fields.TryGetValue("supportedRoles", out var rolesJson))
+        {
+            supportedRoles = ReadStringArray(rolesJson, "supported roles");
+            if (supportedRoles.Length == 0 || supportedRoles.Distinct(StringComparer.Ordinal).Count() != supportedRoles.Length ||
+                supportedRoles.Any(role => role is not ("planner" or "coder" or "test-author" or "reviewer" or "repair")))
+                throw new ArgumentException("Invalid supported skill roles.");
+        }
+        string[]? requiredTools = null;
+        if (fields.TryGetValue("requiredTools", out var toolsJson))
+        {
+            requiredTools = ReadStringArray(toolsJson, "required tools");
+            if (requiredTools.Distinct(StringComparer.Ordinal).Count() != requiredTools.Length ||
+                requiredTools.Any(tool => !System.Text.RegularExpressions.Regex.IsMatch(tool, "^[a-z0-9]+(?:-[a-z0-9]+)*$")))
+                throw new ArgumentException("Invalid required skill tools.");
+        }
+        return new SkillMetadata(fields.GetValueOrDefault("name") ?? "", id, version, activation, supportedRoles, requiredTools);
+    }
+
+    private static string[] ReadStringArray(string value, string description)
+    {
+        if (value.Length >= 2 && value[0] == '\'' && value[^1] == '\'')
+            value = value[1..^1].Replace("''", "'", StringComparison.Ordinal);
+        try
+        {
+            return JsonSerializer.Deserialize<string[]>(value) ?? throw new ArgumentException($"Invalid {description}.");
+        }
+        catch (JsonException ex) { throw new ArgumentException($"Invalid {description}.", ex); }
     }
 
     public static SkillCompatibilityMap Read(string root)
@@ -70,6 +97,6 @@ public static class SkillCompatibilityMapReader
 }
 
 public sealed record SkillMetadata(string Name, string? Id, string? Version,
-    SkillActivationCondition[]? Activation = null);
+    SkillActivationCondition[]? Activation = null, string[]? SupportedRoles = null, string[]? RequiredTools = null);
 
 public sealed record SkillActivationCondition(string Id, string? FrameworkVersion = null);

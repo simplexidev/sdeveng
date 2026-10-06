@@ -42,16 +42,27 @@ public class SkillCompatibilityMapTests
             File.WriteAllText(versioned, "---\nname: prepare-commit\nid: prepare-commit\nversion: 3.0.0\nactivation: '[{\"id\":\"dotnet-build\",\"frameworkVersion\":\"10.0.0\"}]'\n---\nBody\n");
             var activated = SkillCompatibilityMapReader.ReadSkillMetadata(versioned);
             Assert.Equal(new SkillActivationCondition("dotnet-build", "10.0.0"), Assert.Single(activated.Activation!));
+            File.WriteAllText(versioned, "---\nname: prepare-commit\nsupportedRoles: '[\"coder\",\"reviewer\"]'\nrequiredTools: '[\"git-status\",\"read-file\"]'\n---\nBody\n");
+            var capabilities = SkillCompatibilityMapReader.ReadSkillMetadata(versioned);
+            Assert.Equal(new[] { "coder", "reviewer" }, capabilities.SupportedRoles);
+            Assert.Equal(new[] { "git-status", "read-file" }, capabilities.RequiredTools);
             var malformed = Path.Combine(root, "malformed.md");
             File.WriteAllText(malformed, "---\nname: prepare-commit\nid: bad_id\nversion: x\n---\nBody\n");
             Assert.Throws<ArgumentException>(() => SkillCompatibilityMapReader.ReadSkillMetadata(malformed));
             File.WriteAllText(malformed, "---\nname: prepare-commit\nid: prepare-commit\nversion: 3.0.0\nactivation: '[{\"id\":\"bad_id\"}]'\n---\nBody\n");
+            Assert.Throws<ArgumentException>(() => SkillCompatibilityMapReader.ReadSkillMetadata(malformed));
+            File.WriteAllText(malformed, "---\nname: prepare-commit\nsupportedRoles: '[\"unknown\"]'\n---\nBody\n");
+            Assert.Throws<ArgumentException>(() => SkillCompatibilityMapReader.ReadSkillMetadata(malformed));
+            File.WriteAllText(malformed, "---\nname: prepare-commit\nrequiredTools: '[\"bad_id\"]'\n---\nBody\n");
             Assert.Throws<ArgumentException>(() => SkillCompatibilityMapReader.ReadSkillMetadata(malformed));
             var schema = JsonSchema.FromFile(Path.Combine(Root, "schemas/skill-metadata.schema.json"));
             Assert.True(schema.Evaluate(JsonNode.Parse("""{"name":"prepare-commit","id":"prepare-commit","version":"3.0.0"}""")!).IsValid);
             Assert.False(schema.Evaluate(JsonNode.Parse("""{"name":"prepare-commit","id":"bad_id","version":"x"}""")!).IsValid);
             Assert.True(schema.Evaluate(JsonNode.Parse("""{"name":"prepare-commit","activation":[{"id":"dotnet-build","frameworkVersion":"10.0.0"}]}""")!).IsValid);
             Assert.False(schema.Evaluate(JsonNode.Parse("""{"name":"prepare-commit","activation":[{"id":"bad_id"}]}""")!).IsValid);
+            Assert.True(schema.Evaluate(JsonNode.Parse("""{"name":"prepare-commit","supportedRoles":["coder","reviewer"],"requiredTools":["git-status"]}""")!).IsValid);
+            Assert.False(schema.Evaluate(JsonNode.Parse("""{"name":"prepare-commit","supportedRoles":["unknown"]}""")!).IsValid);
+            Assert.False(schema.Evaluate(JsonNode.Parse("""{"name":"prepare-commit","requiredTools":["bad_id"]}""")!).IsValid);
         }
         finally { Directory.Delete(root, true); }
     }
