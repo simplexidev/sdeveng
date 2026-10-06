@@ -2712,8 +2712,7 @@ public static class PluginManifests
                     foreach (var tool in skill.RequiredTools ?? [])
                         if (!names.Contains(tool)) errors.Add($"Unknown required tool for skill {skill.Id}: {tool}");
             }
-            // Explicit validation retains resource existence/hash checks.
-            SkillCompatibilityMapReader.Read(root);
+            SkillCompatibilityMapReader.ValidateResources(root, index);
             var portable = JsonNode.Parse(File.ReadAllText(Path.Combine(pluginRoot, "plugin.json"))) as JsonObject;
             var compatibility = JsonNode.Parse(File.ReadAllText(Path.Combine(pluginRoot, ".codex-plugin", "plugin.json"))) as JsonObject;
             if (portable is null || compatibility is null) { errors.Add("Plugin manifests must be JSON objects."); return; }

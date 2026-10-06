@@ -100,19 +100,9 @@ public static class SkillCompatibilityMapReader
             catch (JsonException ex) { throw new ArgumentException("Invalid skill resources.", ex); }
             if (resources is null || resources.Any(resource => resource is null) ||
                 resources.Select(resource => resource.Path).Distinct(StringComparer.Ordinal).Count() != resources.Length ||
-                resources.Any(resource => !IsSafeResourcePath(resource.Path) ||
-                    !System.Text.RegularExpressions.Regex.IsMatch(resource.Type ?? "", "^[a-z][a-z0-9-]*$") ||
+                resources.Any(resource => !System.Text.RegularExpressions.Regex.IsMatch(resource.Type ?? "", "^[a-z][a-z0-9-]*$") ||
                     !System.Text.RegularExpressions.Regex.IsMatch(resource.Hash ?? "", "^sha256:[0-9a-f]{64}$")))
                 throw new ArgumentException("Invalid skill resources.");
-            var skillDirectory = path is null ? null : Path.GetDirectoryName(Path.GetFullPath(path))!;
-            foreach (var resource in path is null ? [] : resources)
-            {
-                var fullPath = Path.GetFullPath(Path.Combine(skillDirectory!, resource.Path.Replace('/', Path.DirectorySeparatorChar)));
-                if (!fullPath.StartsWith(skillDirectory + Path.DirectorySeparatorChar, StringComparison.Ordinal) || !File.Exists(fullPath))
-                    throw new ArgumentException("Skill resource must exist under its skill directory: " + resource.Path);
-                var actualHash = "sha256:" + Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(fullPath))).ToLowerInvariant();
-                if (actualHash != resource.Hash) throw new ArgumentException("Skill resource hash mismatch: " + resource.Path);
-            }
         }
         return new SkillMetadata(fields.GetValueOrDefault("name") ?? "", id, version, activation, supportedRoles, requiredTools, contextAllowance, resources);
     }
@@ -136,6 +126,7 @@ public static class SkillCompatibilityMapReader
     {
         var map = ReadMap(root);
         ValidateInventory(root, map, deep: true);
+        ValidateResources(root, map.Skills.Select(skill => ReadSkillMetadata(Path.Combine(root, skill.CanonicalPath))));
         return map;
     }
 
@@ -167,6 +158,42 @@ public static class SkillCompatibilityMapReader
         }
         ValidateInventory(root, map, deep: false);
         return metadata;
+    }
+
+    public static void ValidateResources(string root, IEnumerable<SkillMetadata> metadata)
+    {
+        var skillsRoot = Path.GetFullPath(Path.Combine(root, "plugins", "sdeveng", "skills"));
+        foreach (var skill in metadata)
+        {
+            var skillDirectory = Path.GetFullPath(Path.Combine(skillsRoot, skill.Id ?? skill.Name));
+            if (!skillDirectory.StartsWith(skillsRoot + Path.DirectorySeparatorChar, StringComparison.Ordinal))
+                throw new ArgumentException("Skill directory is outside the skill inventory: " + skill.Name);
+            EnsureNoLinks(skillsRoot, skillDirectory);
+            foreach (var resource in skill.Resources ?? [])
+            {
+                if (!IsSafeResourcePath(resource.Path)) throw new ArgumentException("Invalid skill resource path: " + resource.Path);
+                var fullPath = Path.GetFullPath(Path.Combine(skillDirectory, resource.Path.Replace('/', Path.DirectorySeparatorChar)));
+                if (!fullPath.StartsWith(skillDirectory + Path.DirectorySeparatorChar, StringComparison.Ordinal))
+                    throw new ArgumentException("Skill resource must exist under its skill directory: " + resource.Path);
+                EnsureNoLinks(skillDirectory, fullPath);
+                if (!File.Exists(fullPath)) throw new ArgumentException("Skill resource must exist under its skill directory: " + resource.Path);
+                using var stream = new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, FileOptions.SequentialScan);
+                var actualHash = "sha256:" + Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant();
+                if (actualHash != resource.Hash) throw new ArgumentException("Skill resource hash mismatch: " + resource.Path);
+            }
+        }
+    }
+
+    private static void EnsureNoLinks(string boundary, string path)
+    {
+        for (var current = Path.GetFullPath(path); current.Length >= boundary.Length;
+             current = Path.GetDirectoryName(current) ?? string.Empty)
+        {
+            if (new FileInfo(current).LinkTarget is not null || new DirectoryInfo(current).LinkTarget is not null)
+                throw new ArgumentException("Skill resource paths must not contain links: " + Path.GetRelativePath(boundary, path));
+            if (string.Equals(current, boundary, StringComparison.Ordinal)) return;
+        }
+        throw new ArgumentException("Skill resource is outside its skill directory.");
     }
 
     private static void ValidateInventory(string root, SkillCompatibilityMap map, bool deep)
