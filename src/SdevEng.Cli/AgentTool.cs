@@ -2703,6 +2703,16 @@ public static class PluginManifests
         var pluginRoot = Path.Combine(root, "plugins", "sdeveng");
         try
         {
+            var index = SkillCompatibilityMapReader.ReadMetadataIndex(root);
+            using (var tools = JsonDocument.Parse(File.ReadAllText(Path.Combine(root, "config/agent-tool-contracts.json"))))
+            {
+                var names = tools.RootElement.GetProperty("toolDescriptors").EnumerateArray()
+                    .Select(tool => tool.GetProperty("name").GetString()).ToHashSet(StringComparer.Ordinal);
+                foreach (var skill in index)
+                    foreach (var tool in skill.RequiredTools ?? [])
+                        if (!names.Contains(tool)) errors.Add($"Unknown required tool for skill {skill.Id}: {tool}");
+            }
+            // Explicit validation retains resource existence/hash checks.
             SkillCompatibilityMapReader.Read(root);
             var portable = JsonNode.Parse(File.ReadAllText(Path.Combine(pluginRoot, "plugin.json"))) as JsonObject;
             var compatibility = JsonNode.Parse(File.ReadAllText(Path.Combine(pluginRoot, ".codex-plugin", "plugin.json"))) as JsonObject;

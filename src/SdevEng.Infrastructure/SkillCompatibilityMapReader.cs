@@ -7,10 +7,40 @@ public static class SkillCompatibilityMapReader
 {
     public static SkillMetadata ReadSkillMetadata(string path)
     {
-        var text = File.ReadAllText(path);
+        return ParseMetadata(File.ReadAllText(path), path);
+    }
+
+    public static SkillMetadata ReadSkillFrontMatter(string path)
+    {
+        // Read bytes through the closing delimiter; do not prefetch instruction content.
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 1);
+        return ReadSkillFrontMatter(stream);
+    }
+
+    public static SkillMetadata ReadSkillFrontMatter(Stream stream)
+    {
+        var bytes = new List<byte>();
+        var line = new List<byte>();
+        while (stream.ReadByte() is var next && next >= 0)
+        {
+            bytes.Add((byte)next);
+            if (next != '\n') { line.Add((byte)next); continue; }
+            var delimiter = line.SequenceEqual(new byte[] { 45, 45, 45 });
+            if (bytes.Count == line.Count + 1 && !delimiter) throw new ArgumentException("Skill front matter is missing.");
+            if (delimiter && bytes.Count > 4)
+                return ParseMetadata(System.Text.Encoding.UTF8.GetString(bytes.ToArray()), null);
+            line.Clear();
+        }
+        if (line.SequenceEqual(new byte[] { 45, 45, 45 }) && bytes.Count > 3)
+            return ParseMetadata(System.Text.Encoding.UTF8.GetString(bytes.ToArray()), null);
+        throw new ArgumentException("Skill front matter is unterminated.");
+    }
+
+    private static SkillMetadata ParseMetadata(string text, string? path)
+    {
         if (!text.StartsWith("---\n", StringComparison.Ordinal))
             throw new ArgumentException("Skill front matter is missing.");
-        var end = text.IndexOf("\n---", 4, StringComparison.Ordinal);
+        var end = path is null ? text.LastIndexOf("\n---", StringComparison.Ordinal) : text.IndexOf("\n---", 4, StringComparison.Ordinal);
         if (end < 0) throw new ArgumentException("Skill front matter is unterminated.");
         var fields = text[4..end].Split('\n').Select(line => line.Split(':', 2))
             .Where(parts => parts.Length == 2)
@@ -74,10 +104,10 @@ public static class SkillCompatibilityMapReader
                     !System.Text.RegularExpressions.Regex.IsMatch(resource.Type ?? "", "^[a-z][a-z0-9-]*$") ||
                     !System.Text.RegularExpressions.Regex.IsMatch(resource.Hash ?? "", "^sha256:[0-9a-f]{64}$")))
                 throw new ArgumentException("Invalid skill resources.");
-            var skillDirectory = Path.GetDirectoryName(Path.GetFullPath(path))!;
-            foreach (var resource in resources)
+            var skillDirectory = path is null ? null : Path.GetDirectoryName(Path.GetFullPath(path))!;
+            foreach (var resource in path is null ? [] : resources)
             {
-                var fullPath = Path.GetFullPath(Path.Combine(skillDirectory, resource.Path.Replace('/', Path.DirectorySeparatorChar)));
+                var fullPath = Path.GetFullPath(Path.Combine(skillDirectory!, resource.Path.Replace('/', Path.DirectorySeparatorChar)));
                 if (!fullPath.StartsWith(skillDirectory + Path.DirectorySeparatorChar, StringComparison.Ordinal) || !File.Exists(fullPath))
                     throw new ArgumentException("Skill resource must exist under its skill directory: " + resource.Path);
                 var actualHash = "sha256:" + Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(fullPath))).ToLowerInvariant();
@@ -104,11 +134,43 @@ public static class SkillCompatibilityMapReader
 
     public static SkillCompatibilityMap Read(string root)
     {
+        var map = ReadMap(root);
+        ValidateInventory(root, map, deep: true);
+        return map;
+    }
+
+    private static SkillCompatibilityMap ReadMap(string root)
+    {
         var map = JsonSerializer.Deserialize<SkillCompatibilityMap>(
             File.ReadAllText(Path.Combine(root, "config/skill-compatibility-map.json")),
             new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase })
             ?? throw new ArgumentException("Empty skill compatibility map.");
         map.Validate();
+        return map;
+    }
+
+    public static SkillMetadata[] ReadMetadataIndex(string root)
+    {
+        var map = ReadMap(root);
+        var metadata = map.Skills.Select(skill => ReadSkillFrontMatter(Path.Combine(root, skill.CanonicalPath))).ToArray();
+        var identities = new HashSet<string>(StringComparer.Ordinal);
+        for (var i = 0; i < metadata.Length; i++)
+        {
+            var entry = map.Skills[i];
+            var item = metadata[i];
+            var resolved = map.Resolve(item.Id ?? item.Name);
+            if (resolved is null) throw new ArgumentException("Unresolved skill identity: " + (item.Id ?? item.Name));
+            if (!identities.Add(resolved.CanonicalId)) throw new ArgumentException("Duplicate skill identity: " + resolved.CanonicalId);
+            metadata[i] = item with { Id = resolved.CanonicalId, Version = item.Version ?? resolved.Version };
+            if (resolved != entry || metadata[i].Version != entry.Version)
+                throw new ArgumentException("Skill metadata differs from compatibility entry: " + entry.CanonicalId);
+        }
+        ValidateInventory(root, map, deep: false);
+        return metadata;
+    }
+
+    private static void ValidateInventory(string root, SkillCompatibilityMap map, bool deep)
+    {
         var version = JsonDocument.Parse(File.ReadAllText(Path.Combine(root, "plugins/sdeveng/plugin.json")));
         using (version)
         {
@@ -118,8 +180,8 @@ public static class SkillCompatibilityMapReader
                 if (skill.Version != version.RootElement.GetProperty("version").GetString() || !File.Exists(body) ||
                     !File.Exists(Path.Combine(Path.GetDirectoryName(body)!, "agents/openai.yaml")))
                     throw new ArgumentException("Unresolved skill compatibility entry: " + skill.CanonicalId);
-                var metadata = ReadSkillMetadata(body);
-                if (metadata.Name != skill.CanonicalId || (metadata.Id is not null &&
+                var metadata = deep ? ReadSkillMetadata(body) : ReadSkillFrontMatter(body);
+                if ((deep ? metadata.Name != skill.CanonicalId : map.Resolve(metadata.Name)?.CanonicalId != skill.CanonicalId) || (metadata.Id is not null &&
                     (metadata.Id != skill.CanonicalId || metadata.Version != skill.Version)))
                     throw new ArgumentException("Skill metadata differs from compatibility entry: " + skill.CanonicalId);
             }
@@ -127,7 +189,6 @@ public static class SkillCompatibilityMapReader
         var discovered = Directory.GetDirectories(Path.Combine(root, "plugins/sdeveng/skills")).Select(Path.GetFileName).Order(StringComparer.Ordinal);
         if (!discovered.SequenceEqual(map.Skills.Select(s => s.CanonicalId).Order(StringComparer.Ordinal)))
             throw new ArgumentException("Skill compatibility inventory differs from discovery.");
-        return map;
     }
 }
 
