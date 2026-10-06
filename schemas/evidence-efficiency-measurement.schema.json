@@ -15,7 +15,7 @@
     "selectedBytes": { "type": "integer", "minimum": 0 },
     "selectedTokens": { "type": ["integer", "null"], "minimum": 0 },
     "selectionRatio": { "type": ["number", "null"], "minimum": 0 },
-    "selectionRatioUnavailableReason": { "type": ["string", "null"], "enum": ["candidate-bytes-zero", null] },
+    "selectionRatioUnavailableReason": { "type": ["string", "null"], "enum": ["candidate-tokens-zero", "token-measurement-unavailable", null] },
     "role": { "type": "string", "minLength": 1 },
     "roleInputBudgetTokens": { "type": "integer", "minimum": 0 },
     "renderedInputTokens": { "type": ["integer", "null"], "minimum": 0 },
