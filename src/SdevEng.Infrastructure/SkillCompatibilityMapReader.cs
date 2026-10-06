@@ -107,7 +107,7 @@ public static class SkillCompatibilityMapReader
         return new SkillMetadata(fields.GetValueOrDefault("name") ?? "", id, version, activation, supportedRoles, requiredTools, contextAllowance, resources);
     }
 
-    private static bool IsSafeResourcePath(string? path) => !string.IsNullOrWhiteSpace(path) &&
+    internal static bool IsSafeResourcePath(string? path) => !string.IsNullOrWhiteSpace(path) &&
         !Path.IsPathRooted(path) && path.Replace('\\', '/').Split('/').All(segment => segment.Length > 0 && segment != "." && segment != "..") &&
         !path.Contains('\\');
 
@@ -195,7 +195,7 @@ public static class SkillCompatibilityMapReader
         }
     }
 
-    private static void EnsureNoLinks(string boundary, string path)
+    internal static void EnsureNoLinks(string boundary, string path)
     {
         for (var current = Path.GetFullPath(path); current.Length >= boundary.Length;
              current = Path.GetDirectoryName(current) ?? string.Empty)

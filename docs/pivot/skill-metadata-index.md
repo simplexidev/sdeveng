@@ -54,3 +54,23 @@ the real catalog-to-operation boundary, with unavailable references and large bo
 The same fixture evaluates async default abstention, below-threshold abstention,
 accepted tie-breaking, rejection of ineligible provider IDs and oversized groups
 that abstain before any provider call. Returned metadata retains schema validation.
+
+`SkillActivationService.LoadInstructionsAsync(root, context, canonicalId)` and
+`LoadReferenceAsync(root, context, canonicalId, referencePath)` connect the same
+async selector directly to lazy content loading. Each call rechecks activation;
+inactive or unknown IDs return `skill-not-activated`. Instruction loading returns
+only the selected body's text after front matter. Reference loading requires one
+exact declared resource of type `reference`, validates its owned path without
+symbolic links, and verifies its declared SHA-256 before returning content. It
+never opens other references or follows links mentioned in content. Unknown
+references, unsafe paths, missing content and hash mismatches return explicit
+omissions without content. Cancellation propagates; malformed catalog metadata
+still fails discovery. No CLI or worker workflow is introduced.
+
+`SkillLoadResult` records loaded/omitted status, content or omission reason, UTF-8
+byte count and .NET character count, under `schemas/skill-load-result.schema.json`.
+Budget admission/enforcement remains assigned to Step 6.3.3; these operations do
+not yet claim over-budget rejection. `SkillLazyLoadingTests` evaluates the real
+selector-to-loader boundary with unavailable unrelated references, role exclusion,
+default abstention order, individual body/reference loads, unknown and non-reference
+resources, traversal, links, tampering, cancellation and result schema checks.
