@@ -20,7 +20,24 @@ public static class SkillCompatibilityMapReader
         if (id is not null && (!System.Text.RegularExpressions.Regex.IsMatch(id, "^[a-z0-9]+(?:-[a-z0-9]+)*$") ||
                                !System.Text.RegularExpressions.Regex.IsMatch(version!, "^\\d+\\.\\d+\\.\\d+$")))
             throw new ArgumentException("Invalid skill identity or version.");
-        return new SkillMetadata(fields.GetValueOrDefault("name") ?? "", id, version);
+        SkillActivationCondition[]? activation = null;
+        if (fields.TryGetValue("activation", out var activationJson))
+        {
+            if (activationJson.Length >= 2 && activationJson[0] == '\'' && activationJson[^1] == '\'')
+                activationJson = activationJson[1..^1].Replace("''", "'", StringComparison.Ordinal);
+            try
+            {
+                activation = JsonSerializer.Deserialize<SkillActivationCondition[]>(activationJson,
+                    new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+            }
+            catch (JsonException ex) { throw new ArgumentException("Invalid skill activation conditions.", ex); }
+            if (activation is null || activation.Length == 0 || activation.Any(condition => condition is null ||
+                !System.Text.RegularExpressions.Regex.IsMatch(condition.Id ?? "", "^[a-z0-9]+(?:-[a-z0-9]+)*$") ||
+                (condition.FrameworkVersion is not null && !System.Text.RegularExpressions.Regex.IsMatch(condition.FrameworkVersion,
+                    "^\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?$"))))
+                throw new ArgumentException("Invalid skill activation conditions.");
+        }
+        return new SkillMetadata(fields.GetValueOrDefault("name") ?? "", id, version, activation);
     }
 
     public static SkillCompatibilityMap Read(string root)
@@ -52,4 +69,7 @@ public static class SkillCompatibilityMapReader
     }
 }
 
-public sealed record SkillMetadata(string Name, string? Id, string? Version);
+public sealed record SkillMetadata(string Name, string? Id, string? Version,
+    SkillActivationCondition[]? Activation = null);
+
+public sealed record SkillActivationCondition(string Id, string? FrameworkVersion = null);
