@@ -60,6 +60,11 @@
       "type": "array",
       "items": { "$ref": "#/$defs/resource" },
       "uniqueItems": true
+    },
+    "profiles": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/profile" },
+      "uniqueItems": true
     }
   },
   "dependentRequired": {
@@ -79,6 +84,43 @@
         "path": { "type": "string", "minLength": 1, "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\\\]+$" },
         "type": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
         "hash": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+      }
+    },
+    "profile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["modelFamily", "modelRevision", "role", "skillVersion", "body", "safety", "requiredTools", "requiredFacts", "qualification"],
+      "properties": {
+        "modelFamily": { "type": "string", "minLength": 1 },
+        "modelRevision": { "type": "string", "minLength": 1 },
+        "role": { "enum": ["planner", "coder", "test-author", "reviewer", "repair"] },
+        "skillVersion": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+        "body": { "type": "string", "minLength": 1 },
+        "safety": { "$ref": "#/$defs/facts" },
+        "requiredTools": { "$ref": "#/$defs/facts" },
+        "requiredFacts": { "$ref": "#/$defs/facts" },
+        "qualification": { "$ref": "#/$defs/qualification" }
+      }
+    },
+    "facts": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+    "qualification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["modelFamily", "modelRevision", "role", "skillVersion", "passed", "tokensSaved", "tokenizerId", "tokenizerRevision", "templateId", "templateRevision", "safety", "requiredTools", "requiredFacts"],
+      "properties": {
+        "modelFamily": { "type": "string", "minLength": 1 },
+        "modelRevision": { "type": "string", "minLength": 1 },
+        "role": { "enum": ["planner", "coder", "test-author", "reviewer", "repair"] },
+        "skillVersion": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+        "passed": { "type": "boolean" },
+        "tokensSaved": { "type": "integer", "minimum": 0 },
+        "tokenizerId": { "type": "string", "minLength": 1 },
+        "tokenizerRevision": { "type": "string", "minLength": 1 },
+        "templateId": { "type": "string", "minLength": 1 },
+        "templateRevision": { "type": "string", "minLength": 1 },
+        "safety": { "$ref": "#/$defs/facts" },
+        "requiredTools": { "$ref": "#/$defs/facts" },
+        "requiredFacts": { "$ref": "#/$defs/facts" }
       }
     }
   }
