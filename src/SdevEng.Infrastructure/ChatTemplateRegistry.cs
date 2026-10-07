@@ -98,6 +98,9 @@ public sealed class ChatTemplateRegistry(TokenizerRegistry tokenizers)
                 }
                 if ((!component.IsLoaded && component.Id != PromptComponentId.SkillReferences) ||
                     !textByContentReference.TryGetValue(component.ContentReference, out var body)) return new(false, null, "prompt-content-unavailable");
+                if (component.Id == PromptComponentId.SkillReferences && component.IsLoaded &&
+                    component.ContentHash != "sha256:" + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(body))).ToLowerInvariant())
+                    return new(false, null, "reference-hash-mismatch");
                 if (!first) Overhead(template.MessageSeparator, "message-separator");
                 Overhead(template.MessageStart + component.Role + template.HeaderBodySeparator, "message-header");
                 Append(body, PromptComponentIdJsonConverter.ToWireValue(component.Id), component.ContentReference);

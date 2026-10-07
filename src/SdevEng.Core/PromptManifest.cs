@@ -184,7 +184,7 @@ public sealed class PromptComponentIdJsonConverter : JsonConverter<PromptCompone
 /// <summary>Versioned, ordered manifest of components used to construct a worker input.</summary>
 public sealed record PromptManifest(int SchemaVersion, IReadOnlyList<PromptComponent> Components)
 {
-    public const int CurrentSchemaVersion = 1;
+    public const int CurrentSchemaVersion = 2;
     private static readonly PromptComponentId[] CanonicalOrder =
     [
         PromptComponentId.System,
@@ -201,7 +201,7 @@ public sealed record PromptManifest(int SchemaVersion, IReadOnlyList<PromptCompo
 
     public void Validate()
     {
-        if (SchemaVersion != CurrentSchemaVersion) throw new ArgumentOutOfRangeException(nameof(SchemaVersion), "Unsupported prompt manifest schema version.");
+        if (SchemaVersion is not (1 or 2)) throw new ArgumentOutOfRangeException(nameof(SchemaVersion), "Unsupported prompt manifest schema version.");
         if (Components is null) throw new ArgumentException("Prompt components are required.", nameof(Components));
 
         var seen = new HashSet<PromptComponentId>();
@@ -229,8 +229,12 @@ public sealed record PromptManifest(int SchemaVersion, IReadOnlyList<PromptCompo
             ValidateRequestMetadata(component);
             ValidateEvidenceAndStateMetadata(component);
             ValidateToolAndOutputMetadata(component);
-            if (component.Id == PromptComponentId.SkillReferences && component.IsLoaded)
+            if (component.Id == PromptComponentId.SkillReferences && component.IsLoaded && SchemaVersion == 1)
                 throw new ArgumentException("Skill resource references cannot be marked as loaded content.", nameof(Components));
+            if (component.Id == PromptComponentId.SkillReferences && component.IsLoaded &&
+                (!System.Text.RegularExpressions.Regex.IsMatch(component.ContentHash, "^sha256:[0-9a-f]{64}$", System.Text.RegularExpressions.RegexOptions.CultureInvariant) ||
+                 component.ContentReference.Split('/').Length < 3))
+                throw new ArgumentException("Loaded references require a canonical skill/version/resource and SHA256 hash.", nameof(Components));
             if (isSkillComponent && !component.ContentReference.Contains('/', StringComparison.Ordinal))
                 throw new ArgumentException("Skill component references must identify a canonical skill/version/resource.", nameof(Components));
             if (isSkillComponent) priorSkillReference = component.ContentReference;

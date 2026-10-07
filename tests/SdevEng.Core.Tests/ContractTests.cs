@@ -34,7 +34,8 @@ public class ContractTests
         Assert.Throws<ArgumentException>(() => new PromptManifest(1, [.. minimal, minimal[0]]).Validate());
         Assert.Throws<ArgumentException>(() => new PromptManifest(1, [minimal[0] with { Id = (PromptComponentId)999 }, .. minimal.Skip(1)]).Validate());
         Assert.Throws<ArgumentException>(() => new PromptManifest(1, [minimal[0], minimal[1], Component(PromptComponentId.Evidence), minimal[2], minimal[3]]).Validate());
-        Assert.Throws<ArgumentOutOfRangeException>(() => new PromptManifest(2, minimal).Validate());
+        new PromptManifest(2, minimal).Validate();
+        Assert.Throws<ArgumentOutOfRangeException>(() => new PromptManifest(3, minimal).Validate());
     }
 
     [Fact]

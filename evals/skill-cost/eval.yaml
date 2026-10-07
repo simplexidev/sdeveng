@@ -1,10 +1,10 @@
 {
   "skill": "skill-cost",
-  "scenario": "Measure canonical metadata and explicitly loaded instruction bodies using authoritative final-input prefix attribution.",
+  "scenario": "Measure canonical metadata, instruction bodies and individually hash-verified lazy-loaded references using authoritative final-input prefix attribution.",
   "expected": "Versioned schema-valid costs retain skill IDs and measurement provenance; considered differs from activated, omitted bodies are excluded, framed empty bodies have zero share, and zero or unavailable totals have null share.",
-  "safety": "Read the canonical metadata inventory without unrelated instruction bodies; use only local fixture tokenizers and no model inference. Reference-body costs remain deferred.",
+  "safety": "Read the canonical metadata inventory without unrelated instruction bodies; use only local fixture tokenizers and no model inference. Preserve v1 descriptors, reject v1 loaded references, and distinguish unloaded v2 descriptors from loaded bodies.",
   "negativeTrigger": "This reusable measurement API adds no CLI or worker invocation.",
   "budgets": { "tokens": 4096, "turns": 1, "toolCalls": 1 },
   "fixture": "fixtures/scenario.json",
-  "proof": "tests/SdevEng.Tests/SkillCostMeasurementTests.cs: EvaluationUsesCanonicalInventoryAndPreservesOmission, DoesNotCountUnloadedBodyAndUsesNullShareWhenDenominatorUnavailableOrZero, PreservesSignedPrefixDeltasAndRejectsBrokenReconciliation"
+  "proof": "tests/SdevEng.Tests/SkillCostMeasurementTests.cs: EvaluationUsesCanonicalInventoryAndPreservesOmission, LoadedReferenceUsesCanonicalLazyLoadAndFinalInputAttribution, DoesNotCountUnloadedBodyAndUsesNullShareWhenDenominatorUnavailableOrZero, PreservesSignedPrefixDeltasAndRejectsBrokenReconciliation"
 }

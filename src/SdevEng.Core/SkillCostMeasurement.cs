@@ -9,14 +9,16 @@ public sealed record SkillCostMeasurement(int SchemaVersion, string Kind, string
     int ReferenceLoadedSkills, string? UnavailableReason, IReadOnlyList<SkillComponentTokenCost> Components)
 {
     public required RenderedInputTokenMeasurement InputMeasurement { get; init; }
-    public const int CurrentSchemaVersion = 1;
+    public long? NonSkillInputTokens { get; init; }
+    public string AttributionSemantics { get; init; } = OrderedComponentAttribution.AlgorithmVersion;
+    public const int CurrentSchemaVersion = 2;
     public const string ResultKind = "skill-cost-measurement";
 
     public void Validate()
     {
         ArgumentNullException.ThrowIfNull(InputMeasurement);
         InputMeasurement.Validate();
-        if (SchemaVersion != CurrentSchemaVersion || Kind != ResultKind ||
+        if (SchemaVersion != CurrentSchemaVersion || Kind != ResultKind || AttributionSemantics != OrderedComponentAttribution.AlgorithmVersion ||
             MeasurementKind is not ("exact" or "unavailable") || AvailableSkills < 0 || ConsideredSkills < 0 ||
             ActivatedSkills < 0 || InstructionLoadedSkills < 0 || ReferenceLoadedSkills < 0 ||
             InstructionLoadedSkills > ActivatedSkills || Components is null ||
@@ -26,15 +28,19 @@ public sealed record SkillCostMeasurement(int SchemaVersion, string Kind, string
             throw new ArgumentException("Invalid skill cost measurement.");
         if (MeasurementKind == "unavailable")
         {
-            if (TotalInputTokens is not null || SkillTokens is not null || TemplateOverheadTokens is not null ||
+            if (TotalInputTokens is not null || SkillTokens is not null || TemplateOverheadTokens is not null || NonSkillInputTokens is not null ||
                 TokenShare is not null || string.IsNullOrWhiteSpace(UnavailableReason) ||
                 Components.Any(c => c.Tokens is not null)) throw new ArgumentException("Invalid unavailable skill cost measurement.");
             return;
         }
         if (InputMeasurement.MeasurementKind != "exact" || InputMeasurement.Attribution is null || InputMeasurement.Tokens != TotalInputTokens ||
-            TotalInputTokens is null or < 0 || SkillTokens is null || TemplateOverheadTokens is null ||
+            TotalInputTokens is null or < 0 || SkillTokens is null || TemplateOverheadTokens is null || NonSkillInputTokens is null ||
             (TotalInputTokens > 0 && (TokenShare is null || !double.IsFinite(TokenShare.Value))) || (TotalInputTokens == 0 && TokenShare is not null) || UnavailableReason is not null ||
-            checked(SkillTokens + TemplateOverheadTokens) != TotalInputTokens ||
+            checked(SkillTokens + TemplateOverheadTokens + NonSkillInputTokens) != TotalInputTokens ||
+            InputMeasurement.Attribution.Components.Where(c => c.Span.ComponentId == RenderedComponentSpan.Overhead).Sum(c => c.Tokens) != TemplateOverheadTokens ||
+            InputMeasurement.Attribution.Components.Where(c => c.Span.ComponentId != RenderedComponentSpan.Overhead &&
+                !Components.Any(cost => cost.Tokens is not null && cost.ContentReference == c.Span.ContentReference &&
+                    c.Span.ComponentId == (cost.ComponentKind switch { "metadata" => "skill-metadata", "instructions" => "skill-instructions", _ => "skill-references" }))).Sum(c => c.Tokens) != NonSkillInputTokens ||
             Components.Aggregate(0L, (sum, c) => checked(sum + (c.Tokens ?? 0))) != SkillTokens ||
             (TotalInputTokens > 0 && TokenShare != (double)SkillTokens / TotalInputTokens))
             throw new ArgumentException("Invalid exact skill cost measurement.");

@@ -54,7 +54,9 @@ public sealed class SkillCostMeasurementTests
         Assert.Equal(1, result.AvailableSkills);
         Assert.Equal(2, result.SkillTokens);
         Assert.Equal(60, result.TotalInputTokens);
-        Assert.Equal(result.TotalInputTokens, result.SkillTokens + result.TemplateOverheadTokens);
+        Assert.Equal(54, result.TemplateOverheadTokens);
+        Assert.Equal(4, result.NonSkillInputTokens);
+        Assert.Equal(result.TotalInputTokens, result.SkillTokens + result.TemplateOverheadTokens + result.NonSkillInputTokens);
         Assert.Equal(2d / 60, result.TokenShare);
         Assert.Contains(result.Components, c => c.SkillId == "alpha" && c.ComponentKind == "metadata" && c.ContentReference == "alpha/v1/metadata" && c.Tokens == 1);
         Assert.Contains(result.Components, c => c.SkillId == "alpha" && c.ComponentKind == "instructions" && c.ContentReference == "alpha/v1/instructions" && c.Tokens == 1);
@@ -128,6 +130,68 @@ public sealed class SkillCostMeasurementTests
         Assert.Contains(result.Components, c => c.ComponentKind == "reference" && c.ContentReference == "alpha/v1/reference.md" &&
             c.Tokens is null && c.OmissionReason == "reference-cost-deferred");
         AssertArtifact(result);
+    }
+
+    [Fact]
+    public async Task LoadedReferenceUsesCanonicalLazyLoadAndFinalInputAttribution()
+    {
+        using var fixture = new Fixture("S", "R", "M", "I", "Q", "O");
+        var root = Path.Combine(Path.GetTempPath(), "skill-cost-load-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(root, "config"));
+            var directory = Path.Combine(root, "plugins/sdeveng/skills/alpha");
+            Directory.CreateDirectory(Path.Combine(directory, "agents"));
+            File.WriteAllText(Path.Combine(root, "plugins/sdeveng/plugin.json"), "{\"version\":\"3.0.0\"}");
+            File.WriteAllText(Path.Combine(directory, "agents/openai.yaml"), "interface: {}");
+            const string body = "reference é";
+            var hash = "sha256:" + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(body))).ToLowerInvariant();
+            var resources = JsonSerializer.Serialize(new[] { new SkillResource("one.md", "reference", hash) }, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+            File.WriteAllText(Path.Combine(directory, "SKILL.md"), $"---\nname: alpha\nactivation: '[{{\"id\":\"build\"}}]'\nresources: '{resources}'\n---\nInstructions.");
+            File.WriteAllText(Path.Combine(directory, "one.md"), body);
+            const string path = "plugins/sdeveng/skills/alpha/SKILL.md";
+            File.WriteAllText(Path.Combine(root, "config/skill-compatibility-map.json"), JsonSerializer.Serialize(
+                new SkillCompatibilityMap("../schemas/skill-compatibility-map.schema.json", 1,
+                    [new("alpha", path, "alpha", path, "3.0.0", [], "retained")]), InfrastructureJson.Options));
+            var components = fixture.Prompt.Components.ToList();
+            components.Insert(4, new(PromptComponentId.SkillReferences, "coder", "lazy-load", "alpha/3.0.0/one.md", hash, IsLoaded: false));
+            var prompt = fixture.Prompt with { SchemaVersion = 2, Components = components };
+            var descriptor = fixture.Service.Measure("test", "1", fixture.Checksum, prompt, fixture.Text);
+            Assert.Equal("exact", descriptor.MeasurementKind);
+            Assert.Null(descriptor.Components.Single(c => c.ComponentKind == "reference").Tokens);
+            var load = await new SkillActivationService().LoadReferenceAsync(root, new("coder", ["build"], [], [], []), "alpha", "one.md");
+            var result = fixture.Service.MeasureLoadedReferences(root, "test", "1", fixture.Checksum, prompt, fixture.Text, [load]);
+            Assert.Equal(1, result.ReferenceLoadedSkills);
+            Assert.Equal(System.Text.Encoding.UTF8.GetByteCount(body), result.Components.Single(c => c.ComponentKind == "reference").Tokens);
+            Assert.Equal(2 + load.Utf8Bytes, result.SkillTokens);
+            Assert.Equal((double)result.SkillTokens! / result.TotalInputTokens!, result.TokenShare);
+            AssertArtifact(result);
+            AssertArtifact(descriptor);
+            Assert.Throws<ArgumentException>(() => (result with
+            {
+                TemplateOverheadTokens = result.TemplateOverheadTokens + 1,
+                NonSkillInputTokens = result.NonSkillInputTokens - 1
+            }).Validate());
+            var omitted = fixture.Service.MeasureLoadedReferences(root, "test", "1", fixture.Checksum, prompt, fixture.Text,
+                [new("alpha", "one.md", "omitted", null, "hash-mismatch", 0, 0)]);
+            Assert.Equal("exact", omitted.MeasurementKind);
+            Assert.Equal(0, omitted.ReferenceLoadedSkills);
+            Assert.Contains(omitted.Components, c => c.ComponentKind == "reference" && c.Tokens is null && c.OmissionReason == "hash-mismatch");
+            AssertArtifact(omitted);
+            Assert.Throws<ArgumentException>(() => fixture.Service.MeasureLoadedReferences(root, "test", "1", fixture.Checksum, prompt, fixture.Text, [load with { Content = "tampered" }]));
+            var loaded = prompt with { Components = components.Select(c => c.Id == PromptComponentId.SkillReferences ? c with { IsLoaded = true } : c).ToArray() };
+            Assert.Throws<ArgumentException>(() => (loaded with { SchemaVersion = 1 }).Validate());
+            var schema = JsonSchema.FromFile(Path.Combine(AgentTool.FindToolkit(), "schemas/prompt-manifest.schema.json"));
+            var json = JsonSerializer.SerializeToNode(loaded, InfrastructureJson.Options)!;
+            Assert.True(schema.Evaluate(json).IsValid);
+            json.Deserialize<PromptManifest>(InfrastructureJson.Options)!.Validate();
+            json["schemaVersion"] = 1;
+            Assert.False(schema.Evaluate(json).IsValid);
+            Assert.Equal("unavailable", fixture.Service.Measure("test", "1", fixture.Checksum, loaded, fixture.Text).MeasurementKind);
+            fixture.Text["alpha/3.0.0/one.md"] = "tampered";
+            Assert.Equal("reference-hash-mismatch", fixture.Service.Measure("test", "1", fixture.Checksum, loaded, fixture.Text).UnavailableReason);
+        }
+        finally { Directory.Delete(root, true); }
     }
 
     [Theory]
