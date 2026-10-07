@@ -7,7 +7,7 @@
   "additionalProperties": false,
   "required": ["schemaVersion", "components"],
   "properties": {
-    "schemaVersion": { "const": 1 },
+    "schemaVersion": { "enum": [1, 2] },
     "components": {
       "type": "array",
       "items": { "$ref": "#/$defs/component" },
@@ -20,6 +20,10 @@
       "uniqueItems": true
     }
   },
+  "allOf": [
+    { "if": { "properties": { "schemaVersion": { "const": 1 } } }, "then": { "properties": { "components": { "items": { "if": { "properties": { "id": { "const": "skill-references" } } }, "then": { "required": ["isLoaded"], "properties": { "isLoaded": { "const": false } } } } } } } },
+    { "if": { "properties": { "schemaVersion": { "const": 2 } } }, "then": { "properties": { "components": { "items": { "if": { "properties": { "id": { "const": "skill-references" }, "isLoaded": { "const": true } } }, "then": { "properties": { "contentHash": { "pattern": "^sha256:[0-9a-f]{64}$" }, "contentReference": { "pattern": "^[^/]+/[^/]+/.+$" } } } } } } } }
+  ],
   "$defs": {
     "component": {
       "type": "object",

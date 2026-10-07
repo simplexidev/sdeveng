@@ -6,7 +6,9 @@
   "additionalProperties": false,
   "required": ["schemaVersion", "kind", "measurementKind", "totalInputTokens", "skillTokens", "templateOverheadTokens", "tokenShare", "availableSkills", "consideredSkills", "activatedSkills", "instructionLoadedSkills", "referenceLoadedSkills", "unavailableReason", "components", "inputMeasurement"],
   "properties": {
-    "schemaVersion": { "const": 1 },
+    "schemaVersion": { "const": 2 },
+    "nonSkillInputTokens": { "type": ["integer", "null"] },
+    "attributionSemantics": { "const": "ordered-cumulative-prefix/v1" },
     "kind": { "const": "skill-cost-measurement" },
     "measurementKind": { "enum": ["exact", "unavailable"] },
     "totalInputTokens": { "type": ["integer", "null"], "minimum": 0 },
@@ -26,5 +28,8 @@
     { "properties": { "measurementKind": { "const": "exact" }, "totalInputTokens": { "type": "integer", "minimum": 0 }, "skillTokens": { "type": "integer" }, "templateOverheadTokens": { "type": "integer" }, "tokenShare": { "type": ["number", "null"] }, "unavailableReason": { "type": "null" } } },
     { "properties": { "measurementKind": { "const": "unavailable" }, "totalInputTokens": { "type": "null" }, "skillTokens": { "type": "null" }, "templateOverheadTokens": { "type": "null" }, "tokenShare": { "type": "null" }, "unavailableReason": { "type": "string", "minLength": 1 }, "components": { "items": { "properties": { "tokens": { "type": "null" } } } } } }
   ],
-  "allOf": [{ "if": { "properties": { "measurementKind": { "const": "exact" } } }, "then": { "properties": { "inputMeasurement": { "required": ["attribution"], "properties": { "measurementKind": { "const": "exact" } } } }, "if": { "properties": { "totalInputTokens": { "const": 0 } } }, "then": { "properties": { "tokenShare": { "type": "null" } } }, "else": { "properties": { "tokenShare": { "type": "number" } } } } }]
+  "allOf": [
+    { "required": ["nonSkillInputTokens", "attributionSemantics"], "if": { "properties": { "measurementKind": { "const": "exact" } } }, "then": { "properties": { "nonSkillInputTokens": { "type": "integer" } } }, "else": { "properties": { "nonSkillInputTokens": { "type": "null" } } } },
+    { "if": { "properties": { "measurementKind": { "const": "exact" } } }, "then": { "properties": { "inputMeasurement": { "required": ["attribution"], "properties": { "measurementKind": { "const": "exact" } } } }, "if": { "properties": { "totalInputTokens": { "const": 0 } } }, "then": { "properties": { "tokenShare": { "type": "null" } } }, "else": { "properties": { "tokenShare": { "type": "number" } } } } }
+  ]
 }
