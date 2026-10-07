@@ -102,7 +102,7 @@ public static class SkillCompatibilityMapReader
         {
             requiredTools = ReadStringArray(toolsJson, "required tools");
             if (requiredTools.Distinct(StringComparer.Ordinal).Count() != requiredTools.Length ||
-                requiredTools.Any(tool => !System.Text.RegularExpressions.Regex.IsMatch(tool, "^[a-z0-9]+(?:-[a-z0-9]+)*$")))
+                requiredTools.Any(tool => !System.Text.RegularExpressions.Regex.IsMatch(tool, "^[a-z0-9]+(?:[-_][a-z0-9]+)*$")))
                 throw new ArgumentException("Invalid required skill tools.");
         }
         int? contextAllowance = null;
