@@ -1,8 +1,8 @@
 {
   "skill": "diagnose-build",
   "scenario": "A multi-project build reports a compiler error after an MSBuild target failure and a binlog is available.",
-  "expected": "Inspect the binlog structurally for the first causal target/task or compiler diagnostic before bounded raw logs.",
-  "safety": "Do not upload the binlog, infer evaluated values from XML, or use JEV for build facts.",
+  "expected": "Check SDK/global.json availability and evaluated project facts from inspection, distinguish restore/build execution results, then inspect the binlog structurally for the first causal target/task or compiler diagnostic before bounded raw logs.",
+  "safety": "Do not treat an unexecuted or failed command as passing, infer evaluated values from XML, upload the binlog, or use JEV for build facts.",
   "negativeTrigger": "A successful build is slow but has no failure.",
   "budgets": {
     "tokens": 6000,
