@@ -1,0 +1,6 @@
+interface:
+  display_name: "Human Handoff"
+  short_description: "Summarize Git and GitHub evidence for a human decision."
+  default_prompt: "Use $human-handoff."
+policy:
+  allow_implicit_invocation: false
