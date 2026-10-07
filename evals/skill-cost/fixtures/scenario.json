@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "skillId": "diagnose-dotnet",
+  "consideredSkillIds": ["diagnose-dotnet", "write-dotnet-tests"],
+  "activatedSkillIds": ["diagnose-dotnet"],
+  "instructionOmissionReason": "not-requested",
+  "expectedConsideredSkills": 2,
+  "expectedActivatedSkills": 1,
+  "expectedInstructionLoadedSkills": 0
+}
