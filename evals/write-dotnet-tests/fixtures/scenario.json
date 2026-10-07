@@ -1,5 +1,9 @@
 {
-  "framework": "xunit-v3",
+  "framework": "xunit-v2",
+  "targetFramework": "net10.0",
+  "frameworkPackageVersion": "2.9.3",
+  "roslynVersion": "4.14.0",
   "contract": "Malformed input returns a structured failure without changing parser state.",
-  "nearbyConvention": "Fact methods use Assert.False and Assert.Equal on the returned result."
+  "nearbyConvention": "Fact methods use Assert.False and Assert.Equal on the returned result.",
+  "targeting": "Use an explicit path and stable declaration key; preserve public API and production behavior."
 }
