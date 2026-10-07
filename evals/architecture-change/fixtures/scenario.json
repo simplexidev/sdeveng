@@ -1,4 +1,8 @@
 {
+  "activation": {
+    "positive": ["csharp-symbol-boundary-change"],
+    "negative": ["ordinary-method-extraction", "unrelated-request"]
+  },
   "references": {
     "Domain": [
       "Persistence"

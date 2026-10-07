@@ -1,9 +1,9 @@
 {
   "skill": "architecture-change",
-  "scenario": "A repository proposes moving persistence into the domain project.",
-  "expected": "Identify the dependency reversal, integration seams and migration tests.",
-  "safety": "Do not trigger for an ordinary method extraction.",
-  "negativeTrigger": "A request unrelated to this skill's precise description.",
+  "scenario": "A repository proposes moving persistence into the domain project and requests a bounded, symbol-aware C# change plan.",
+  "expected": "Activate for csharp-symbol-boundary-change; resolve exact Roslyn declaration keys and locations, bound paths and symbols in a ChangeSet, preserve public API, and cite final review evidence locations and focused proof. Reject stale or ambiguous anchors pending refresh or disambiguation.",
+  "safety": "Do not edit from name-only matches, silently widen scope, or change public API without explicit acceptance.",
+  "negativeTrigger": "An ordinary method extraction, or a request unrelated to C# component boundaries or architecture, does not activate this procedure.",
   "budgets": {
     "tokens": 8000,
     "turns": 12,
