@@ -3,6 +3,17 @@
   "schemaVersion": 1,
   "skills": [
     {
+      "oldId": "human-handoff",
+      "oldPath": "plugins/sdeveng/skills/human-handoff/SKILL.md",
+      "canonicalId": "human-handoff",
+      "canonicalPath": "plugins/sdeveng/skills/human-handoff/SKILL.md",
+      "version": "3.0.0",
+      "aliases": [
+        "sdeveng-engineering-toolkit:human-handoff"
+      ],
+      "migrationStatus": "retained"
+    },
+    {
       "oldId": "address-pr-review",
       "oldPath": "plugins/sdeveng/skills/address-pr-review/SKILL.md",
       "canonicalId": "address-pr-review",
