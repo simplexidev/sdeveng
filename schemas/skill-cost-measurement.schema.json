@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://simplexidev.github.io/sdeveng/schemas/skill-cost-measurement.schema.json",
+  "title": "Skill Cost Measurement",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "kind", "measurementKind", "totalInputTokens", "skillTokens", "templateOverheadTokens", "tokenShare", "availableSkills", "consideredSkills", "activatedSkills", "instructionLoadedSkills", "referenceLoadedSkills", "unavailableReason", "components", "inputMeasurement"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "skill-cost-measurement" },
+    "measurementKind": { "enum": ["exact", "unavailable"] },
+    "totalInputTokens": { "type": ["integer", "null"], "minimum": 0 },
+    "skillTokens": { "type": ["integer", "null"] },
+    "templateOverheadTokens": { "type": ["integer", "null"] },
+    "tokenShare": { "type": ["number", "null"] },
+    "inputMeasurement": { "$ref": "rendered-input-token-measurement.schema.json" },
+    "availableSkills": { "type": "integer", "minimum": 0 },
+    "consideredSkills": { "type": "integer", "minimum": 0 },
+    "activatedSkills": { "type": "integer", "minimum": 0 },
+    "instructionLoadedSkills": { "type": "integer", "minimum": 0 },
+    "referenceLoadedSkills": { "type": "integer", "minimum": 0 },
+    "unavailableReason": { "type": ["string", "null"] },
+    "components": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["skillId", "componentKind", "contentReference", "tokens", "omissionReason"], "properties": { "skillId": { "type": "string", "minLength": 1 }, "componentKind": { "enum": ["metadata", "instructions", "reference"] }, "contentReference": { "type": "string", "minLength": 1 }, "tokens": { "type": ["integer", "null"] }, "omissionReason": { "type": ["string", "null"], "minLength": 1 } }, "if": { "properties": { "tokens": { "type": "null" } } }, "then": { "properties": { "omissionReason": { "type": "string", "minLength": 1 } } }, "else": { "properties": { "omissionReason": { "type": "null" } } } } }
+  },
+  "oneOf": [
+    { "properties": { "measurementKind": { "const": "exact" }, "totalInputTokens": { "type": "integer", "minimum": 0 }, "skillTokens": { "type": "integer" }, "templateOverheadTokens": { "type": "integer" }, "tokenShare": { "type": ["number", "null"] }, "unavailableReason": { "type": "null" } } },
+    { "properties": { "measurementKind": { "const": "unavailable" }, "totalInputTokens": { "type": "null" }, "skillTokens": { "type": "null" }, "templateOverheadTokens": { "type": "null" }, "tokenShare": { "type": "null" }, "unavailableReason": { "type": "string", "minLength": 1 }, "components": { "items": { "properties": { "tokens": { "type": "null" } } } } } }
+  ],
+  "allOf": [{ "if": { "properties": { "measurementKind": { "const": "exact" } } }, "then": { "properties": { "inputMeasurement": { "required": ["attribution"], "properties": { "measurementKind": { "const": "exact" } } } }, "if": { "properties": { "totalInputTokens": { "const": 0 } } }, "then": { "properties": { "tokenShare": { "type": "null" } } }, "else": { "properties": { "tokenShare": { "type": "number" } } } } }]
+}
