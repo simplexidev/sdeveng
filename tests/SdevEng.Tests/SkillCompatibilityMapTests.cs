@@ -86,6 +86,30 @@ public class SkillCompatibilityMapTests
     }
 
     [Fact]
+    public void ApiCompatibilityDiscoversAndLoadsItsVersionedSymbolReviewProcedure()
+    {
+        var entry = SkillCompatibilityMapReader.ReadMetadataIndex(Root).Single(skill => skill.Id == "api-compatibility");
+        Assert.Equal("3.0.0", entry.Version);
+        Assert.Contains(entry.Activation!, condition => condition.Id == "public-api-change");
+        var resource = Assert.Single(entry.Resources!);
+        Assert.Equal("procedure", resource.Type);
+        var resourcePath = Path.Combine(Root, "plugins/sdeveng/skills/api-compatibility", resource.Path);
+        var bytes = File.ReadAllBytes(resourcePath);
+        Assert.Equal("sha256:" + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(bytes)).ToLowerInvariant(), resource.Hash);
+        var body = SkillCompatibilityMapReader.ReadSelectedSkill(Root, "api-compatibility", "unqualified", "unqualified", "reviewer");
+        Assert.Contains("symbol-aware-api-compatibility.md", body, StringComparison.Ordinal);
+        var procedure = File.ReadAllText(resourcePath);
+        Assert.Contains("stable Roslyn documentation ID", procedure, StringComparison.Ordinal);
+        Assert.Contains("public signatures, visibility, and behavior", procedure, StringComparison.Ordinal);
+        Assert.Contains("final `path:line:column`", procedure, StringComparison.Ordinal);
+        var fixture = JsonNode.Parse(File.ReadAllText(Path.Combine(Root, "evals/api-compatibility/fixtures/scenario.json")))!;
+        Assert.Contains("public-api-change", fixture["activation"]!["positive"]!.AsArray().Select(item => item!.GetValue<string>()));
+        Assert.Contains("ambiguous-anchor", fixture["procedure"]!["reject"]!.AsArray().Select(item => item!.GetValue<string>()));
+        Assert.True(fixture["procedure"]!["preservePublicApiUnlessExplicitlyAuthorized"]!.GetValue<bool>());
+        Assert.True(fixture["procedure"]!["noEditEngine"]!.GetValue<bool>());
+    }
+
+    [Fact]
     public void FrontMatterReaderStopsExactlyAtClosingDelimiter()
     {
         using var stream = new HeaderOnlyStream(System.Text.Encoding.UTF8.GetBytes("---\nname: prepare-commit\n---\n"));
