@@ -1,5 +1,19 @@
 # Skill metadata index
 
+`SkillCompatibilityMapReader.ReadSelectedSkill(root, identity, modelFamily,
+modelRevision, role, qualification)` resolves a canonical ID or alias and loads
+only that skill. The reader validates its versioned profile/qualification records.
+An exact passing qualification (including tokenizer/template revisions and
+structured safety, tools and required facts) selects the profile body. Missing
+profiles or missing, failed or stale supplied evidence return the canonical body,
+including its original whitespace. Savings never qualify a profile automatically.
+Changed profile safety/tool/fact fields are rejected against qualification evidence;
+declared canonical tools must also match. Callers supply the existing typed
+qualification record; synthetic records prove selection only, not real-model
+qualification. This callable boundary adds no worker workflow or CLI command.
+Full metadata reads retain the body in memory but exclude it from serialization;
+front-matter discovery still does not load instruction bodies.
+
 `SkillCompatibilityMapReader.ReadMetadataIndex(root)` indexes the unified plugin's
 skill front matter. It stops reading each skill at the closing `---` delimiter,
 parses resource declarations without opening or hashing resources, and projects

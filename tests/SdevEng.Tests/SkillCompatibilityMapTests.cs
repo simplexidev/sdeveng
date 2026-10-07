@@ -19,6 +19,50 @@ public class SkillCompatibilityMapTests
     }
 
     [Fact]
+    public void InventorySelectionRequiresExactQualificationAndPreservesCanonicalBody()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "skill-selection-" + Guid.NewGuid().ToString("N"));
+        var path = Path.Combine(root, Entry.CanonicalPath);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        Directory.CreateDirectory(Path.Combine(root, "config"));
+        try
+        {
+            var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+            File.WriteAllText(Path.Combine(root, "config/skill-compatibility-map.json"), JsonSerializer.Serialize(Minimal, options));
+            var qualification = new SkillQualification("synthetic", "revision-1", "coder", "3.0.0", true, 12,
+                "synthetic-tokenizer", "1", "synthetic-template", "1", ["no-secrets"], ["read-file"], ["preserve-errors"]);
+            var profile = new SkillProfile("synthetic", "revision-1", "coder", "3.0.0", "Concise body.",
+                ["no-secrets"], ["read-file"], ["preserve-errors"], qualification);
+            void Write(SkillProfile? variant, string tools = "read-file") => File.WriteAllText(path,
+                "---\nname: prepare-commit\nid: prepare-commit\nversion: 3.0.0\nrequiredTools: '[\"" + tools + "\"]'\n" +
+                (variant is null ? "" : "profiles: '" + JsonSerializer.Serialize(new[] { variant }, options) + "'\n") +
+                "---\n\nCanonical body.\n");
+            string Select(SkillQualification? evidence, string revision = "revision-1", string role = "coder") =>
+                SkillCompatibilityMapReader.ReadSelectedSkill(root, Entry.Aliases[0], "synthetic", revision, role, evidence);
+            Write(profile);
+            Assert.Equal("Concise body.", Select(qualification));
+            foreach (var evidence in new SkillQualification?[] { null, qualification with { Passed = false },
+                qualification with { SkillVersion = "2.0.0" }, qualification with { ModelRevision = "old" },
+                qualification with { TemplateRevision = "old" }, qualification with { TokenizerRevision = "old" },
+                qualification with { Safety = [] }, qualification with { RequiredTools = [] }, qualification with { RequiredFacts = [] } })
+                Assert.Equal("\nCanonical body.\n", Select(evidence));
+            Assert.Equal("\nCanonical body.\n", Select(qualification, role: "reviewer"));
+            Assert.Equal("\nCanonical body.\n", Select(qualification, revision: "missing"));
+            Write(null);
+            Assert.Equal("\nCanonical body.\n", Select(qualification));
+            Write(profile with { Safety = [] });
+            Assert.Throws<ArgumentException>(() => Select(qualification));
+            Write(profile with { RequiredTools = [] });
+            Assert.Throws<ArgumentException>(() => Select(qualification));
+            Write(profile, "write-file");
+            Assert.Throws<ArgumentException>(() => Select(qualification));
+            // No plugin manifest, agent file, or unrelated skill body is needed or read by selection.
+            Assert.Throws<ArgumentException>(() => SkillCompatibilityMapReader.ReadSelectedSkill(root, "unknown", "synthetic", "revision-1", "coder"));
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
+    [Fact]
     public void FrontMatterReaderStopsExactlyAtClosingDelimiter()
     {
         using var stream = new HeaderOnlyStream(System.Text.Encoding.UTF8.GetBytes("---\nname: prepare-commit\n---\n"));
@@ -161,10 +205,10 @@ public class SkillCompatibilityMapTests
         {
             var legacy = Path.Combine(skillDirectory, "legacy.md");
             File.WriteAllText(legacy, "---\nname: prepare-commit\ndescription: Legacy skill description.\n---\nBody\n");
-            Assert.Equal(new SkillMetadata("prepare-commit", null, null), SkillCompatibilityMapReader.ReadSkillMetadata(legacy));
+            Assert.Equal(new SkillMetadata("prepare-commit", null, null) { Body = "Body\n" }, SkillCompatibilityMapReader.ReadSkillMetadata(legacy));
             var versioned = Path.Combine(skillDirectory, "versioned.md");
             File.WriteAllText(versioned, "---\nname: prepare-commit\nid: prepare-commit\nversion: 3.0.0\ndescription: Versioned skill description.\n---\nBody\n");
-            Assert.Equal(new SkillMetadata("prepare-commit", "prepare-commit", "3.0.0"), SkillCompatibilityMapReader.ReadSkillMetadata(versioned));
+            Assert.Equal(new SkillMetadata("prepare-commit", "prepare-commit", "3.0.0") { Body = "Body\n" }, SkillCompatibilityMapReader.ReadSkillMetadata(versioned));
             File.WriteAllText(versioned, "---\nname: prepare-commit\nid: prepare-commit\nversion: 3.0.0\nactivation: '[{\"id\":\"dotnet-build\",\"frameworkVersion\":\"10.0.0\"}]'\n---\nBody\n");
             var activated = SkillCompatibilityMapReader.ReadSkillMetadata(versioned);
             Assert.Equal(new SkillActivationCondition("dotnet-build", "10.0.0"), Assert.Single(activated.Activation!));
@@ -219,9 +263,15 @@ public class SkillCompatibilityMapTests
             File.WriteAllText(versioned, "---\nname: prepare-commit\nid: prepare-commit\nversion: 3.0.0\nprofiles: '" +
                 JsonSerializer.Serialize(new[] { profile }, new JsonSerializerOptions(JsonSerializerDefaults.Web)).Replace("'", "''", StringComparison.Ordinal) + "'\n---\nCanonical body.\n");
             var profiled = SkillCompatibilityMapReader.ReadSkillMetadata(versioned);
+            var metadataNode = JsonSerializer.SerializeToNode(profiled, new JsonSerializerOptions(JsonSerializerDefaults.Web)
+            {
+                DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+            })!;
+            Assert.True(schema.Evaluate(metadataNode).IsValid);
+            Assert.False(metadataNode.AsObject().ContainsKey("body"));
             Assert.Equal("Concise qualified body.", SkillProfile.Select(profiled, "family", "revision-1", "coder", "3.0.0", qualification));
-            Assert.Equal("prepare-commit", SkillProfile.Select(profiled, "family", "stale", "coder", "3.0.0", qualification));
-            Assert.Equal("prepare-commit", SkillProfile.Select(profiled, "family", "revision-1", "coder", "3.0.0", null));
+            Assert.Equal("Canonical body.\n", SkillProfile.Select(profiled, "family", "stale", "coder", "3.0.0", qualification));
+            Assert.Equal("Canonical body.\n", SkillProfile.Select(profiled, "family", "revision-1", "coder", "3.0.0", null));
             Assert.Throws<ArgumentException>(() => (profile with { RequiredTools = ["write-file"] }).Validate("3.0.0"));
             var profileNode = JsonSerializer.SerializeToNode(profile, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
             Assert.True(schema.Evaluate(JsonNode.Parse("""{"name":"prepare-commit","id":"prepare-commit","version":"3.0.0","profiles":[""" + profileNode.ToJsonString() + "]}")!).IsValid);

@@ -3,5 +3,15 @@
   "validRoles": ["planner", "coder", "test-author", "reviewer", "repair"],
   "rejections": ["unknown role", "duplicate role", "unknown tool", "missing resource"],
   "excludedContent": ["instruction body", "reference body"],
-  "proof": "CatalogNormalDispatchValidatesMetadataWithoutLoadingBodies"
+  "proof": "CatalogNormalDispatchValidatesMetadataWithoutLoadingBodies",
+  "profileSelection": {
+    "skillId": "prepare-commit",
+    "skillVersion": "3.0.0",
+    "modelFamily": "synthetic",
+    "modelRevision": "revision-1",
+    "role": "coder",
+    "fallbackCases": ["missing profile", "missing qualification", "failed qualification", "stale skill version", "stale model revision", "stale tokenizer revision", "stale template revision", "different role"],
+    "rejections": ["changed safety", "changed profile tools", "changed canonical tools"],
+    "proof": "InventorySelectionRequiresExactQualificationAndPreservesCanonicalBody"
+  }
 }

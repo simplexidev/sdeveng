@@ -10,6 +10,21 @@ public static class SkillCompatibilityMapReader
         return ParseMetadata(File.ReadAllText(path), path);
     }
 
+    /// <summary>Loads only the requested canonical skill and selects an explicitly qualified body.</summary>
+    public static string ReadSelectedSkill(string root, string identity, string modelFamily, string modelRevision,
+        string role, SkillQualification? qualification = null)
+    {
+        var entry = ReadMap(root).Resolve(identity) ?? throw new ArgumentException("Unresolved skill identity: " + identity);
+        var path = Path.Combine(root, entry.CanonicalPath);
+        EnsureNoLinks(Path.GetFullPath(root), Path.GetFullPath(path));
+        var metadata = ReadSkillMetadata(path);
+        if (metadata.Name != entry.CanonicalId || (metadata.Id is not null &&
+            (metadata.Id != entry.CanonicalId || metadata.Version != entry.Version)))
+            throw new ArgumentException("Skill metadata differs from compatibility entry: " + entry.CanonicalId);
+        metadata = metadata with { Id = entry.CanonicalId, Version = metadata.Version ?? entry.Version };
+        return SkillProfile.Select(metadata, modelFamily, modelRevision, role, entry.Version, qualification);
+    }
+
     public static SkillMetadata ReadSkillFrontMatter(string path)
     {
         // Read bytes through the closing delimiter; do not prefetch instruction content.
@@ -116,7 +131,10 @@ public static class SkillCompatibilityMapReader
             if (profiles.Select(profile => (profile.ModelFamily, profile.ModelRevision, profile.Role, profile.SkillVersion)).Distinct().Count() != profiles.Length)
                 throw new ArgumentException("Duplicate skill profile identity.");
         }
-        return new SkillMetadata(fields.GetValueOrDefault("name") ?? "", id, version, activation, supportedRoles, requiredTools, contextAllowance, resources, profiles);
+        return new SkillMetadata(fields.GetValueOrDefault("name") ?? "", id, version, activation, supportedRoles, requiredTools, contextAllowance, resources, profiles)
+        {
+            Body = path is null ? null : text[(end + 4 < text.Length && text[end + 4] == '\n' ? end + 5 : end + 4)..]
+        };
     }
 
     internal static bool IsSafeResourcePath(string? path) => !string.IsNullOrWhiteSpace(path) &&
@@ -244,7 +262,12 @@ public static class SkillCompatibilityMapReader
 
 public sealed record SkillMetadata(string Name, string? Id, string? Version,
     SkillActivationCondition[]? Activation = null, string[]? SupportedRoles = null, string[]? RequiredTools = null,
-    int? ContextAllowance = null, SkillResource[]? Resources = null, SkillProfile[]? Profiles = null);
+    int? ContextAllowance = null, SkillResource[]? Resources = null, SkillProfile[]? Profiles = null)
+{
+    // Instruction content is never populated by front-matter discovery or serialized as metadata.
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string? Body { get; init; }
+}
 
 /// <summary>An optional concise body variant bound to an exact qualification identity.</summary>
 public sealed record SkillProfile(string ModelFamily, string ModelRevision, string Role, string SkillVersion,
@@ -287,10 +310,13 @@ public sealed record SkillProfile(string ModelFamily, string ModelRevision, stri
             match.Qualification.TokenizerId != qualification.TokenizerId || match.Qualification.TokenizerRevision != qualification.TokenizerRevision ||
             match.Qualification.TemplateId != qualification.TemplateId || match.Qualification.TemplateRevision != qualification.TemplateRevision ||
             !Same(match.Qualification.Safety, qualification.Safety) || !Same(match.Qualification.RequiredTools, qualification.RequiredTools) ||
-            !Same(match.Qualification.RequiredFacts, qualification.RequiredFacts)) return canonical.Name;
+            !Same(match.Qualification.RequiredFacts, qualification.RequiredFacts)) return canonical.Body ?? canonical.Name;
+        match.Validate(canonical.Version);
+        if (canonical.RequiredTools is not null && !Same(canonical.RequiredTools, match.RequiredTools))
+            throw new ArgumentException("Skill profile cannot change canonical tool contracts.");
         return match.Body;
 
-        static bool Same(string[] left, string[] right) => left.Order(StringComparer.Ordinal)
+        static bool Same(string[]? left, string[]? right) => left is not null && right is not null && left.Order(StringComparer.Ordinal)
             .SequenceEqual(right.Order(StringComparer.Ordinal), StringComparer.Ordinal);
     }
 }
