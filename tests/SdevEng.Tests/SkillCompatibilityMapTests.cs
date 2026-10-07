@@ -212,6 +212,22 @@ public class SkillCompatibilityMapTests
             Assert.True(schema.Evaluate(JsonNode.Parse("""{"contextAllowance":2400,"resources":[{"path":"references/guide.md","type":"reference","hash":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]}""")!).IsValid);
             Assert.False(schema.Evaluate(JsonNode.Parse("""{"contextAllowance":0}""")!).IsValid);
             Assert.False(schema.Evaluate(JsonNode.Parse("""{"resources":[{"path":"../guide.md","type":"reference","hash":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}]}""")!).IsValid);
+            var qualification = new SkillQualification("family", "revision-1", "coder", "3.0.0", true, 12,
+                "tokenizer", "tok-1", "template", "template-1", ["no-secrets"], ["read-file"], ["preserve-errors"]);
+            var profile = new SkillProfile("family", "revision-1", "coder", "3.0.0", "Concise qualified body.",
+                ["no-secrets"], ["read-file"], ["preserve-errors"], qualification);
+            File.WriteAllText(versioned, "---\nname: prepare-commit\nid: prepare-commit\nversion: 3.0.0\nprofiles: '" +
+                JsonSerializer.Serialize(new[] { profile }, new JsonSerializerOptions(JsonSerializerDefaults.Web)).Replace("'", "''", StringComparison.Ordinal) + "'\n---\nCanonical body.\n");
+            var profiled = SkillCompatibilityMapReader.ReadSkillMetadata(versioned);
+            Assert.Equal("Concise qualified body.", SkillProfile.Select(profiled, "family", "revision-1", "coder", "3.0.0", qualification));
+            Assert.Equal("prepare-commit", SkillProfile.Select(profiled, "family", "stale", "coder", "3.0.0", qualification));
+            Assert.Equal("prepare-commit", SkillProfile.Select(profiled, "family", "revision-1", "coder", "3.0.0", null));
+            Assert.Throws<ArgumentException>(() => (profile with { RequiredTools = ["write-file"] }).Validate("3.0.0"));
+            var profileNode = JsonSerializer.SerializeToNode(profile, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+            Assert.True(schema.Evaluate(JsonNode.Parse("""{"name":"prepare-commit","id":"prepare-commit","version":"3.0.0","profiles":[""" + profileNode.ToJsonString() + "]}")!).IsValid);
+            profileNode["qualification"]!["passed"] = false;
+            Assert.True(schema.Evaluate(JsonNode.Parse("""{"name":"prepare-commit","profiles":[""" + profileNode.ToJsonString() + "]}")!).IsValid);
+            Assert.Throws<ArgumentException>(() => (profile with { Qualification = qualification with { Passed = false } }).Validate("3.0.0"));
         }
         finally { Directory.Delete(root, true); }
     }
