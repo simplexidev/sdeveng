@@ -297,6 +297,86 @@ public sealed class SkillCostMeasurementTests
         json.Deserialize<SkillCostMeasurement>(InfrastructureJson.Options)!.Validate();
     }
 
+    [Fact]
+    public void ProfileSelectionMeasuresPinnedSavingsAndRejectsCanonicalPolicyChanges()
+    {
+        using var fixture = new Fixture("system", "role", "metadata", "unused", "request", "output");
+        const string canonicalBody = "Canonical instructions with preserved facts.\n";
+        const string profileBody = "Concise.\n";
+        var qualification = new SkillQualification("synthetic", "revision-1", "coder", "3.0.0", true,
+            canonicalBody.Length - profileBody.Length, fixture.Tokenizer.Id, fixture.Tokenizer.Revision,
+            fixture.Template.Id, fixture.Template.Revision, ["no-secrets"], ["read-file"], ["preserve-errors"]);
+        var profile = new SkillProfile("synthetic", "revision-1", "coder", "3.0.0", profileBody,
+            qualification.Safety, qualification.RequiredTools, qualification.RequiredFacts, qualification);
+        var entry = new SkillCompatibilityEntry("prepare-commit", "plugins/sdeveng/skills/prepare-commit/SKILL.md",
+            "prepare-commit", "plugins/sdeveng/skills/prepare-commit/SKILL.md", "3.0.0", ["alias"], "retained");
+        Directory.CreateDirectory(Path.Combine(fixture.Root, "config"));
+        File.WriteAllText(Path.Combine(fixture.Root, "config/skill-compatibility-map.json"),
+            JsonSerializer.Serialize(new SkillCompatibilityMap("../schemas/skill-compatibility-map.schema.json", 1, [entry]), InfrastructureJson.Options));
+        var path = Path.Combine(fixture.Root, entry.CanonicalPath);
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        void Write(SkillProfile variant) => File.WriteAllText(path,
+            "---\nname: prepare-commit\nid: prepare-commit\nversion: 3.0.0\nsafety: '[\"no-secrets\"]'\nrequiredTools: '[\"read-file\"]'\nrequiredFacts: '[\"preserve-errors\"]'\nprofiles: '" +
+            JsonSerializer.Serialize(new[] { variant }, new JsonSerializerOptions(JsonSerializerDefaults.Web)) + "'\n---\n" + canonicalBody);
+        Write(profile);
+        var prompt = fixture.Prompt with
+        {
+            Components = fixture.Prompt.Components.Select(c => c.Id == PromptComponentId.SkillInstructions
+            ? c with { ContentReference = "prepare-commit/3.0.0/instructions" } : c).ToArray()
+        };
+        var service = new SkillProfileSelectionService(fixture.Counter);
+        SkillProfileSelection Select(SkillQualification? evidence, ChatTemplateManifest? template = null) =>
+            service.Select(fixture.Root, "alias", "synthetic", "revision-1", "coder", evidence, template ?? fixture.Template, prompt, fixture.Text);
+        var result = Select(qualification);
+        Assert.Equal(profileBody, result.Body);
+        Assert.Equal(qualification.TokensSaved, result.TokensSaved);
+        Assert.True(result.CanonicalMeasurement!.FixtureOnly);
+        Assert.Equal(result.CanonicalMeasurement.TemplateChecksum, result.ProfileMeasurement!.TemplateChecksum);
+        AssertSelectionArtifact(result);
+        Assert.Throws<ArgumentException>(() => (result with { TokensSaved = result.TokensSaved + 1 }).Validate());
+        foreach (var evidence in new SkillQualification?[] { null, qualification with { Passed = false },
+            qualification with { ModelRevision = "old" }, qualification with { SkillVersion = "2.0.0" },
+            qualification with { TokenizerRevision = "old" }, qualification with { TemplateRevision = "old" } })
+        {
+            var fallback = Select(evidence);
+            Assert.Equal(canonicalBody, fallback.Body);
+            Assert.Null(fallback.TokensSaved);
+            AssertSelectionArtifact(fallback);
+        }
+        var staleTemplate = fixture.Template with { Revision = "old" };
+        Assert.Equal(canonicalBody, Select(qualification, staleTemplate with { Checksum = staleTemplate.ComputeChecksum() }).Body);
+        var unavailableTemplate = fixture.Template with { MessageStart = "<unregistered>" };
+        var unavailable = Select(qualification, unavailableTemplate with { Checksum = unavailableTemplate.ComputeChecksum() });
+        Assert.Equal(canonicalBody, unavailable.Body);
+        Assert.Null(unavailable.TokensSaved);
+        AssertSelectionArtifact(unavailable);
+        Write(profile with { Qualification = qualification with { TokensSaved = qualification.TokensSaved + 1 } });
+        Assert.Throws<ArgumentException>(() => Select(qualification with { TokensSaved = qualification.TokensSaved + 1 }));
+        foreach (var changed in new[] {
+            profile with { Safety = [], Qualification = qualification with { Safety = [] } },
+            profile with { RequiredTools = ["write-file"], Qualification = qualification with { RequiredTools = ["write-file"] } },
+            profile with { RequiredFacts = [], Qualification = qualification with { RequiredFacts = [] } } })
+        {
+            Write(changed);
+            Assert.Throws<ArgumentException>(() => Select(changed.Qualification));
+        }
+        // The normal reader also rejects a self-consistent qualification that changes canonical policy.
+        Assert.Throws<ArgumentException>(() => SkillCompatibilityMapReader.ReadSelectedSkill(fixture.Root, "alias", "synthetic", "revision-1", "coder",
+            (profile with { RequiredFacts = [], Qualification = qualification with { RequiredFacts = [] } }).Qualification));
+    }
+
+    private static void AssertSelectionArtifact(SkillProfileSelection result)
+    {
+        result.Validate();
+        var options = new EvaluationOptions();
+        foreach (var name in new[] { "skill-metadata", "rendered-input-token-measurement" })
+            options.SchemaRegistry.Register(JsonSchema.FromFile(Path.Combine(AgentTool.FindToolkit(), $"schemas/{name}.schema.json")));
+        var schema = JsonSchema.FromFile(Path.Combine(AgentTool.FindToolkit(), "schemas/skill-profile-selection.schema.json"));
+        var json = JsonSerializer.SerializeToNode(result, InfrastructureJson.Options)!;
+        Assert.True(schema.Evaluate(json, options).IsValid, json.ToJsonString());
+        json.Deserialize<SkillProfileSelection>(InfrastructureJson.Options)!.Validate();
+    }
+
     private sealed class Fixture : IDisposable
     {
         private readonly string _root = Path.Combine(Path.GetTempPath(), $"skill-cost-fixture-{Guid.NewGuid():N}");

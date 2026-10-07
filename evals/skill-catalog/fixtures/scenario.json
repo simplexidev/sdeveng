@@ -11,7 +11,8 @@
     "modelRevision": "revision-1",
     "role": "coder",
     "fallbackCases": ["missing profile", "missing qualification", "failed qualification", "stale skill version", "stale model revision", "stale tokenizer revision", "stale template revision", "different role"],
-    "rejections": ["changed safety", "changed profile tools", "changed canonical tools"],
-    "proof": "InventorySelectionRequiresExactQualificationAndPreservesCanonicalBody"
+    "rejections": ["changed safety", "changed profile tools", "changed canonical tools", "self-consistent changed canonical safety", "self-consistent changed canonical tools", "self-consistent changed canonical facts", "incorrect qualified savings"],
+    "measurement": "Same registered fixture tokenizer and template; full rendered canonical total minus full rendered profile total; unavailable exact counting returns canonical without savings.",
+    "proof": "InventorySelectionRequiresExactQualificationAndPreservesCanonicalBody; ProfileSelectionMeasuresPinnedSavingsAndRejectsCanonicalPolicyChanges"
   }
 }

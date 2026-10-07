@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://simplexidev.dev/schemas/skill-profile-selection.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "kind", "body", "qualification", "tokensSaved", "canonicalMeasurement", "profileMeasurement"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "kind": { "const": "skill-profile-selection" },
+    "body": { "type": "string" },
+    "qualification": { "oneOf": [{ "type": "null" }, { "$ref": "https://simplexidev.dev/schemas/skill-metadata.schema.json#/$defs/qualification" }] },
+    "tokensSaved": { "type": ["integer", "null"], "minimum": 0 },
+    "canonicalMeasurement": { "oneOf": [{ "type": "null" }, { "$ref": "https://simplexidev.github.io/sdeveng/schemas/rendered-input-token-measurement.schema.json" }] },
+    "profileMeasurement": { "oneOf": [{ "type": "null" }, { "$ref": "https://simplexidev.github.io/sdeveng/schemas/rendered-input-token-measurement.schema.json" }] }
+  },
+  "if": { "properties": { "qualification": { "type": "null" } } },
+  "then": { "properties": { "tokensSaved": { "type": "null" }, "canonicalMeasurement": { "type": "null" }, "profileMeasurement": { "type": "null" } } },
+  "else": { "properties": { "tokensSaved": { "type": "integer" }, "canonicalMeasurement": { "type": "object" }, "profileMeasurement": { "type": "object" } } }
+}
