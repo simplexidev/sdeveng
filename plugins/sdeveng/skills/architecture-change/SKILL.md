@@ -4,7 +4,7 @@ id: architecture-change
 version: 3.0.0
 description: Plan or review a real change to component boundaries or system architecture.
 activation: '[{"id":"csharp-symbol-boundary-change"}]'
-resources: '[{"path":"references/symbol-aware-csharp.md","type":"procedure","hash":"sha256:ba68332dd830f3e8b689126d512ad4f5faa5cb64390360cd07d8fff31b69302f"}]'
+resources: '[{"path":"references/symbol-aware-csharp.md","type":"procedure","hash":"sha256:3003168922877c1d619da0b3cdd28e4cea6402c1340f6cd2dd67b804313b0552"}]'
 ---
 
 # Architecture Change
