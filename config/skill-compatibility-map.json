@@ -190,6 +190,17 @@
       "migrationStatus": "retained"
     },
     {
+      "oldId": "issue-triage",
+      "oldPath": "plugins/sdeveng/skills/issue-triage/SKILL.md",
+      "canonicalId": "issue-triage",
+      "canonicalPath": "plugins/sdeveng/skills/issue-triage/SKILL.md",
+      "version": "3.0.0",
+      "aliases": [
+        "sdeveng-engineering-toolkit:issue-triage"
+      ],
+      "migrationStatus": "retained"
+    },
+    {
       "oldId": "jev-judgment",
       "oldPath": "plugins/sdeveng/skills/jev-judgment/SKILL.md",
       "canonicalId": "jev-judgment",

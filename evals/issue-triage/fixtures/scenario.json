@@ -1,0 +1,30 @@
+{
+  "target": {
+    "repository": "simplexidev/sdeveng",
+    "issueNumber": 42
+  },
+  "issue": {
+    "state": "open",
+    "labels": ["READY"],
+    "body": "The API request fails for malformed input."
+  },
+  "availableFacts": ["issue.read", "labels.catalog.read", "issues.labels.write"],
+  "authorization": "none",
+  "expected": {
+    "preserveLabels": ["READY"],
+    "recommendOnly": true,
+    "mutations": []
+  },
+  "negativeCases": [
+    "implicit issue selection",
+    "unknown label",
+    "raw GitHub API mutation",
+    "shell mutation",
+    "branch creation",
+    "assignment",
+    "close issue",
+    "create pull request",
+    "merge or auto-merge",
+    "self-approval"
+  ]
+}

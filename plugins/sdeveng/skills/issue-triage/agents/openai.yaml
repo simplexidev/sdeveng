@@ -1,0 +1,4 @@
+interface:
+  display_name: "Issue Triage"
+  short_description: "Classify a specific GitHub issue from bounded evidence."
+  default_prompt: "Triage this explicit GitHub issue, explain the evidence, and recommend configured labels."
