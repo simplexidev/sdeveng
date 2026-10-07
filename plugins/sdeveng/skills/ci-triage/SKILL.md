@@ -9,7 +9,7 @@ requiredTools: '["verification_decide"]'
 
 # CI Triage
 
-Use the guarded `github-actions-summary` tool (or its `sdeveng github actions` command) to list recent runs, then select one explicit run ID and fetch its normalized jobs and failed steps. Fetch failed logs only for that run; start with the earliest causal failure rather than downstream cancellations or repeated errors. Keep evidence bounded to that run, its failed step, and the relevant revision/configuration facts.
+Use the guarded `github-actions-summary` tool (or its `sdeveng github actions --json` command) to list recent runs, then select one explicit run ID and fetch its normalized jobs and failed steps. Fetch failed logs only for that run; start with the earliest causal failure rather than downstream cancellations or repeated errors. Keep evidence bounded to that run, its failed step, and the relevant revision/configuration facts.
 
 Label evidence by source and target: local checks describe the current checkout; advisory forecasts are read-only estimates and do not establish hosted status; final CI is the hosted result for the exact pushed commit. Do not infer final CI from local checks, an advisory result, a different commit, or a partial run. If the final check state is available, use the guarded `verification-progression-decision` tool with hosted evidence and the exact commit, and report its decision separately from the failure diagnosis. If evidence is missing or incomplete, say so and stop short of a final-check claim.
 
