@@ -3,6 +3,13 @@
     "positive": ["csharp-symbol-boundary-change"],
     "negative": ["ordinary-method-extraction", "unrelated-request"]
   },
+  "procedure": {
+    "resource": "plugins/sdeveng/skills/architecture-change/references/symbol-aware-csharp.md",
+    "requiredReviewEvidence": ["stable-key", "final-path-line-column", "before-after", "focused-proof"],
+    "reject": ["stale-anchor", "ambiguous-anchor", "incomplete-semantic-compilation", "out-of-scope-diff"],
+    "preservePublicApiUnlessExplicitlyAuthorized": true,
+    "noEditEngine": true
+  },
   "references": {
     "Domain": [
       "Persistence"
