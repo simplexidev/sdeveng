@@ -1,0 +1,6 @@
+interface:
+  display_name: "Git Branch and Commit"
+  short_description: Create an explicitly requested local branch or commit safely.
+  default_prompt: "Use $git-branch-commit."
+policy:
+  allow_implicit_invocation: false
