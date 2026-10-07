@@ -14,6 +14,12 @@ public static class SkillCompatibilityMapReader
     public static string ReadSelectedSkill(string root, string identity, string modelFamily, string modelRevision,
         string role, SkillQualification? qualification = null)
     {
+        var metadata = ReadSelectionMetadata(root, identity);
+        return SkillProfile.Select(metadata, modelFamily, modelRevision, role, metadata.Version!, qualification);
+    }
+
+    internal static SkillMetadata ReadSelectionMetadata(string root, string identity)
+    {
         var entry = ReadMap(root).Resolve(identity) ?? throw new ArgumentException("Unresolved skill identity: " + identity);
         var path = Path.Combine(root, entry.CanonicalPath);
         EnsureNoLinks(Path.GetFullPath(root), Path.GetFullPath(path));
@@ -22,7 +28,7 @@ public static class SkillCompatibilityMapReader
             (metadata.Id != entry.CanonicalId || metadata.Version != entry.Version)))
             throw new ArgumentException("Skill metadata differs from compatibility entry: " + entry.CanonicalId);
         metadata = metadata with { Id = entry.CanonicalId, Version = metadata.Version ?? entry.Version };
-        return SkillProfile.Select(metadata, modelFamily, modelRevision, role, entry.Version, qualification);
+        return metadata;
     }
 
     public static SkillMetadata ReadSkillFrontMatter(string path)
@@ -131,8 +137,15 @@ public static class SkillCompatibilityMapReader
             if (profiles.Select(profile => (profile.ModelFamily, profile.ModelRevision, profile.Role, profile.SkillVersion)).Distinct().Count() != profiles.Length)
                 throw new ArgumentException("Duplicate skill profile identity.");
         }
+        var safety = fields.TryGetValue("safety", out var safetyJson) ? ReadStringArray(safetyJson, "safety") : null;
+        var facts = fields.TryGetValue("requiredFacts", out var factsJson) ? ReadStringArray(factsJson, "required facts") : null;
+        if (new[] { safety, facts }.Any(values => values is not null &&
+            (values.Any(string.IsNullOrWhiteSpace) || values.Distinct(StringComparer.Ordinal).Count() != values.Length)))
+            throw new ArgumentException("Invalid canonical safety or required facts.");
         return new SkillMetadata(fields.GetValueOrDefault("name") ?? "", id, version, activation, supportedRoles, requiredTools, contextAllowance, resources, profiles)
         {
+            Safety = safety,
+            RequiredFacts = facts,
             Body = path is null ? null : text[(end + 4 < text.Length && text[end + 4] == '\n' ? end + 5 : end + 4)..]
         };
     }
@@ -264,6 +277,8 @@ public sealed record SkillMetadata(string Name, string? Id, string? Version,
     SkillActivationCondition[]? Activation = null, string[]? SupportedRoles = null, string[]? RequiredTools = null,
     int? ContextAllowance = null, SkillResource[]? Resources = null, SkillProfile[]? Profiles = null)
 {
+    public string[]? Safety { get; init; }
+    public string[]? RequiredFacts { get; init; }
     // Instruction content is never populated by front-matter discovery or serialized as metadata.
     [System.Text.Json.Serialization.JsonIgnore]
     public string? Body { get; init; }
@@ -298,6 +313,10 @@ public sealed record SkillProfile(string ModelFamily, string ModelRevision, stri
 
     public static string Select(SkillMetadata canonical, string modelFamily, string modelRevision, string role,
         string skillVersion, SkillQualification? qualification)
+        => SelectProfile(canonical, modelFamily, modelRevision, role, skillVersion, qualification)?.Body ?? canonical.Body ?? canonical.Name;
+
+    internal static SkillProfile? SelectProfile(SkillMetadata canonical, string modelFamily, string modelRevision, string role,
+        string skillVersion, SkillQualification? qualification)
     {
         var match = canonical.Profiles?.SingleOrDefault(profile => profile.ModelFamily == modelFamily &&
             profile.ModelRevision == modelRevision && profile.Role == role && profile.SkillVersion == skillVersion);
@@ -310,29 +329,15 @@ public sealed record SkillProfile(string ModelFamily, string ModelRevision, stri
             match.Qualification.TokenizerId != qualification.TokenizerId || match.Qualification.TokenizerRevision != qualification.TokenizerRevision ||
             match.Qualification.TemplateId != qualification.TemplateId || match.Qualification.TemplateRevision != qualification.TemplateRevision ||
             !Same(match.Qualification.Safety, qualification.Safety) || !Same(match.Qualification.RequiredTools, qualification.RequiredTools) ||
-            !Same(match.Qualification.RequiredFacts, qualification.RequiredFacts)) return canonical.Body ?? canonical.Name;
+            !Same(match.Qualification.RequiredFacts, qualification.RequiredFacts)) return null;
         match.Validate(canonical.Version);
-        if (canonical.RequiredTools is not null && !Same(canonical.RequiredTools, match.RequiredTools))
-            throw new ArgumentException("Skill profile cannot change canonical tool contracts.");
-        return match.Body;
+        if (!Same(canonical.Safety ?? [], match.Safety) || !Same(canonical.RequiredFacts ?? [], match.RequiredFacts) ||
+            !Same(canonical.RequiredTools ?? [], match.RequiredTools))
+            throw new ArgumentException("Skill profile cannot change canonical safety, permissions, tool contracts, or required facts.");
+        return match;
 
         static bool Same(string[]? left, string[]? right) => left is not null && right is not null && left.Order(StringComparer.Ordinal)
             .SequenceEqual(right.Order(StringComparer.Ordinal), StringComparer.Ordinal);
-    }
-}
-
-public sealed record SkillQualification(string ModelFamily, string ModelRevision, string Role, string SkillVersion,
-    bool Passed, long TokensSaved, string TokenizerId, string TokenizerRevision, string TemplateId, string TemplateRevision,
-    string[] Safety, string[] RequiredTools, string[] RequiredFacts)
-{
-    internal void Validate()
-    {
-        if (string.IsNullOrWhiteSpace(ModelFamily) || string.IsNullOrWhiteSpace(ModelRevision) ||
-            Role is not ("planner" or "coder" or "test-author" or "reviewer" or "repair") ||
-            !System.Text.RegularExpressions.Regex.IsMatch(SkillVersion ?? "", "^\\d+\\.\\d+\\.\\d+$") ||
-            Safety is null || RequiredTools is null || RequiredFacts is null ||
-            new[] { Safety, RequiredTools, RequiredFacts }.Any(values => values.Any(string.IsNullOrWhiteSpace) || values.Distinct(StringComparer.Ordinal).Count() != values.Length))
-            throw new ArgumentException("Invalid skill qualification record.");
     }
 }
 

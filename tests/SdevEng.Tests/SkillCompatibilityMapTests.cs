@@ -34,7 +34,7 @@ public class SkillCompatibilityMapTests
             var profile = new SkillProfile("synthetic", "revision-1", "coder", "3.0.0", "Concise body.",
                 ["no-secrets"], ["read-file"], ["preserve-errors"], qualification);
             void Write(SkillProfile? variant, string tools = "read-file") => File.WriteAllText(path,
-                "---\nname: prepare-commit\nid: prepare-commit\nversion: 3.0.0\nrequiredTools: '[\"" + tools + "\"]'\n" +
+                "---\nname: prepare-commit\nid: prepare-commit\nversion: 3.0.0\nsafety: '[\"no-secrets\"]'\nrequiredFacts: '[\"preserve-errors\"]'\nrequiredTools: '[\"" + tools + "\"]'\n" +
                 (variant is null ? "" : "profiles: '" + JsonSerializer.Serialize(new[] { variant }, options) + "'\n") +
                 "---\n\nCanonical body.\n");
             string Select(SkillQualification? evidence, string revision = "revision-1", string role = "coder") =>
@@ -260,7 +260,7 @@ public class SkillCompatibilityMapTests
                 "tokenizer", "tok-1", "template", "template-1", ["no-secrets"], ["read-file"], ["preserve-errors"]);
             var profile = new SkillProfile("family", "revision-1", "coder", "3.0.0", "Concise qualified body.",
                 ["no-secrets"], ["read-file"], ["preserve-errors"], qualification);
-            File.WriteAllText(versioned, "---\nname: prepare-commit\nid: prepare-commit\nversion: 3.0.0\nprofiles: '" +
+            File.WriteAllText(versioned, "---\nname: prepare-commit\nid: prepare-commit\nversion: 3.0.0\nsafety: '[\"no-secrets\"]'\nrequiredFacts: '[\"preserve-errors\"]'\nrequiredTools: '[\"read-file\"]'\nprofiles: '" +
                 JsonSerializer.Serialize(new[] { profile }, new JsonSerializerOptions(JsonSerializerDefaults.Web)).Replace("'", "''", StringComparison.Ordinal) + "'\n---\nCanonical body.\n");
             var profiled = SkillCompatibilityMapReader.ReadSkillMetadata(versioned);
             var metadataNode = JsonSerializer.SerializeToNode(profiled, new JsonSerializerOptions(JsonSerializerDefaults.Web)

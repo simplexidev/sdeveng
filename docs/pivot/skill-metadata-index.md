@@ -7,12 +7,25 @@ An exact passing qualification (including tokenizer/template revisions and
 structured safety, tools and required facts) selects the profile body. Missing
 profiles or missing, failed or stale supplied evidence return the canonical body,
 including its original whitespace. Savings never qualify a profile automatically.
-Changed profile safety/tool/fact fields are rejected against qualification evidence;
-declared canonical tools must also match. Callers supply the existing typed
+Changed profile safety/tool/fact fields are rejected against qualification evidence
+and canonical `safety`, `requiredTools` and `requiredFacts` metadata (absent fields
+mean empty sets). Safety includes permission constraints. Callers supply the existing typed
 qualification record; synthetic records prove selection only, not real-model
 qualification. This callable boundary adds no worker workflow or CLI command.
 Full metadata reads retain the body in memory but exclude it from serialization;
 front-matter discovery still does not load instruction bodies.
+
+`SkillProfileSelectionService.Select` is the callable measured selection boundary.
+It uses the same inventory reader, an explicit registered template and prompt context,
+and the existing `IRenderedInputTokenCounter`. Only the named instruction component
+changes between canonical and profile renderings. Exact savings are the difference
+between full rendered token totals, with both measurements and matching qualification
+included in the version 1 `skill-profile-selection` result. Its validator checks pins,
+asset identity and arithmetic; the schema is `schemas/skill-profile-selection.schema.json`.
+Stale runtime pins or unavailable exact counting return canonical content without
+savings. A measured difference inconsistent with qualified savings is rejected.
+Synthetic tokenizer evidence remains explicitly fixture-only and does not establish
+real-model qualification. The existing body-only reader remains compatible.
 
 `SkillCompatibilityMapReader.ReadMetadataIndex(root)` indexes the unified plugin's
 skill front matter. It stops reading each skill at the closing `---` delimiter,

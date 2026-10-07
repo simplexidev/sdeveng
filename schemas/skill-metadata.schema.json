@@ -61,6 +61,8 @@
       "items": { "$ref": "#/$defs/resource" },
       "uniqueItems": true
     },
+    "safety": { "$ref": "#/$defs/facts" },
+    "requiredFacts": { "$ref": "#/$defs/facts" },
     "profiles": {
       "type": "array",
       "items": { "$ref": "#/$defs/profile" },
