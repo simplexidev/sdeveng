@@ -10,6 +10,7 @@ public sealed record SkillCostMeasurement(int SchemaVersion, string Kind, string
 {
     public required RenderedInputTokenMeasurement InputMeasurement { get; init; }
     public long? NonSkillInputTokens { get; init; }
+    public SkillCostIdentitySets? Identities { get; init; }
     public string AttributionSemantics { get; init; } = OrderedComponentAttribution.AlgorithmVersion;
     public const int CurrentSchemaVersion = 2;
     public const string ResultKind = "skill-cost-measurement";
@@ -18,6 +19,7 @@ public sealed record SkillCostMeasurement(int SchemaVersion, string Kind, string
     {
         ArgumentNullException.ThrowIfNull(InputMeasurement);
         InputMeasurement.Validate();
+        Identities?.Validate(this);
         if (SchemaVersion != CurrentSchemaVersion || Kind != ResultKind || AttributionSemantics != OrderedComponentAttribution.AlgorithmVersion ||
             MeasurementKind is not ("exact" or "unavailable") || AvailableSkills < 0 || ConsideredSkills < 0 ||
             ActivatedSkills < 0 || InstructionLoadedSkills < 0 || ReferenceLoadedSkills < 0 ||
@@ -51,5 +53,25 @@ public sealed record SkillCostMeasurement(int SchemaVersion, string Kind, string
             if (deltas.Length == 0 || deltas.Aggregate(0L, (sum, c) => checked(sum + c.Tokens)) != cost.Tokens)
                 throw new ArgumentException("Skill cost does not match input attribution.");
         }
+    }
+}
+
+public sealed record SkillCostIdentitySets(string Role, IReadOnlyList<SkillCatalogIdentity> Catalog,
+    IReadOnlyList<string> Considered, IReadOnlyList<string> Activated,
+    IReadOnlyList<string> InstructionLoaded, IReadOnlyList<string> ReferenceLoaded)
+{
+    public void Validate(SkillCostMeasurement result)
+    {
+        new SkillActivationContext(Role, [], [], [], []).Validate();
+        var available = Catalog.Select(c => c.Id).ToArray();
+        var sets = new[] { available, Considered, Activated, InstructionLoaded, ReferenceLoaded };
+        if (Catalog.Any(c => string.IsNullOrWhiteSpace(c.Id) || string.IsNullOrWhiteSpace(c.Version)) ||
+            sets.Any(s => s.Any(string.IsNullOrWhiteSpace) || s.Distinct(StringComparer.Ordinal).Count() != s.Count) ||
+            Considered.Except(available, StringComparer.Ordinal).Any() || Activated.Except(Considered, StringComparer.Ordinal).Any() ||
+            InstructionLoaded.Except(Activated, StringComparer.Ordinal).Any() || ReferenceLoaded.Except(InstructionLoaded, StringComparer.Ordinal).Any() ||
+            result.AvailableSkills != available.Length || result.ConsideredSkills != Considered.Count ||
+            result.ActivatedSkills != Activated.Count || result.InstructionLoadedSkills != InstructionLoaded.Count ||
+            result.ReferenceLoadedSkills != ReferenceLoaded.Count)
+            throw new ArgumentException("Skill identity sets do not match discovery/activation/load evidence.");
     }
 }

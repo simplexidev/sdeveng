@@ -6,6 +6,11 @@
   "additionalProperties": false,
   "required": ["schemaVersion", "kind", "measurementKind", "totalInputTokens", "skillTokens", "templateOverheadTokens", "tokenShare", "availableSkills", "consideredSkills", "activatedSkills", "instructionLoadedSkills", "referenceLoadedSkills", "unavailableReason", "components", "inputMeasurement"],
   "properties": {
+    "identities": { "type": ["object", "null"], "additionalProperties": false, "required": ["role", "catalog", "considered", "activated", "instructionLoaded", "referenceLoaded"], "properties": {
+      "role": { "enum": ["planner", "coder", "test-author", "reviewer", "repair"] },
+      "catalog": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["id", "version"], "properties": { "id": { "type": "string", "minLength": 1 }, "version": { "type": "string", "minLength": 1 } } } },
+      "considered": { "$ref": "#/$defs/ids" }, "activated": { "$ref": "#/$defs/ids" }, "instructionLoaded": { "$ref": "#/$defs/ids" }, "referenceLoaded": { "$ref": "#/$defs/ids" }
+    } },
     "schemaVersion": { "const": 2 },
     "nonSkillInputTokens": { "type": ["integer", "null"] },
     "attributionSemantics": { "const": "ordered-cumulative-prefix/v1" },
@@ -24,6 +29,7 @@
     "unavailableReason": { "type": ["string", "null"] },
     "components": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["skillId", "componentKind", "contentReference", "tokens", "omissionReason"], "properties": { "skillId": { "type": "string", "minLength": 1 }, "componentKind": { "enum": ["metadata", "instructions", "reference"] }, "contentReference": { "type": "string", "minLength": 1 }, "tokens": { "type": ["integer", "null"] }, "omissionReason": { "type": ["string", "null"], "minLength": 1 } }, "if": { "properties": { "tokens": { "type": "null" } } }, "then": { "properties": { "omissionReason": { "type": "string", "minLength": 1 } } }, "else": { "properties": { "omissionReason": { "type": "null" } } } } }
   },
+  "$defs": { "ids": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } } },
   "oneOf": [
     { "properties": { "measurementKind": { "const": "exact" }, "totalInputTokens": { "type": "integer", "minimum": 0 }, "skillTokens": { "type": "integer" }, "templateOverheadTokens": { "type": "integer" }, "tokenShare": { "type": ["number", "null"] }, "unavailableReason": { "type": "null" } } },
     { "properties": { "measurementKind": { "const": "unavailable" }, "totalInputTokens": { "type": "null" }, "skillTokens": { "type": "null" }, "templateOverheadTokens": { "type": "null" }, "tokenShare": { "type": "null" }, "unavailableReason": { "type": "string", "minLength": 1 }, "components": { "items": { "properties": { "tokens": { "type": "null" } } } } } }

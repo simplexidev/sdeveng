@@ -4,7 +4,24 @@
 content-reference text, template identity/checksum, and optional discovery,
 consideration, activation and omission observations. Use canonical skill IDs from
 `SkillCompatibilityMapReader.ReadMetadataIndex`; skill content references have the
-form `skill-id/version/resource`. No CLI or worker invocation is added here.
+form `skill-id/version/resource`.
+
+`SkillCostMeasurementService.Explain` consumes a `SkillCostExplainRequest` with
+the final prompt/text projection, pinned tokenizer/template, canonical discovery
+catalog (IDs and versions), considered IDs, and `SkillActivationLoadResult`.
+It validates the catalog revision, role, tokenizer and load projection, and
+available ⊇ considered ⊇ activated ⊇ instruction-loaded ⊇ reference-loaded
+identity sets. Considered but inactive skills retain null instruction costs with
+`skill-not-activated`; omitted loads retain their actual omission reasons.
+The optional v2 `identities` field preserves these sets without private bodies.
+Legacy measurement callers and v2 results without this field remain compatible.
+
+`sdeveng skills explain --input <file>` uses the normal skills module/dispatch.
+The input follows `schemas/skill-cost-explain-request.schema.json`; tokenizer
+asset paths resolve relative to that file. Assets are verified by the existing
+registry and no model runtime is invoked. Output is the schema-valid v2
+measurement, including attributable IDs/costs/omissions and provenance, without
+input text or load bodies. Worker invocation remains deferred.
 
 The service uses `IRenderedInputTokenCounter.CountAttributed` with the same final
 renderer and verified tokenizer as other production input measurements. Metadata
