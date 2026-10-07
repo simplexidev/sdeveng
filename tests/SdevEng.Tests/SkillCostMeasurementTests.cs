@@ -7,6 +7,83 @@ using SdevEng.Infrastructure;
 public sealed class SkillCostMeasurementTests
 {
     [Fact]
+    public async Task ExplainUsesDiscoveryActivationEvidenceThroughNormalCommand()
+    {
+        var toolkit = AgentTool.FindToolkit();
+        var catalog = SkillCompatibilityMapReader.ReadMetadataIndex(toolkit).Select(s => new SkillCatalogIdentity(s.Id!, s.Version!)).ToArray();
+        var skill = catalog[0];
+        using var fixture = new Fixture("S", "R", "M", "private-unloaded-body", "Q", "O");
+        var prompt = fixture.Prompt with
+        {
+            SchemaVersion = 2,
+            Components = fixture.Prompt.Components.Select(c => c.Id switch
+        {
+            PromptComponentId.SkillMetadata => c with { ContentReference = $"{skill.Id}/{skill.Version}/metadata" },
+            PromptComponentId.SkillInstructions => c with { ContentReference = $"{skill.Id}/{skill.Version}/instructions", IsLoaded = false },
+            _ => c
+        }).ToArray()
+        };
+        var text = new Dictionary<string, string>(fixture.Text) { [$"{skill.Id}/{skill.Version}/metadata"] = "M" };
+        var activation = new SkillActivationLoadResult(1, new("coder", [], [], [], []), 100, fixture.Tokenizer,
+            [skill.Id], 0, 100, [new(new(skill.Id, null, "omitted", null, "content-unavailable", 0, 0), 0)]);
+        var observation = new SkillCostObservation("coder", catalog, [skill.Id, catalog[1].Id], activation);
+        var request = new SkillCostExplainRequest(prompt, text, observation, fixture.Tokenizer, fixture.Template);
+        var result = fixture.Service.Explain(toolkit, request);
+        Assert.Equal(2, result.ConsideredSkills);
+        Assert.Equal(1, result.ActivatedSkills);
+        Assert.Equal(0, result.InstructionLoadedSkills);
+        Assert.Equal(observation.ConsideredSkillIds, result.Identities!.Considered);
+        Assert.Contains(result.Components, c => c.ComponentKind == "instructions" && c.Tokens is null && c.OmissionReason == "content-unavailable");
+        Assert.Contains(result.Components, c => c.SkillId == catalog[1].Id && c.Tokens is null && c.OmissionReason == "skill-not-activated");
+        AssertArtifact(result);
+        Assert.Throws<ArgumentException>(() => fixture.Service.Explain(toolkit, request with { Observation = observation with { ConsideredSkillIds = [catalog[1].Id] } }));
+        Assert.Throws<ArgumentException>(() => fixture.Service.Explain(toolkit, request with { Observation = observation with { Role = "reviewer" } }));
+        Assert.Throws<ArgumentException>(() => fixture.Service.Explain(toolkit, request with { Observation = observation with { Catalog = catalog.Skip(1).ToArray() } }));
+        Assert.Throws<ArgumentException>(() => fixture.Service.Explain(toolkit, request with { Prompt = prompt with { Components = prompt.Components.Select(c => c.Id == PromptComponentId.SkillInstructions ? c with { IsLoaded = true } : c).ToArray() } }));
+        var unavailable = new SkillCostMeasurementService(new UnavailableCounter()).Explain(toolkit, request);
+        Assert.Null(unavailable.TokenShare);
+        AssertArtifact(unavailable);
+        var zero = new SkillCostMeasurementService(new ExactCounter(0, 0)).Explain(toolkit, request);
+        Assert.Null(zero.TokenShare);
+        AssertArtifact(zero);
+        const string loadedBody = "private-loaded-body";
+        var loadedActivation = activation with
+        {
+            ConsumedTokens = loadedBody.Length,
+            RemainingTokens = 100 - loadedBody.Length,
+            Evidence = [new(new(skill.Id, null, "loaded", loadedBody, null, loadedBody.Length, loadedBody.Length), loadedBody.Length)]
+        };
+        var loadedText = new Dictionary<string, string>(text) { [$"{skill.Id}/{skill.Version}/instructions"] = loadedBody };
+        var loadedRequest = request with
+        {
+            TextByContentReference = loadedText,
+            Observation = observation with { Activation = loadedActivation },
+            Prompt = prompt with { Components = prompt.Components.Select(c => c.Id == PromptComponentId.SkillInstructions ? c with { IsLoaded = true } : c).ToArray() }
+        };
+        var loadedResult = fixture.Service.Explain(toolkit, loadedRequest);
+        Assert.Equal(1, loadedResult.InstructionLoadedSkills);
+        Assert.Contains(loadedResult.Components, c => c.ComponentKind == "instructions" && c.Tokens == loadedBody.Length);
+        Assert.DoesNotContain(loadedBody, JsonSerializer.Serialize(loadedResult, InfrastructureJson.Options));
+        AssertArtifact(loadedResult);
+        var path = Path.Combine(fixture.Root, "explain.json");
+        var schemaOptions = new EvaluationOptions();
+        foreach (var name in new[] { "prompt-manifest", "tokenizer-manifest", "chat-template-manifest", "skill-activation-load-result", "skill-load-result" })
+            schemaOptions.SchemaRegistry.Register(new Uri($"https://simplexidev.github.io/sdeveng/schemas/{name}.schema.json"), JsonSchema.FromFile(Path.Combine(toolkit, $"schemas/{name}.schema.json")));
+        var requestJson = JsonSerializer.SerializeToNode(request, InfrastructureJson.Options)!;
+        var schemaResult = JsonSchema.FromFile(Path.Combine(toolkit, "schemas/skill-cost-explain-request.schema.json")).Evaluate(requestJson, schemaOptions);
+        Assert.True(schemaResult.IsValid, JsonSerializer.Serialize(schemaResult));
+        File.WriteAllText(path, JsonSerializer.Serialize(request, InfrastructureJson.Options));
+        var cli = Cli.Parse(["skills", "explain", "--input", path]);
+        var commandResult = await SdevEng.Tests.CommandTestRuntime.Execute(cli, toolkit, toolkit, new(new(), new(), new(), new()));
+        Assert.Equal(0, commandResult.ExitCode);
+        var json = JsonSerializer.Serialize(commandResult.Data, AgentTool.Json);
+        Assert.DoesNotContain("private-unloaded-body", json);
+        var replay = JsonSerializer.Deserialize<SkillCostMeasurement>(json, InfrastructureJson.Options)!;
+        Assert.Equal(result.TotalInputTokens, replay.TotalInputTokens);
+        AssertArtifact(replay);
+    }
+
+    [Fact]
     public void EvaluationUsesCanonicalInventoryAndPreservesOmission()
     {
         var root = AgentTool.FindToolkit();
@@ -224,6 +301,9 @@ public sealed class SkillCostMeasurementTests
     {
         private readonly string _root = Path.Combine(Path.GetTempPath(), $"skill-cost-fixture-{Guid.NewGuid():N}");
         public string Checksum { get; }
+        public string Root => _root;
+        public TokenizerManifest Tokenizer { get; }
+        public ChatTemplateManifest Template { get; }
         public Dictionary<string, string> Text { get; }
         public PromptManifest Prompt { get; }
         public SkillCostMeasurementService Service { get; }
@@ -245,6 +325,7 @@ public sealed class SkillCostMeasurementTests
             File.WriteAllBytes(Path.Combine(_root, "vocab.bin"), asset);
             var hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(asset)).ToLowerInvariant();
             var manifest = new TokenizerManifest(1, "byte-test", "fixture-model", TokenizerAssetFamily.Fixture, "r1", [new("vocab.bin", hash)], "fixture", ["<s>", "</s>", "|", "<gen>"], TokenizerAdapterId.Fixture, true);
+            Tokenizer = manifest;
             var tokenizers = new TokenizerRegistry(_root);
             var tokenizerPath = Path.Combine(_root, "tokenizer.json");
             File.WriteAllText(tokenizerPath, JsonSerializer.Serialize(manifest, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
@@ -252,6 +333,7 @@ public sealed class SkillCostMeasurementTests
             var templates = new ChatTemplateRegistry(tokenizers);
             var template = new ChatTemplateManifest(1, "test", "1", new string('0', 64), "byte-test", "r1", ChatTemplateFamily.Fixture, "<s>", "|", "</s>", "\n", "<tools>", "</tools>", "<gen>", true);
             template = template with { Checksum = template.ComputeChecksum() };
+            Template = template;
             Checksum = template.Checksum;
             templates.Register(template);
             Counter = new RenderedInputTokenCounter(templates);

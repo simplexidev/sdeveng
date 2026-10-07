@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://simplexidev.github.io/sdeveng/schemas/skill-cost-explain-request.schema.json",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["prompt", "textByContentReference", "observation", "tokenizer", "template"],
+  "properties": {
+    "prompt": { "$ref": "prompt-manifest.schema.json" },
+    "textByContentReference": { "type": "object", "additionalProperties": { "type": "string" } },
+    "tokenizer": { "$ref": "tokenizer-manifest.schema.json" },
+    "template": { "$ref": "chat-template-manifest.schema.json" },
+    "observation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["role", "catalog", "consideredSkillIds", "activation"],
+      "properties": {
+        "role": { "enum": ["planner", "coder", "test-author", "reviewer", "repair"] },
+        "catalog": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["id", "version"], "properties": { "id": { "type": "string", "minLength": 1 }, "version": { "type": "string", "minLength": 1 } } } },
+        "consideredSkillIds": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+        "activation": { "$ref": "skill-activation-load-result.schema.json" }
+      }
+    }
+  }
+}

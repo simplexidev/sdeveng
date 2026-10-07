@@ -229,7 +229,8 @@ public class MetadataTests
         var commands = contracts.Select(contract => contract!["command"]!.GetValue<string>()).ToArray();
         var kinds = contracts.Select(contract => contract!["kind"]!.GetValue<string>()).ToArray();
         Assert.Equal(commands.Length, commands.Distinct(StringComparer.Ordinal).Count());
-        Assert.Equal(1, contracts.Select(contract => contract!["schemaVersion"]!.GetValue<int>()).Distinct().Single());
+        Assert.All(contracts, contract => Assert.Equal(contract!["command"]!.GetValue<string>() == "skills explain" ? SkillCostMeasurement.CurrentSchemaVersion : 1,
+            contract["schemaVersion"]!.GetValue<int>()));
         var services = new Microsoft.Extensions.DependencyInjection.ServiceCollection();
         AgentTool.AgentToolModule.Register(services);
         using var provider = services.BuildServiceProvider();
@@ -241,7 +242,12 @@ public class MetadataTests
         });
         var source = string.Join("\n", Directory.GetFiles(Path.Combine(Root, "src"), "*.cs", SearchOption.AllDirectories).Select(File.ReadAllText));
         Assert.Contains("command == \"version\"", source, StringComparison.Ordinal);
-        Assert.All(kinds.Distinct(StringComparer.Ordinal), kind => Assert.Contains($"kind = \"{kind}\"", source, StringComparison.Ordinal));
+        Assert.All(kinds.Distinct(StringComparer.Ordinal), kind =>
+        {
+            if (kind == SkillCostMeasurement.ResultKind)
+                Assert.Contains($"public const string ResultKind = \"{kind}\"", source, StringComparison.Ordinal);
+            else Assert.Contains($"kind = \"{kind}\"", source, StringComparison.Ordinal);
+        });
         var descriptors = manifest["toolDescriptors"]!.AsArray();
         Assert.Equal(descriptors.Count, descriptors.Select(item => item!["name"]!.GetValue<string>()).Distinct(StringComparer.Ordinal).Count());
         Assert.All(descriptors, descriptor =>

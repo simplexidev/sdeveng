@@ -1004,7 +1004,7 @@ public static class AgentTool
         install | update [--home DIR] [--codex-home DIR] [--dry-run] [--bin]
         uninstall [--home DIR] [--codex-home DIR] [--dry-run]
         doctor
-        tools list | skills list
+        tools list | skills list | skills explain --input <file>
         repo describe | changed-files [--base REF] | summary [--base REF] | locate (--query TEXT | --path PATH | --name TEXT) | health | hygiene
         repo affected-projects [--base REF] | ownership --file PATH
         git state | summary [--base REF] | conflict-forecast --base REF | prepare-commit
@@ -1260,11 +1260,24 @@ public static class AgentTool
 
     public sealed class SkillDiscoveryCommandModule : ICommandModule
     {
-        public bool CanHandle(Cli command) => command.Command == "skills list";
+        public bool CanHandle(Cli command) => command.Command is "skills list" or "skills explain";
 
         public Task<Result> Execute(Cli command, string toolkit, string root, Settings settings, CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            if (command.Command == "skills explain")
+            {
+                command.ValidateCommand("skills explain");
+                var path = Path.GetFullPath(command.Get("input") ?? throw new ArgumentException("skills explain requires --input."), root);
+                var request = JsonSerializer.Deserialize<SkillCostExplainRequest>(File.ReadAllText(path), Json)
+                    ?? throw new ArgumentException("Empty skill-cost explain request.");
+                var tokenizers = new SdevEng.Infrastructure.TokenizerRegistry(Path.GetDirectoryName(path)!);
+                tokenizers.Register(request.Tokenizer);
+                var templates = new SdevEng.Infrastructure.ChatTemplateRegistry(tokenizers);
+                templates.Register(request.Template);
+                var result = new SdevEng.Infrastructure.SkillCostMeasurementService(new SdevEng.Infrastructure.RenderedInputTokenCounter(templates)).Explain(toolkit, request);
+                return Task.FromResult(Result.Ok(result));
+            }
             command.ValidateCommand("skills list");
             SkillMetadata[] skills = [];
             var diagnostics = new List<object>();
@@ -2390,6 +2403,7 @@ public sealed class Cli
         string[] specific = command switch
         {
             "config explain" => ["set", "role", "measurements", "model-context"],
+            "skills explain" => ["input"],
             "install" or "update" => ["home", "codex-home", "dry-run", "bin"],
             "uninstall" => ["home", "codex-home", "dry-run"],
             "doctor" => ["home", "codex-home"],
