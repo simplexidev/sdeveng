@@ -12,6 +12,12 @@ subset; use `--project` for an explicit project/solution, otherwise use
 framework/platform detection, filter translation, argument placement, and the
 executable argument arrays.
 
+Check the plan's SDK/environment facts and each selected project's target
+frameworks, test platform, framework, and command mode. Use only versions and
+modes recognized by the plan. If planning reports an unknown or unsupported
+toolchain/platform, report that limitation and load the edge-case reference
+when directed; do not guess a runner command or call the check passed.
+
 Run only the emitted commands and only when execution was requested. Default to
 the requested or affected scope. Broaden after evidence that the change crosses
 a shared boundary, the narrow scope cannot represent the failure, or the user
@@ -20,7 +26,11 @@ different runner merely because the first run fails.
 
 After execution, summarize each TRX or JUnit artifact with
 `sdeveng test-results summarize --file PATH --json`. Report commands actually run, tests executed, and the
-first causal failure; never equate build success with test success.
+first causal failure; never equate build success with test success. If a planned
+command was not run, results are missing, or a requested coverage artifact is
+unavailable, state that evidence is unavailable rather than reporting a pass.
+Coverage collection is separate from test pass/fail and must use an established
+provider/command; load the coverage skill for explicit coverage analysis.
 
 Read [`test-platform-edge-cases.md`](../../references/test-platform-edge-cases.md)
 only when `sdeveng` reports an unconfigured/unknown platform, a raw MTP filter

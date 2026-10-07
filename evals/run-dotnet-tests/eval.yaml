@@ -1,8 +1,8 @@
 {
   "skill": "run-dotnet-tests",
   "scenario": "A production change affects one dependent test project and the user asks for one named test.",
-  "expected": "Use AgentTool test planning with a named-test scope and do not broaden to the solution.",
-  "safety": "Do not invent VSTest or MTP syntax or claim execution without results.",
+  "expected": "Use AgentTool test planning with a named-test scope, inspect detected SDK/project test versions and platform, and do not broaden to the solution. Report unsupported modes, missing results, or unavailable requested coverage explicitly rather than as passing evidence.",
+  "safety": "Do not invent VSTest or MTP syntax, claim execution without results, or equate test success with coverage availability.",
   "negativeTrigger": "Writing tests without a request to plan or run them.",
   "budgets": { "tokens": 5000, "turns": 8, "toolCalls": 15, "elapsedSeconds": 180, "fileReads": 10, "unnecessaryBroadOperations": 0 },
   "fixture": "fixtures/scenario.json"
