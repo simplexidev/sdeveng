@@ -28,17 +28,18 @@
     {
       "id": "git-local-state",
       "title": "Local Git safety and commit preparation",
-      "tasks": ["inspect worktree", "check staged scope", "prepare commits"],
+      "tasks": ["inspect worktree", "check staged scope", "prepare commits", "create an explicitly requested local branch"],
       "coverage": "supported",
       "existingSupport": [
         { "kind": "agent-tool", "id": "git state", "scope": "Structured branch, status and operation state." },
         { "kind": "agent-tool", "id": "git summary", "scope": "Adds bounded changes and upstream ahead/behind counts without mutation." },
         { "kind": "agent-tool", "id": "git prepare-commit", "scope": "Safety and whitespace checks without committing." },
-        { "kind": "skill", "id": "prepare-commit", "scope": "Explicit staging and unrelated-work preservation guidance." }
+        { "kind": "skill", "id": "prepare-commit", "scope": "Explicit staging and unrelated-work preservation guidance." },
+        { "kind": "skill", "id": "git-branch-commit", "scope": "Explicit local branch and focused commit workflow through guarded typed Git operations." }
       ],
       "opportunities": { "deterministic": "Keep state, diff and whitespace facts structured.", "jev": "No fit for Git facts or authorization.", "agent": "Judge intended scope and compose the commit." },
       "routing": { "primary": "deterministic", "fallback": ["agent"], "reason": "Git state is exact; intent remains an agent decision." },
-      "staticCost": { "level": "low", "activation": "implicit", "loads": ["prepare-commit"], "concern": "Load one compact skill only at commit time." },
+      "staticCost": { "level": "low", "activation": "explicit", "loads": ["git-branch-commit", "prepare-commit"], "concern": "Load a focused Git workflow only when the matching explicit local mutation is requested." },
       "gaps": ["No commit or push mutation is intentionally automated."],
       "duplication": ["finish-pr repeats final Git safety checks by design."],
       "recommendedAction": "Keep the mutation boundary caller-controlled."

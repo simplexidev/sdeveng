@@ -157,6 +157,17 @@
       "migrationStatus": "retained"
     },
     {
+      "oldId": "git-branch-commit",
+      "oldPath": "plugins/sdeveng/skills/git-branch-commit/SKILL.md",
+      "canonicalId": "git-branch-commit",
+      "canonicalPath": "plugins/sdeveng/skills/git-branch-commit/SKILL.md",
+      "version": "3.0.0",
+      "aliases": [
+        "sdeveng-engineering-toolkit:git-branch-commit"
+      ],
+      "migrationStatus": "retained"
+    },
+    {
       "oldId": "investigate-dotnet-performance",
       "oldPath": "plugins/sdeveng/skills/investigate-dotnet-performance/SKILL.md",
       "canonicalId": "investigate-dotnet-performance",

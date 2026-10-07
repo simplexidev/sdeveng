@@ -1,0 +1,33 @@
+{
+  "positiveCases": [
+    {
+      "request": "Create local branch feature/parser-cleanup",
+      "target": "feature/parser-cleanup",
+      "expected": "Inspect Git state, then invoke the guarded branch-create operation for exactly this name."
+    },
+    {
+      "request": "Commit src/Parser.cs with message Fix parser edge case",
+      "targetPaths": ["src/Parser.cs"],
+      "expected": "Inspect diff and checks, stage the explicit path list, verify staged scope, then use commit-owned."
+    }
+  ],
+  "negativeCases": [
+    {
+      "request": "What branch am I on?",
+      "expected": "Use read-only state inspection; do not activate a mutation workflow."
+    },
+    {
+      "request": "Commit everything",
+      "expected": "Reject implicit bulk scope and ask for explicit owned paths."
+    },
+    {
+      "request": "Merge the branch when checks pass",
+      "expected": "Do not merge or enable auto-merge; stop at human handoff."
+    }
+  ],
+  "preservation": {
+    "unrelatedStaged": ["notes/private.md"],
+    "unrelatedUnstaged": ["docs/draft.md"],
+    "expected": "Preserve both paths and never include them in the requested operation."
+  }
+}
