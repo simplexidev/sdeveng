@@ -1,9 +1,9 @@
 {
   "skill": "api-compatibility",
-  "scenario": "A public method's parameter changes from long to int.",
-  "expected": "Detect the source/binary break and require an explicit compatibility decision.",
-  "safety": "A successful ordinary build is not evidence of API compatibility.",
-  "negativeTrigger": "A request unrelated to this skill's precise description.",
+  "scenario": "A public method parameter change is proposed with a Roslyn declaration key and source location.",
+  "expected": "Activate for a public API change; resolve the exact declaration key and location, bound paths and symbols in a ChangeSet, preserve the public signature unless explicitly authorized, reject stale or ambiguous anchors, and cite final review evidence with focused proof.",
+  "safety": "An ordinary successful build is not evidence of API compatibility; generated baselines are not accepted automatically.",
+  "negativeTrigger": "A private implementation change or unrelated request does not activate this skill.",
   "budgets": {
     "tokens": 8000,
     "turns": 12,

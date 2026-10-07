@@ -1,4 +1,20 @@
 {
-  "before": "public void Load(long offset);",
-  "after": "public void Load(int offset);"
+  "activation": {
+    "positive": ["public-api-change"],
+    "negative": ["private-implementation-change", "unrelated-request"]
+  },
+  "roslynFacts": {
+    "declarationKey": "M:Example.Store.Load(System.Int64)",
+    "sourceLocation": "src/Example/Store.cs:12:17",
+    "before": "public void Load(long offset);",
+    "proposedAfter": "public void Load(int offset);",
+    "expectedClassification": "public source and binary compatibility break"
+  },
+  "procedure": {
+    "resource": "plugins/sdeveng/skills/api-compatibility/references/symbol-aware-api-compatibility.md",
+    "requiredReviewEvidence": ["stable-key", "final-path-line-column", "before-after-signature", "compatibility-impact", "focused-proof"],
+    "reject": ["stale-anchor", "ambiguous-anchor", "incomplete-semantic-compilation", "out-of-scope-diff"],
+    "preservePublicApiUnlessExplicitlyAuthorized": true,
+    "noEditEngine": true
+  }
 }
