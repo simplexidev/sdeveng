@@ -1,5 +1,6 @@
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using System.Text.Json.Nodes;
 
 namespace SdevEng;
 
@@ -8,7 +9,8 @@ public static class FrameworkCapabilities
 {
     public static FrameworkCapabilityFact[] Detect(string? outputType, Compilation? compilation,
         IReadOnlyDictionary<string, string?>? packageVersions = null,
-        IReadOnlyDictionary<string, string?>? projectProperties = null)
+        IReadOnlyDictionary<string, string?>? projectProperties = null,
+        IReadOnlyList<string>? avaloniaFiles = null, JsonNode? provenance = null)
         => DetectConsole(outputType, compilation, packageVersions)
             .Concat(DetectChannels(compilation))
             .Concat(DetectLocalization(compilation))
@@ -21,26 +23,69 @@ public static class FrameworkCapabilities
             .Concat(DetectPublishSettings(projectProperties))
             .Concat(DetectReflection(compilation))
             .Concat(DetectMicrosoftExtensionsAI(compilation, packageVersions))
-            .Concat(DetectAvalonia(compilation, packageVersions)).ToArray();
+            .Concat(DetectAvalonia(compilation, packageVersions, avaloniaFiles, provenance)).ToArray();
 
     static FrameworkCapabilityFact[] DetectAvalonia(Compilation? compilation,
-        IReadOnlyDictionary<string, string?>? packages)
+        IReadOnlyDictionary<string, string?>? packages, IReadOnlyList<string>? files, JsonNode? provenance)
     {
         const string packageId = "Avalonia";
         var version = packages?.GetValueOrDefault(packageId) ?? compilation?.ReferencedAssemblyNames
             .FirstOrDefault(item => item.Name == packageId)?.Version.ToString();
         var complete = compilation is not null && compilation.Language == LanguageNames.CSharp &&
             !compilation.GetDiagnostics().Any(item => item.Severity == DiagnosticSeverity.Error);
-        if (version is null)
-            return [new("avalonia", complete ? "absent" : "unknown",
-                complete ? "resolved-package-not-present" : "package-evidence-unavailable")];
-
-        if (!System.Version.TryParse(version, out _))
-            return [new("avalonia", "unknown", "unsupported-package-version", version)];
-
-        // The generalized provenance registry currently marks Avalonia majors unknown;
-        // do not treat package presence as verified API compatibility.
-        return [new("avalonia", "unknown", "unsupported-package-version", version)];
+        var entry = provenance is null ? null : FrameworkProvenance.Read(provenance)["frameworks"]?.AsArray()
+            .SingleOrDefault(item => item?["frameworkId"]?.GetValue<string>() == "avalonia");
+        var supported = System.Version.TryParse(version, out var parsed) &&
+            entry?["supportedMajorVersions"] is JsonArray majors && majors.Any(item => item!.GetValue<int>() == parsed.Major) &&
+            entry["sourceRevision"]?.GetValue<string>() is { } revision && revision != "unknown";
+        var status = version is null ? complete ? "absent" : "unknown" : supported ? "detected" : "unknown";
+        var evidence = version is null ? complete ? "resolved-package-not-present" : "package-evidence-unavailable" :
+            supported ? "resolved-package" : "unsupported-package-version";
+        var package = new FrameworkCapabilityFact("avalonia", status, evidence, version);
+        FrameworkCapabilityFact Fact(string id, string state, string reason) => new(id, state, reason, version);
+        if (status != "detected") return [package, Fact("avalonia-lifetime", status, evidence), Fact("avalonia-structure", status, evidence)];
+        if (!complete) return [package, Fact("avalonia-lifetime", "unknown", "unavailable-or-incomplete-csharp-compilation"),
+            Fact("avalonia-structure", "unknown", "unavailable-or-incomplete-csharp-compilation")];
+        bool AvaloniaType(ITypeSymbol? type) => type?.ContainingAssembly.Name is "Avalonia.Controls" or "Avalonia.Base";
+        var lifetimes = new SortedSet<string>(StringComparer.Ordinal);
+        var codeOnly = false;
+        var ui = false;
+        foreach (var tree in compilation!.SyntaxTrees)
+        {
+            var model = compilation.GetSemanticModel(tree);
+            foreach (var call in tree.GetRoot().DescendantNodes().OfType<InvocationExpressionSyntax>())
+            {
+                if (model.GetSymbolInfo(call).Symbol is not IMethodSymbol method) continue;
+                method = method.ReducedFrom ?? method;
+                if (method.ContainingAssembly.Name == "Avalonia.Controls" &&
+                    method.ContainingType.ToDisplayString() == "Avalonia.ClassicDesktopStyleApplicationLifetimeExtensions" &&
+                    method.Name is "StartWithClassicDesktopLifetime" or "SetupWithClassicDesktopLifetime")
+                    lifetimes.Add("IClassicDesktopStyleApplicationLifetime");
+            }
+            foreach (var typeSyntax in tree.GetRoot().DescendantNodes().OfType<TypeSyntax>())
+            {
+                var type = model.GetTypeInfo(typeSyntax).Type;
+                if (AvaloniaType(type) && type!.ContainingNamespace.ToDisplayString() == "Avalonia.Controls.ApplicationLifetimes" &&
+                    type.Name is "IClassicDesktopStyleApplicationLifetime" or "ISingleViewApplicationLifetime" or "IControlledApplicationLifetime" or "IActivatableApplicationLifetime")
+                    lifetimes.Add(type.Name);
+            }
+            foreach (var declaration in tree.GetRoot().DescendantNodes().OfType<ClassDeclarationSyntax>())
+            {
+                var type = model.GetDeclaredSymbol(declaration) as INamedTypeSymbol;
+                var isUi = false;
+                for (var parent = type?.BaseType; parent is not null; parent = parent.BaseType)
+                    isUi |= AvaloniaType(parent) && parent.ToDisplayString() is "Avalonia.Application" or "Avalonia.Controls.Control";
+                if (!isUi) continue;
+                ui = true;
+                // An evaluated companion XAML item makes this class XAML-backed, not a separate code-only view.
+                if (files is not null && !files.Any(file => Path.GetFileNameWithoutExtension(file) == type!.Name)) codeOnly = true;
+            }
+        }
+        var xaml = files?.Any(file => Path.GetExtension(file) is ".axaml" or ".xaml") == true;
+        return [package, Fact("avalonia-lifetime", lifetimes.Count > 0 ? "detected" : "absent",
+                lifetimes.Count > 0 ? "static-lifetime-types:" + string.Join(';', lifetimes) : "no-resolved-lifetime-types"),
+            Fact("avalonia-structure", files is null ? "unknown" : xaml || ui ? "detected" : "absent",
+                files is null ? "evaluated-xaml-items-unavailable" : xaml ? codeOnly ? "mixed" : "xaml" : ui ? "code-only" : "no-avalonia-ui-structure")];
     }
 
     static FrameworkCapabilityFact[] DetectMicrosoftExtensionsAI(Compilation? compilation,

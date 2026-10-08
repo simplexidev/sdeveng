@@ -58,9 +58,9 @@
     {
       "frameworkId": "avalonia",
       "sourceUri": "https://github.com/AvaloniaUI/Avalonia",
-      "currentRevision": "unknown",
+      "currentRevision": "d6edb46ce04f983892a61d3abf906014d3f5ec8d",
       "currentHash": "unknown",
-      "supportedMajorVersions": "unknown",
+      "supportedMajorVersions": [11],
       "observed": null,
       "classification": "unknown",
       "reasons": [

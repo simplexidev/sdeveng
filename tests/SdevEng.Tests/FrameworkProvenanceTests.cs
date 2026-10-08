@@ -192,7 +192,8 @@ public class FrameworkProvenanceTests
         var supported = new Dictionary<string, int[]>
         {
             ["dotnet"] = [10],
-            ["microsoft.extensions"] = [10]
+            ["microsoft.extensions"] = [10],
+            ["avalonia"] = [11]
         };
         foreach (var entry in manifest["frameworks"]!.AsArray())
         {
@@ -202,9 +203,10 @@ public class FrameworkProvenanceTests
                 Assert.Equal(majors, value["supportedMajorVersions"]!.AsArray().Select(x => x!.GetValue<int>()));
             else
                 Assert.Equal("unknown", value["supportedMajorVersions"]!.GetValue<string>());
+            if (id == "avalonia") Assert.Equal("d6edb46ce04f983892a61d3abf906014d3f5ec8d", value["sourceRevision"]!.GetValue<string>());
             if (id != "dotnet")
             {
-                Assert.Equal("unknown", value["sourceRevision"]!.GetValue<string>());
+                if (id != "avalonia") Assert.Equal("unknown", value["sourceRevision"]!.GetValue<string>());
                 Assert.Equal("unknown", value["sourceHash"]!.GetValue<string>());
                 Assert.Equal("unknown", value["capturedAt"]!.GetValue<string>());
             }
