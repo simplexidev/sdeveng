@@ -12,7 +12,7 @@ public sealed class SkillActivationTests
         var metadata = SkillCompatibilityMapReader.ReadMetadataIndex(root)
             .Single(skill => skill.Id == "avalonia");
         Assert.Equal(new[] { new SkillActivationCondition("avalonia", "11.3.0") }, metadata.Activation);
-        Assert.Empty(metadata.Resources!);
+        Assert.Equal("references/lifetime-ui-thread.md", Assert.Single(metadata.Resources!).Path);
         SkillCompatibilityMapReader.ValidateResources(root, [metadata]);
         var service = new SkillActivationService();
         SkillActivationContext Context(string? version) => new("coder", [], [], [],
@@ -30,8 +30,11 @@ public sealed class SkillActivationTests
             PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase,
             DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
         })!).IsValid);
-        var loaded = await service.LoadReferenceAsync(root, Context("11.3.0"), "avalonia", "references/lifetime.md");
-        Assert.Equal("unknown-reference", loaded.OmissionReason);
+        var loaded = await service.LoadReferenceAsync(root, Context("11.3.0"), "avalonia", "references/lifetime-ui-thread.md");
+        Assert.Equal("loaded", loaded.Status);
+        Assert.Contains("Dispatcher.UIThread", loaded.Content, StringComparison.Ordinal);
+        var unsupported = await service.LoadReferenceAsync(root, Context("12.0.0"), "avalonia", "references/lifetime-ui-thread.md");
+        Assert.Equal("skill-not-activated", unsupported.OmissionReason);
     }
 
     [Fact]

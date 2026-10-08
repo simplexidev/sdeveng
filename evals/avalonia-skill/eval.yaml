@@ -1,0 +1,4 @@
+id: avalonia-skill
+title: Avalonia skill reference activation
+scenario: Load lifetime and UI-thread guidance only for the verified Avalonia 11.3.0 package; preserve detected desktop or single-view lifetime, keep UI work on Dispatcher.UIThread, and reject unsupported majors.
+proof: tests/SdevEng.Tests/SkillActivationTests.cs: AvaloniaSkillActivatesAndLoadsOnlyForVerifiedPackageVersion
