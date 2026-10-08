@@ -15,6 +15,8 @@
         "packages": { "type": "object", "additionalProperties": { "type": ["string", "null"] } },
         "package": { "enum": ["detected", "absent", "unknown"] },
         "registration": { "enum": ["detected", "absent", "unknown"] },
+        "composition": { "enum": ["detected", "absent", "unknown"] },
+        "compositionLocations": { "type": "integer", "minimum": 0, "maximum": 64 },
         "version": { "type": ["string", "null"] },
         "locations": { "type": "integer", "minimum": 0, "maximum": 64 }
       }

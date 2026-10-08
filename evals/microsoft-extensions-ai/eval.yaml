@@ -1,6 +1,7 @@
 capability: microsoft-extensions-ai
-scenario: Detect evaluated Microsoft.Extensions.AI and Abstractions versions and real IChatClient registration in application projects.
+scenario: Detect evaluated Microsoft.Extensions.AI and Abstractions versions, real IChatClient registration, and middleware/decorator composition in application projects.
 expected: Distinguish package presence from registration; supported major 10 and resolved API/DI service identities are required. Installed-unused, unregistered and local lookalike types are negative. Unresolved, dynamic, indirect and unsupported/mixed inputs preserve unknown. Static evidence never proves runtime activity.
 provenance: Synthetic offline fixture sources and fake clients; real test-only Microsoft.Extensions.AI 10.0.0 symbols. Upstream source pin is recorded in the conditional AI reference.
-safety: No provider calls, weights, model execution or UI. Factory worker adaptation, middleware/decorators and tools/functions are deferred.
+safety: No provider calls, weights, model execution or UI. Factory worker adaptation and tools/functions are deferred.
+composition: Resolved ChatClientBuilder.Use/framework Use extensions and constructed DelegatingChatClient subclasses are positive; package-only, bare clients and lookalikes are negative. Dynamic, unresolved and unsupported evidence stays unknown. Composition alone does not prove DI registration or runtime activity.
 proof: "tests/SdevEng.Tests/MicrosoftExtensionsAIDetectionTests.cs: FixturesProveStaticFactsSchemaAndConditionalReferenceLoading; RegistrationsRequireResolvedServiceIdentity; NormalDiscoveryExposesAIRegistrationAndPackageVersions"

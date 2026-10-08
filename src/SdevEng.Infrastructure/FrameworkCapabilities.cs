@@ -41,10 +41,16 @@ public static class FrameworkCapabilities
                 unsupported ? "unsupported-package-version" : "resolved-package", version);
         FrameworkCapabilityFact Registration(string status, string evidence, FrameworkCapabilityLocation[]? locations = null)
             => new("chat-client-registration", status, evidence, version, locations);
-        if (!complete) return [package, Registration("unknown", "unavailable-or-incomplete-csharp-compilation")];
-        if (unsupported) return [package, Registration("unknown", "unsupported-package-version")];
+        FrameworkCapabilityFact Composition(string status, string evidence, FrameworkCapabilityLocation[]? locations = null)
+            => new("chat-client-composition", status, evidence, version, locations);
+        if (!complete) return [package, Registration("unknown", "unavailable-or-incomplete-csharp-compilation"),
+            Composition("unknown", "unavailable-or-incomplete-csharp-compilation")];
+        if (unsupported) return [package, Registration("unknown", "unsupported-package-version"),
+            Composition("unknown", "unsupported-package-version")];
         var chat = compilation!.GetTypeByMetadataName("Microsoft.Extensions.AI.IChatClient");
         var locations = new List<FrameworkCapabilityLocation>();
+        var compositionLocations = new List<FrameworkCapabilityLocation>();
+        var delegating = compilation.GetTypeByMetadataName("Microsoft.Extensions.AI.DelegatingChatClient");
         var indirect = false;
         foreach (var tree in compilation.SyntaxTrees)
         {
@@ -54,6 +60,14 @@ public static class FrameworkCapabilities
                 if (model.GetSymbolInfo(call).Symbol is not IMethodSymbol method) { indirect = true; continue; }
                 if (method.ReducedFrom is { } original)
                     method = method.IsGenericMethod ? original.Construct(method.TypeArguments.ToArray()) : original;
+                if (chat?.ContainingAssembly.Name == abstractions && method.ContainingAssembly.Name == ai &&
+                    ((method.ContainingType.ToDisplayString() == "Microsoft.Extensions.AI.ChatClientBuilder" && method.Name == "Use") ||
+                     (method.IsExtensionMethod && method.Name.StartsWith("Use", StringComparison.Ordinal) &&
+                      method.Parameters.FirstOrDefault()?.Type.ToDisplayString() == "Microsoft.Extensions.AI.ChatClientBuilder")))
+                {
+                    var span = call.GetLocation().GetLineSpan();
+                    compositionLocations.Add(new(tree.FilePath, span.StartLinePosition.Line + 1, span.StartLinePosition.Character + 1));
+                }
                 var registration = chat?.ContainingAssembly.Name == abstractions &&
                     ((method.ContainingAssembly.Name == ai &&
                       method.ContainingType.ToDisplayString() == "Microsoft.Extensions.DependencyInjection.ChatClientBuilderServiceCollectionExtensions" &&
@@ -77,10 +91,25 @@ public static class FrameworkCapabilities
                     method.ContainingNamespace.ToDisplayString().StartsWith("System.Reflection", StringComparison.Ordinal) ||
                     method.ContainingType.ToDisplayString() == "Microsoft.Extensions.DependencyInjection.ServiceDescriptor") indirect = true;
             }
+            foreach (var creation in tree.GetRoot().DescendantNodes().OfType<BaseObjectCreationExpressionSyntax>())
+            {
+                if (model.GetSymbolInfo(creation).Symbol is not IMethodSymbol constructor) { indirect = true; continue; }
+                for (var type = constructor.ContainingType; type is not null; type = type.BaseType)
+                {
+                    if (delegating?.ContainingAssembly.Name != abstractions ||
+                        !SymbolEqualityComparer.Default.Equals(type, delegating)) continue;
+                    var span = creation.GetLocation().GetLineSpan();
+                    compositionLocations.Add(new(tree.FilePath, span.StartLinePosition.Line + 1, span.StartLinePosition.Character + 1));
+                    break;
+                }
+            }
         }
         return [package, Registration(locations.Count > 0 ? "detected" : indirect ? "unknown" : "absent",
             locations.Count > 0 ? "roslyn-static-registration-not-runtime-proof" : indirect ? "indirect-static-composition" : "roslyn-no-static-registration",
-            locations.Take(64).ToArray())];
+            locations.Take(64).ToArray()),
+            Composition(compositionLocations.Count > 0 ? "detected" : indirect ? "unknown" : "absent",
+                compositionLocations.Count > 0 ? "roslyn-static-composition-not-runtime-proof" :
+                    indirect ? "indirect-static-composition" : "roslyn-no-static-composition", compositionLocations.Take(64).ToArray())];
     }
 
     static FrameworkCapabilityFact[] DetectReflection(Compilation? compilation)
