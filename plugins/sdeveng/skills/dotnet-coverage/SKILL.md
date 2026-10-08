@@ -5,24 +5,24 @@ description: Collect or interpret targeted .NET coverage evidence without treati
 
 # .NET Coverage
 
-Use this skill only for supplied coverage evidence or an explicit coverage
-request. If a Cobertura or OpenCover file exists, summarize it first with
-`sdeveng coverage summarize --file PATH --json`; do not rerun tests, install tools, or generate a
-report merely to restate available facts.
+Use only for supplied evidence or an explicit coverage request. Summarize an
+existing Cobertura/OpenCover file first with `sdeveng coverage summarize --file PATH --json`;
+never rerun tests or generate a report just to restate it.
 
-For collection, start with the smallest requested or affected test project from
-`sdeveng dotnet test-plan --json`. Prefer the repository's existing coverage command
-and provider. If platform-specific collection syntax is not established, read
+For collection, use `sdeveng dotnet test-plan --json` for the smallest scope,
+SDK, target frameworks and test platform; use
+`sdeveng dotnet inspect --project PATH --json` for provider/package versions.
+Use established repository commands and detected versions only. State unknown
+or unsupported SDK/project/platform/provider/version; do not guess flags or
+add/upgrade packages. If syntax is unestablished, read
 [`test-platform-edge-cases.md`](../../references/test-platform-edge-cases.md)
-and stop rather than adding/upgrading packages without authorization. Widen
-collection only when project boundaries or a stated threshold require it.
+and stop. Distinguish failed, unsupported or unavailable collection from
+success; test pass/exit without a report is not proof.
 
 Treat counters as exact measurements: reconcile covered and valid totals and
-identify the denominator. A covered line proves execution, not both branch
-outcomes or a discriminating assertion. Relate uncovered lines/branches to
-observable behavior before proposing tests. Coverage-backed risk ranking may
-combine exact counters with code reasoning, but mutation/CRAP analysis is
-separate and opt-in.
+identify the denominator. Lines prove execution, not branch outcomes or
+discriminating assertions. Relate gaps to behavior; check test framework and
+package versions before suggesting assertions. Mutation/CRAP is opt-in.
 
 JEV capability `relevance` with purpose `coverage-gap-ranking` may rank a large
 sanitized list of already-computed candidate gaps. It must

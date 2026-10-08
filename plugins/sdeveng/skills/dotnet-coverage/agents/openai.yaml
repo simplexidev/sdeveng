@@ -3,4 +3,4 @@ interface:
   short_description: Collect or interpret targeted .NET coverage evidence.
   default_prompt: "Use $dotnet-coverage."
 policy:
-  allow_implicit_invocation: true
+  allow_implicit_invocation: false

@@ -2,5 +2,10 @@
   "format": "cobertura",
   "coveredLines": 75,
   "validLines": 100,
-  "conditionCoverage": "50% (1/2)"
+  "conditionCoverage": "50% (1/2)",
+  "sdk": "10.0.100",
+  "targetFrameworks": ["net10.0"],
+  "testPlatform": "VSTest",
+  "collector": { "name": "coverlet.collector", "version": "6.0.4", "supported": true },
+  "collectionStatus": "not-requested"
 }
