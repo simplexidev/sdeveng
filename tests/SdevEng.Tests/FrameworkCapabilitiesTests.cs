@@ -128,6 +128,32 @@ public sealed class FrameworkCapabilitiesTests
     }
 
     [Fact]
+    public async Task SecretsConfigurationReferenceRequiresResolvedConfigurationUse()
+    {
+        var source = "using Microsoft.Extensions.Configuration; var configuration = new ConfigurationBuilder().Build(); configuration.GetSection(\"Service\");";
+        var facts = FrameworkCapabilities.Detect("Exe", Compile(source));
+        var configuration = facts.Single(item => item.Id == "configuration");
+        Assert.Equal("detected", configuration.Status);
+        Assert.Equal("roslyn-static-composition", configuration.Evidence);
+        Assert.Single(configuration.Locations!);
+        Assert.True(JsonSchema.FromFile(Path.Combine(AgentTool.FindToolkit(), "schemas/framework-capabilities.schema.json"))
+            .Evaluate(JsonSerializer.SerializeToNode(facts, AgentTool.Json)).IsValid);
+
+        var root = AgentTool.FindToolkit();
+        var service = new SkillActivationService();
+        var context = new SkillActivationContext("coder", [], [], [], [new("microsoft-extensions", "10.0.0"), new("configuration", "10.0.0")]);
+        var metadata = Assert.Single(service.Activate(root, context), item => item.Id == "microsoft-extensions");
+        const string path = "references/secrets-configuration.md";
+        Assert.Contains(metadata.Resources!, item => item.Path == path && Assert.Single(item.Activation!).Id == "configuration");
+        var loaded = await service.LoadReferenceAsync(root, context, "microsoft-extensions", path);
+        Assert.Equal("loaded", loaded.Status);
+        Assert.Equal(File.ReadAllText(Path.Combine(root, "plugins/sdeveng/skills/microsoft-extensions", path)), loaded.Content);
+        Assert.Equal("resource-not-activated", (await service.LoadReferenceAsync(root,
+            context with { Frameworks = [new("microsoft-extensions", "10.0.0")] }, "microsoft-extensions", path)).OmissionReason);
+        SkillCompatibilityMapReader.ValidateResources(root, [metadata]);
+    }
+
+    [Fact]
     public async Task TelemetryReferenceRequiresDetectedCompositionAndIsHashValidated()
     {
         var root = AgentTool.FindToolkit();
