@@ -1,0 +1,10 @@
+{
+  "frameworkId": "dotnet",
+  "aliases": [".NET"],
+  "supportedMajorVersions": "unknown",
+  "sourceUri": "https://github.com/dotnet/skills",
+  "sourceRevision": "4ed5f7c121da8dd31af31a35cef05070948c6556",
+  "sourceHash": "unknown",
+  "capturedAt": "2026-09-22T00:00:00Z",
+  "consumingSkillIds": ["run-dotnet-tests"]
+}

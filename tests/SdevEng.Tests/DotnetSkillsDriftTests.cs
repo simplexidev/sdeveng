@@ -5,7 +5,7 @@ namespace SdevEng.Tests;
 public class DotnetSkillsDriftTests
 {
     static JsonNode Manifest() => JsonNode.Parse("""
-    { "snapshot": { "repository": "dotnet/skills", "commit": "0123456789012345678901234567890123456789" },
+    { "manifestVersion": 2, "snapshot": { "repository": "dotnet/skills", "commit": "0123456789012345678901234567890123456789" },
       "decisions": [{ "upstreamPaths": ["plugins/dotnet-test/skills/run-tests/SKILL.md"] }] }
     """)!;
     static JsonNode Comparison(string files) => JsonNode.Parse($$"""{ "head_commit": { "sha": "abcdef" }, "files": {{files}} }""")!;

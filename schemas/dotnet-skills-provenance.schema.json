@@ -5,7 +5,8 @@
   "required": ["$schema", "manifestVersion", "snapshot", "policy", "summary", "plugins", "decisions", "licenseStrategy"],
   "properties": {
     "$schema": { "type": "string" },
-    "manifestVersion": { "const": 2 },
+    "manifestVersion": { "enum": [2, 3] },
+    "frameworks": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/framework" } },
     "snapshot": {
       "type": "object",
       "additionalProperties": false,
@@ -74,7 +75,24 @@
       }
     }
   },
+  "allOf": [
+    { "if": { "properties": { "manifestVersion": { "const": 3 } } }, "then": { "required": ["frameworks"] }, "else": { "not": { "required": ["frameworks"] } } }
+  ],
   "$defs": {
+    "framework": {
+      "type": "object", "additionalProperties": false,
+      "required": ["frameworkId", "aliases", "supportedMajorVersions", "sourceUri", "sourceRevision", "sourceHash", "capturedAt", "consumingSkillIds"],
+      "properties": {
+        "frameworkId": { "enum": ["dotnet", "microsoft.extensions", "system.commandline", "avalonia", "terminal.gui"] },
+        "aliases": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+        "supportedMajorVersions": { "oneOf": [{ "const": "unknown" }, { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "integer", "minimum": 1 } }] },
+        "sourceUri": { "type": "string", "pattern": "^https://[^/]+/.+", "format": "uri" },
+        "sourceRevision": { "type": "string", "minLength": 1 },
+        "sourceHash": { "type": "string", "pattern": "^(unknown|sha256:[0-9a-f]{64})$" },
+        "capturedAt": { "type": "string", "format": "date-time" },
+        "consumingSkillIds": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "minLength": 1 } }
+      }
+    },
     "plugin": {
       "type": "object",
       "additionalProperties": false,
