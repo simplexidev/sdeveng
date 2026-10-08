@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object", "additionalProperties": false,
+  "required": ["schemaVersion", "kind", "mode", "automaticAction", "entries"],
+  "properties": {
+    "schemaVersion": { "const": 1 }, "kind": { "const": "framework-provenance-drift" },
+    "mode": { "enum": ["facts", "plan"] }, "automaticAction": { "const": "none" },
+    "entries": { "type": "array", "minItems": 5, "maxItems": 5, "items": {
+      "type": "object", "additionalProperties": false,
+      "required": ["frameworkId", "sourceUri", "currentRevision", "currentHash", "supportedMajorVersions", "observed", "classification", "reasons"],
+      "properties": {
+        "frameworkId": { "enum": ["dotnet", "microsoft.extensions", "system.commandline", "avalonia", "terminal.gui"] },
+        "sourceUri": { "type": "string" }, "currentRevision": { "type": "string" },
+        "currentHash": { "type": "string", "pattern": "^(unknown|sha256:[0-9a-f]{64})$" },
+        "supportedMajorVersions": { "oneOf": [{ "const": "unknown" }, { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "integer", "minimum": 1 } }] },
+        "observed": { "oneOf": [{ "type": "null" }, { "$ref": "framework-observations.schema.json#/$defs/observation" }] },
+        "classification": { "enum": ["current", "review-required", "unsupported", "unknown"] },
+        "reasons": { "type": "array", "maxItems": 5, "items": { "type": "string", "maxLength": 325 } }
+      }
+    } }
+  }
+}

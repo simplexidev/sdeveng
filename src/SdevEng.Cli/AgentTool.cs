@@ -1034,7 +1034,7 @@ public static class AgentTool
         test-results summarize --file PATH | coverage summarize --file PATH
         jev noul|choice|score --input PATH [--dry-run] [--safe-input]
         jev screen --input PATH [--dry-run] [--safe-input] | cache-clear
-        upstream status | update [--dry-run] | dotnet-skills <status|diff|check> [--dry-run]
+        upstream status | update [--dry-run] | dotnet-skills <status|diff|check|drift|refresh> [--observations-file <path>] [--dry-run]
         validate | eval [--skill NAME] [--results PATH] | release --output ZIP
         results init | new <audit|handoff|review|report> <name>
         results list [audit|handoff|review|report] [--json] | latest <type> [--json]
@@ -2028,7 +2028,7 @@ public static class AgentTool
             {
                 "upstream status" => Result.Ok(new { plugins = JsonNode.Parse(File.ReadAllText(Path.Combine(toolkit, "upstream/dotnet-skills.json"))), tools = JsonNode.Parse(File.ReadAllText(Path.Combine(toolkit, "upstream/tools.json"))), versions = JsonNode.Parse(File.ReadAllText(Path.Combine(toolkit, "upstream/versions.json"))) }),
                 "upstream update" => await Upstream(toolkit, artifacts, command.Flag("dry-run"), _commitReader),
-                "upstream dotnet-skills" => await DotnetSkillsDrift.Run(toolkit, artifacts, command.Words.Skip(2).SingleOrDefault(), command.Flag("dry-run"), _commitReader),
+                "upstream dotnet-skills" => await DotnetSkillsDrift.Run(toolkit, artifacts, command.Words.Skip(2).SingleOrDefault(), command.Flag("dry-run"), _commitReader, command.Get("observations-file")),
                 _ => throw new ArgumentException("Unknown command. Use --help.")
             };
         }
@@ -2331,10 +2331,13 @@ public static class VerificationResults
 public static class DotnetSkillsDrift
 {
     // This compares only public Git metadata. It deliberately never checks out, runs, or imports upstream files.
-    public static async Task<Result> Run(string toolkit, string artifacts, string? operation, bool dryRun, GitHubCommitReader? commitReader = null)
+    public static async Task<Result> Run(string toolkit, string artifacts, string? operation, bool dryRun, GitHubCommitReader? commitReader = null, string? observationsFile = null)
     {
-        if (operation is not ("status" or "diff" or "check")) throw new ArgumentException("Usage: upstream dotnet-skills <status|diff|check> [--dry-run].");
+        if (operation is not ("status" or "diff" or "check" or "drift" or "refresh")) throw new ArgumentException("Usage: upstream dotnet-skills <status|diff|check|drift|refresh> [--observations-file <path>] [--dry-run].");
         var manifest = FrameworkProvenance.Read(JsonNode.Parse(File.ReadAllText(Path.Combine(toolkit, "upstream/dotnet-skills.json"))) ?? throw new FormatException("Dotnet skills provenance manifest is empty."));
+        if (observationsFile is not null && operation is not ("drift" or "refresh")) throw new ArgumentException("--observations-file requires drift or refresh.");
+        if (operation is "drift" or "refresh")
+            return Result.Ok(FrameworkProvenance.Plan(manifest, observationsFile is null ? null : FrameworkObservationFile.Read(observationsFile), operation == "refresh"));
         var snapshot = manifest["snapshot"]?.AsObject() ?? throw new FormatException("Dotnet skills provenance snapshot is missing.");
         var repository = Required(snapshot, "repository"); var pinned = Required(snapshot, "commit");
         if (operation == "status")
@@ -2439,7 +2442,8 @@ public sealed class Cli
             "sarif summarize" => ["file", "baseline"],
             "artifact verify" => ["file", "sha256"],
             "jev noul" or "jev choice" or "jev score" or "jev screen" => ["input", "dry-run", "safe-input"],
-            "upstream update" or "upstream dotnet-skills" => ["dry-run"],
+            "upstream update" => ["dry-run"],
+            "upstream dotnet-skills" => ["dry-run", "observations-file"],
             "eval" => ["skill", "results"],
             "release" => ["output"],
             "release evidence" => ["profile", "output", "evidence-file", "tag"],
@@ -2456,7 +2460,7 @@ public sealed class Cli
     public List<string> Words { get; } = [];
     public Dictionary<string, string?> Options { get; } = new(StringComparer.Ordinal);
     static readonly HashSet<string> Flags = ["json", "help", "version", "dry-run", "bin", "apply", "safe-input", "binlog", "failed-logs"];
-    static readonly HashSet<string> Values = ["role", "measurements", "model-context", "root", "toolkit", "set", "home", "codex-home", "base", "expected", "baseline", "query", "exact-text", "fuzzy", "name", "issue", "branch", "remote", "path", "paths-file", "message", "pr", "run-id", "project", "symbol", "file", "sha256", "input", "output", "skill", "results", "configuration", "test", "class", "category", "filter", "process-id", "signal", "duration-seconds", "profile", "evidence-file", "tag", "hosted-file", "local-file", "commit"];
+    static readonly HashSet<string> Values = ["observations-file", "role", "measurements", "model-context", "root", "toolkit", "set", "home", "codex-home", "base", "expected", "baseline", "query", "exact-text", "fuzzy", "name", "issue", "branch", "remote", "path", "paths-file", "message", "pr", "run-id", "project", "symbol", "file", "sha256", "input", "output", "skill", "results", "configuration", "test", "class", "category", "filter", "process-id", "signal", "duration-seconds", "profile", "evidence-file", "tag", "hosted-file", "local-file", "commit"];
     public string? Get(string name) => Options.GetValueOrDefault(name);
     public bool Flag(string name) => Options.ContainsKey(name);
     public string Require(string name) => Get(name) is { Length: > 0 } v ? v : throw new ArgumentException($"--{name} is required.");

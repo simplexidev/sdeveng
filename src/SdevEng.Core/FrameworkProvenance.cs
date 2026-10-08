@@ -5,7 +5,7 @@ using System.Text.RegularExpressions;
 namespace SdevEng;
 
 /// <summary>Compatibility reader for the existing provenance inventory; never refreshes or writes pins.</summary>
-public static class FrameworkProvenance
+public static partial class FrameworkProvenance
 {
     public static readonly IReadOnlyList<string> FrameworkIds = Array.AsReadOnly(new[]
         { "dotnet", "microsoft.extensions", "system.commandline", "avalonia", "terminal.gui" });

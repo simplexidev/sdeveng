@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object", "additionalProperties": false,
+  "required": ["schemaVersion", "observations"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "observations": { "type": "array", "maxItems": 5, "items": { "$ref": "#/$defs/observation" } }
+  },
+  "$defs": {
+    "observation": {
+      "type": "object", "additionalProperties": false,
+      "required": ["frameworkId", "sourceUri", "observedRevision", "observedHash", "observedMajorVersion", "capturedAt", "provenance", "unavailableReason"],
+      "properties": {
+        "frameworkId": { "enum": ["dotnet", "microsoft.extensions", "system.commandline", "avalonia", "terminal.gui"] },
+        "sourceUri": { "type": "string", "format": "uri", "pattern": "^https://[^/]+/.+" },
+        "observedRevision": { "type": ["string", "null"], "not": { "const": "unknown" }, "pattern": "^[A-Za-z0-9][A-Za-z0-9._/+:-]{0,199}$" },
+        "observedHash": { "type": ["string", "null"], "pattern": "^sha256:[0-9a-f]{64}$" },
+        "observedMajorVersion": { "type": ["integer", "null"], "minimum": 1 },
+        "capturedAt": { "type": "string", "format": "date-time" },
+        "provenance": { "type": "string", "minLength": 1, "maxLength": 300 },
+        "unavailableReason": { "type": ["string", "null"], "minLength": 1, "maxLength": 300 }
+      }
+    }
+  }
+}

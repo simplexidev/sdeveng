@@ -30,3 +30,23 @@ their profiles are verified. Source hash and capture time remain `unknown`,
 without inventing a timestamp from the inspection date. Additional framework
 runtime bindings are deferred. Existing drift output
 and changed-path classifications remain compatible, with automaticAction=none.
+
+`upstream dotnet-skills drift|refresh [--observations-file <path>]` compares local
+observations only. `refresh` emits a PLAN with current pins, observed references,
+classifications and reasons; it never updates inventory, installs code or loads
+documentation. `--dry-run` has the same read-only result. Existing status/diff/check
+and changed-path output remain unchanged; observations-file is rejected for those
+operations. Output uses `framework-drift-plan.schema.json`; input uses
+`framework-observations.schema.json`, version 1, at most five entries and 16384
+UTF-8 bytes. IDs must be canonical (inventory aliases are preserved, not inferred)
+and source URIs must exactly match the registry authority. Each observation has
+capture time and explicit provenance (fixtures say synthetic), nullable revision,
+SHA-256 hash and major, and a reason when any fact is unavailable. Duplicate IDs,
+unknown IDs, mismatched sources and malformed values fail closed.
+
+Only known facts from the same authority compare. Known changed revision/hash
+requires review; a known major outside a known supported set is unsupported.
+Unknown pins, support boundaries or observed facts remain unknown; absence of an
+observations file never means no drift. Current requires equal known pins and a
+known supported major. V2 uses its historical dotnet snapshot; other frameworks
+remain unknown. Existing upstream releases do not establish toolkit support.
