@@ -13,7 +13,7 @@ matching local names do not prove registration. Indirect/dynamic wiring remains
 unknown. Static registration does not prove resolution or runtime activity.
 
 This guides application code only; factory workers retain their own provider-neutral
-runtime contracts. Function registration remains a separate concern.
+runtime contracts.
 Use fake chat clients and synthetic outputs for tests; never paid endpoints or weights.
 
 `chat-client-composition` identifies resolved `ChatClientBuilder.Use` and framework
@@ -22,6 +22,14 @@ Use fake chat clients and synthetic outputs for tests; never paid endpoints or w
 composition, not execution, DI registration, pipeline order or runtime activity.
 Builder construction alone and local lookalikes are absent; indirect/dynamic wiring,
 incomplete compilation and unsupported versions remain unknown.
+
+`chat-tool-registration` identifies explicit nonempty collections assigned to the
+real `ChatOptions.Tools` property (including object/collection initializers), or
+`Tools.Add` calls. It reports static attachment of tools/functions, not execution,
+request submission or runtime activity. `AIFunctionFactory.Create` alone,
+`UseFunctionInvocation` alone, empty/null collections and local lookalikes do not
+prove attachment. Collection variables, spreads and indirect/dynamic wiring remain
+unknown; no dataflow or final collection state is inferred.
 
 Provenance: Microsoft.Extensions.AI 10.0.0, MIT, dotnet/extensions commit
 `fbd393616ef5ce0f2f1521a7250e4311728ed93a` from the published NuGet repository metadata.
@@ -33,3 +41,7 @@ References only; no upstream implementation is vendored.
 Composition provenance: the same pinned
 [builder source](https://github.com/dotnet/extensions/blob/fbd393616ef5ce0f2f1521a7250e4311728ed93a/src/Libraries/Microsoft.Extensions.AI/ChatCompletion/ChatClientBuilder.cs)
 and [decorator source](https://github.com/dotnet/extensions/blob/fbd393616ef5ce0f2f1521a7250e4311728ed93a/src/Libraries/Microsoft.Extensions.AI.Abstractions/ChatCompletion/DelegatingChatClient.cs).
+
+Tool provenance: the same pinned
+[options source](https://github.com/dotnet/extensions/blob/fbd393616ef5ce0f2f1521a7250e4311728ed93a/src/Libraries/Microsoft.Extensions.AI.Abstractions/ChatCompletion/ChatOptions.cs)
+and [function factory source](https://github.com/dotnet/extensions/blob/fbd393616ef5ce0f2f1521a7250e4311728ed93a/src/Libraries/Microsoft.Extensions.AI.Abstractions/Functions/AIFunctionFactory.cs).

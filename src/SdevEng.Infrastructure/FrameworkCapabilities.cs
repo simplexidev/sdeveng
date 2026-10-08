@@ -43,13 +43,20 @@ public static class FrameworkCapabilities
             => new("chat-client-registration", status, evidence, version, locations);
         FrameworkCapabilityFact Composition(string status, string evidence, FrameworkCapabilityLocation[]? locations = null)
             => new("chat-client-composition", status, evidence, version, locations);
+        FrameworkCapabilityFact Tools(string status, string evidence, FrameworkCapabilityLocation[]? locations = null)
+            => new("chat-tool-registration", status, evidence, version, locations);
         if (!complete) return [package, Registration("unknown", "unavailable-or-incomplete-csharp-compilation"),
-            Composition("unknown", "unavailable-or-incomplete-csharp-compilation")];
+            Composition("unknown", "unavailable-or-incomplete-csharp-compilation"), Tools("unknown", "unavailable-or-incomplete-csharp-compilation")];
         if (unsupported) return [package, Registration("unknown", "unsupported-package-version"),
-            Composition("unknown", "unsupported-package-version")];
+            Composition("unknown", "unsupported-package-version"), Tools("unknown", "unsupported-package-version")];
         var chat = compilation!.GetTypeByMetadataName("Microsoft.Extensions.AI.IChatClient");
         var locations = new List<FrameworkCapabilityLocation>();
         var compositionLocations = new List<FrameworkCapabilityLocation>();
+        var toolLocations = new List<FrameworkCapabilityLocation>();
+        var unknownTools = false;
+        bool IsTools(ISymbol? symbol) => symbol is IPropertySymbol property &&
+            property.Name == "Tools" && property.ContainingType.ToDisplayString() == "Microsoft.Extensions.AI.ChatOptions" &&
+            property.ContainingAssembly.Name == abstractions;
         var delegating = compilation.GetTypeByMetadataName("Microsoft.Extensions.AI.DelegatingChatClient");
         var indirect = false;
         foreach (var tree in compilation.SyntaxTrees)
@@ -60,6 +67,13 @@ public static class FrameworkCapabilities
                 if (model.GetSymbolInfo(call).Symbol is not IMethodSymbol method) { indirect = true; continue; }
                 if (method.ReducedFrom is { } original)
                     method = method.IsGenericMethod ? original.Construct(method.TypeArguments.ToArray()) : original;
+                if (call.Expression is MemberAccessExpressionSyntax access &&
+                    IsTools(model.GetSymbolInfo(access.Expression).Symbol) && method.Name == "Add" &&
+                    method.ContainingType.OriginalDefinition.ToDisplayString() == "System.Collections.Generic.ICollection<T>")
+                {
+                    var span = call.GetLocation().GetLineSpan();
+                    toolLocations.Add(new(tree.FilePath, span.StartLinePosition.Line + 1, span.StartLinePosition.Character + 1));
+                }
                 if (chat?.ContainingAssembly.Name == abstractions && method.ContainingAssembly.Name == ai &&
                     ((method.ContainingType.ToDisplayString() == "Microsoft.Extensions.AI.ChatClientBuilder" && method.Name == "Use") ||
                      (method.IsExtensionMethod && method.Name.StartsWith("Use", StringComparison.Ordinal) &&
@@ -91,6 +105,27 @@ public static class FrameworkCapabilities
                     method.ContainingNamespace.ToDisplayString().StartsWith("System.Reflection", StringComparison.Ordinal) ||
                     method.ContainingType.ToDisplayString() == "Microsoft.Extensions.DependencyInjection.ServiceDescriptor") indirect = true;
             }
+            foreach (var assignment in tree.GetRoot().DescendantNodes().OfType<AssignmentExpressionSyntax>())
+            {
+                if (!IsTools(model.GetSymbolInfo(assignment.Left).Symbol)) continue;
+                // Only explicit entries prove attachment. Variables, factories and spreads need dataflow analysis.
+                var entries = assignment.Right switch
+                {
+                    CollectionExpressionSyntax collection when !collection.Elements.Any(item => item is SpreadElementSyntax)
+                        => collection.Elements.Count,
+                    InitializerExpressionSyntax initializer => initializer.Expressions.Count,
+                    ObjectCreationExpressionSyntax { Initializer: { } initializer } => initializer.Expressions.Count,
+                    ImplicitObjectCreationExpressionSyntax { Initializer: { } initializer } => initializer.Expressions.Count,
+                    ArrayCreationExpressionSyntax { Initializer: { } initializer } => initializer.Expressions.Count,
+                    ImplicitArrayCreationExpressionSyntax array => array.Initializer.Expressions.Count,
+                    LiteralExpressionSyntax literal when literal.RawKind == (int)Microsoft.CodeAnalysis.CSharp.SyntaxKind.NullLiteralExpression => 0,
+                    _ => -1
+                };
+                if (entries < 0) unknownTools = true;
+                if (entries <= 0) continue;
+                var span = assignment.GetLocation().GetLineSpan();
+                toolLocations.Add(new(tree.FilePath, span.StartLinePosition.Line + 1, span.StartLinePosition.Character + 1));
+            }
             foreach (var creation in tree.GetRoot().DescendantNodes().OfType<BaseObjectCreationExpressionSyntax>())
             {
                 if (model.GetSymbolInfo(creation).Symbol is not IMethodSymbol constructor) { indirect = true; continue; }
@@ -109,7 +144,10 @@ public static class FrameworkCapabilities
             locations.Take(64).ToArray()),
             Composition(compositionLocations.Count > 0 ? "detected" : indirect ? "unknown" : "absent",
                 compositionLocations.Count > 0 ? "roslyn-static-composition-not-runtime-proof" :
-                    indirect ? "indirect-static-composition" : "roslyn-no-static-composition", compositionLocations.Take(64).ToArray())];
+                    indirect ? "indirect-static-composition" : "roslyn-no-static-composition", compositionLocations.Take(64).ToArray()),
+            Tools(toolLocations.Count > 0 ? "detected" : indirect || unknownTools ? "unknown" : "absent",
+                toolLocations.Count > 0 ? "roslyn-static-tool-registration-not-runtime-proof" :
+                    indirect || unknownTools ? "indirect-static-composition" : "roslyn-no-static-tool-registration", toolLocations.Take(64).ToArray())];
     }
 
     static FrameworkCapabilityFact[] DetectReflection(Compilation? compilation)
