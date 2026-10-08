@@ -2,6 +2,27 @@
   "schemaVersion": 1,
   "cases": [
     {
+      "id": "typed-and-named-http-clients",
+      "source": "using Microsoft.Extensions.DependencyInjection; var services = new ServiceCollection(); services.AddHttpClient<WidgetClient>(); services.AddHttpClient(\"catalog\", client => {}); class WidgetClient : System.Net.Http.HttpClient {}",
+      "packageVersions": { "Microsoft.Extensions.Http": "10.0.0" },
+      "expected": { "generic-host": "absent", "dependency-injection": "absent", "configuration": "absent", "options": "absent", "logging": "absent", "http-client-factory": "detected", "http-client-typed": "detected", "http-client-named": "detected" },
+      "expectedLocations": { "http-client-factory": 2, "http-client-typed": 1, "http-client-named": 1 }
+    },
+    {
+      "id": "plain-http-client-is-not-factory-registration",
+      "source": "var client = new System.Net.Http.HttpClient();",
+      "packageVersions": {},
+      "expected": { "generic-host": "absent", "dependency-injection": "absent", "configuration": "absent", "options": "absent", "logging": "absent", "http-client-factory": "absent", "http-client-typed": "absent", "http-client-named": "absent" },
+      "expectedLocations": {}
+    },
+    {
+      "id": "unresolved-http-client-registration",
+      "source": "Missing.AddHttpClient<WidgetClient>(); class WidgetClient {}",
+      "packageVersions": {},
+      "expected": { "generic-host": "unknown", "dependency-injection": "unknown", "configuration": "unknown", "options": "unknown", "logging": "unknown", "http-client-factory": "unknown", "http-client-typed": "unknown", "http-client-named": "unknown" },
+      "expectedLocations": {}
+    },
+    {
       "id": "registered-cancellable-worker",
       "source": "using Microsoft.Extensions.DependencyInjection; var b = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder(); b.Services.AddHostedService<Worker>(); class Worker : Microsoft.Extensions.Hosting.BackgroundService { protected override System.Threading.Tasks.Task ExecuteAsync(System.Threading.CancellationToken stoppingToken) => System.Threading.Tasks.Task.Delay(-1, stoppingToken); }",
       "packageVersions": {},

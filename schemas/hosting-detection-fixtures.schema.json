@@ -24,7 +24,10 @@
             "options": { "enum": ["detected", "absent", "unknown"] },
             "logging": { "enum": ["detected", "absent", "unknown"] },
             "background-service": { "enum": ["detected", "absent", "unknown"] },
-            "hosted-service": { "enum": ["detected", "absent", "unknown"] }
+            "hosted-service": { "enum": ["detected", "absent", "unknown"] },
+            "http-client-factory": { "enum": ["detected", "absent", "unknown"] },
+            "http-client-typed": { "enum": ["detected", "absent", "unknown"] },
+            "http-client-named": { "enum": ["detected", "absent", "unknown"] }
           } },
           "expectedLocations": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 0 } }
         }

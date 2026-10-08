@@ -3,7 +3,7 @@
   "title": "Static framework capability facts",
   "type": "array",
   "minItems": 4,
-  "maxItems": 12,
+  "maxItems": 14,
   "allOf": [
     { "contains": { "properties": { "id": { "const": "plain-console" } }, "required": ["id"] } },
     { "contains": { "properties": { "id": { "const": "generic-host-console" } }, "required": ["id"] } },
@@ -15,7 +15,7 @@
     "additionalProperties": false,
     "required": ["id", "status", "evidence"],
     "properties": {
-      "id": { "enum": ["plain-console", "generic-host-console", "console-redirection", "system-commandline", "generic-host", "dependency-injection", "configuration", "options", "logging", "background-service", "hosted-service", "http-client-factory"] },
+      "id": { "enum": ["plain-console", "generic-host-console", "console-redirection", "system-commandline", "generic-host", "dependency-injection", "configuration", "options", "logging", "background-service", "hosted-service", "http-client-factory", "http-client-typed", "http-client-named"] },
       "status": { "enum": ["detected", "absent", "unknown"] },
       "evidence": { "type": "string", "minLength": 1 },
       "version": { "type": ["string", "null"] },
