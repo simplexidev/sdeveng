@@ -27,16 +27,30 @@ public sealed class FrameworkCapabilitiesTests
     public void UsesEntryPointSymbolsRatherThanInstalledPackagesOrUncalledCode(string source, string plain, string host)
     {
         var facts = FrameworkCapabilities.Detect("Exe", Compile(source));
-        Assert.Equal(new[] { plain, host }, facts.Select(fact => fact.Status));
+        Assert.Equal(new[] { plain, host, "unknown", "absent" }, facts.Select(fact => fact.Status));
         var schema = JsonSchema.FromFile(Path.Combine(AgentTool.FindToolkit(), "schemas/framework-capabilities.schema.json"));
         Assert.True(schema.Evaluate(JsonSerializer.SerializeToNode(facts, AgentTool.Json)).IsValid);
     }
 
     [Fact]
+    public void ReportsStaticRedirectionUseAndResolvedCommandLineVersion()
+    {
+        var facts = FrameworkCapabilities.Detect("Exe",
+            Compile("if (System.Console.IsInputRedirected || System.Console.IsOutputRedirected) System.Console.WriteLine(1);"),
+            new Dictionary<string, string?> { ["System.CommandLine"] = "2.0.0" });
+        Assert.Equal("detected", facts.Single(fact => fact.Id == "console-redirection").Status);
+        var commandLine = facts.Single(fact => fact.Id == "system-commandline");
+        Assert.Equal("detected", commandLine.Status);
+        Assert.Equal("2.0.0", commandLine.Version);
+        Assert.Equal("unknown", FrameworkCapabilities.Detect("Exe", Compile("System.Console.WriteLine(1);"))
+            .Single(fact => fact.Id == "console-redirection").Status);
+    }
+
+    [Fact]
     public void LibrariesAndUnavailableCompilationsDoNotClaimConsoleSupport()
     {
-        Assert.All(FrameworkCapabilities.Detect("Library", Compile("System.Console.WriteLine(1);")), fact => Assert.Equal("absent", fact.Status));
-        Assert.All(FrameworkCapabilities.Detect("Exe", null), fact => Assert.Equal("unknown", fact.Status));
+        Assert.Equal(new[] { "absent", "absent", "absent", "absent" }, FrameworkCapabilities.Detect("Library", Compile("System.Console.WriteLine(1);")).Select(fact => fact.Status));
+        Assert.Equal(new[] { "unknown", "unknown", "unknown", "absent" }, FrameworkCapabilities.Detect("Exe", null).Select(fact => fact.Status));
     }
 
     [Fact]
@@ -51,6 +65,8 @@ public sealed class FrameworkCapabilitiesTests
         repo.Write("Hosted/Program.cs", "var builder = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder();");
         repo.Write("Unused/Unused.csproj", project);
         repo.Write("Unused/Program.cs", "System.Console.WriteLine(1);");
+        repo.Write("CommandLine/CommandLine.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net10.0</TargetFramework><OutputType>Exe</OutputType></PropertyGroup><ItemGroup><PackageReference Include=\"System.CommandLine\" Version=\"2.0.0\" /></ItemGroup></Project>");
+        repo.Write("CommandLine/Program.cs", "System.Console.WriteLine(1);");
         repo.Write("Broken/Broken.csproj", project);
         repo.Write("Broken/Program.cs", "Missing.Run();");
         repo.Write("Library/Library.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>");
@@ -67,19 +83,22 @@ public sealed class FrameworkCapabilitiesTests
             var json = JsonSerializer.SerializeToNode(result.Data, AgentTool.Json)!;
             var expected = new Dictionary<string, string[]>
             {
-                ["App.csproj"] = ["detected", "absent"],
-                ["Hosted/Hosted.csproj"] = ["absent", "detected"],
-                ["Unused/Unused.csproj"] = ["detected", "absent"],
-                ["Broken/Broken.csproj"] = ["unknown", "unknown"],
-                ["Library/Library.csproj"] = ["absent", "absent"],
-                ["Unsupported/Unsupported.vbproj"] = ["unknown", "unknown"]
+                ["App.csproj"] = ["detected", "absent", "unknown", "absent"],
+                ["Hosted/Hosted.csproj"] = ["absent", "detected", "unknown", "absent"],
+                ["Unused/Unused.csproj"] = ["detected", "absent", "unknown", "absent"],
+                ["CommandLine/CommandLine.csproj"] = ["detected", "absent", "unknown", "detected"],
+                ["Broken/Broken.csproj"] = ["unknown", "unknown", "unknown", "absent"],
+                ["Library/Library.csproj"] = ["absent", "absent", "absent", "absent"],
+                ["Unsupported/Unsupported.vbproj"] = ["unknown", "unknown", "unknown", "absent"]
             };
             Assert.Equal(expected.Count, json["projects"]!.AsArray().Count);
             foreach (var row in json["projects"]!.AsArray())
             {
                 var facts = row!["frameworkCapabilities"]!;
                 Assert.Equal(expected[row["path"]!.GetValue<string>()], facts.AsArray().Select(fact => fact!["status"]!.GetValue<string>()));
-                Assert.Equal(new[] { "plain-console", "generic-host-console" }, facts.AsArray().Select(fact => fact!["id"]!.GetValue<string>()));
+                Assert.Equal(new[] { "plain-console", "generic-host-console", "console-redirection", "system-commandline" }, facts.AsArray().Select(fact => fact!["id"]!.GetValue<string>()));
+                if (row["path"]!.GetValue<string>() == "CommandLine/CommandLine.csproj")
+                    Assert.Equal("2.0.0", facts[3]!["version"]!.GetValue<string>());
                 Assert.True(JsonSchema.FromFile(Path.Combine(AgentTool.FindToolkit(), "schemas/framework-capabilities.schema.json")).Evaluate(facts).IsValid);
             }
             if (command[0] == "repo")
