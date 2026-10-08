@@ -188,6 +188,27 @@
       "expected": { "generic-host": "absent", "dependency-injection": "absent", "configuration": "absent", "options": "absent", "logging": "absent", "microsoft-extensions-telemetry": "unknown", "opentelemetry": "unknown" },
       "expectedLocations": {},
       "expectedVersions": { "microsoft-extensions-telemetry": "9.0.0", "opentelemetry": "2.0.0" }
+    },
+    {
+      "id": "unbounded-channel-misuse",
+      "source": "var channel = System.Threading.Channels.Channel.CreateUnbounded<int>();",
+      "packageVersions": {},
+      "expected": { "generic-host": "absent", "dependency-injection": "absent", "configuration": "absent", "options": "absent", "logging": "absent", "channels": "detected", "localization": "absent" },
+      "expectedLocations": { "channels": 1 }
+    },
+    {
+      "id": "localizer-without-registration",
+      "source": "Microsoft.Extensions.Localization.IStringLocalizer localizer = null!; _ = localizer[\"Welcome\"];",
+      "packageVersions": {},
+      "expected": { "generic-host": "absent", "dependency-injection": "absent", "configuration": "absent", "options": "absent", "logging": "absent", "channels": "absent", "localization": "absent" },
+      "expectedLocations": {}
+    },
+    {
+      "id": "secret-bearing-configuration-redaction",
+      "source": "using Microsoft.Extensions.Configuration; var configuration = new ConfigurationBuilder().Build(); var settings = configuration.GetSection(\"Service\"); // synthetic secret value: [REDACTED]",
+      "packageVersions": {},
+      "expected": { "generic-host": "absent", "dependency-injection": "absent", "configuration": "detected", "options": "absent", "logging": "absent", "channels": "absent", "localization": "absent" },
+      "expectedLocations": { "configuration": 1 }
     }
   ]
 }
