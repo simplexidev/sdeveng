@@ -59,6 +59,27 @@ public sealed class FrameworkCapabilitiesTests
     }
 
     [Fact]
+    public async Task NativeAotReferenceRequiresDetectedEvaluatedSetting()
+    {
+        var root = AgentTool.FindToolkit();
+        var service = new SkillActivationService();
+        const string path = "references/native-aot.md";
+        foreach (var value in new[] { "true", "false", "$(Unset)", "" })
+        {
+            var facts = FrameworkCapabilities.Detect(null, null, projectProperties: new Dictionary<string, string?> { ["PublishAot"] = value });
+            var context = new SkillActivationContext("coder", ["public-api-change"], [], [],
+                facts.Where(item => item.Status == "detected").Select(item => new SkillFrameworkFact(item.Id, item.Version ?? "1.0.0")).ToArray());
+            var metadata = Assert.Single(service.Activate(root, context), item => item.Id == "api-compatibility");
+            Assert.Equal("publish-aot", Assert.Single(Assert.Single(metadata.Resources!, item => item.Path == path).Activation!).Id);
+            var loaded = await service.LoadReferenceAsync(root, context, "api-compatibility", path);
+            Assert.Equal(value == "true" ? "loaded" : "omitted", loaded.Status);
+            if (value == "true") Assert.Equal(File.ReadAllText(Path.Combine(root, "plugins/sdeveng/skills/api-compatibility", path)), loaded.Content);
+            else Assert.Equal("resource-not-activated", loaded.OmissionReason);
+            SkillCompatibilityMapReader.ValidateResources(root, [metadata]);
+        }
+    }
+
+    [Fact]
     public void EvaluatedPublishSettingsDistinguishEnabledDisabledAndUnavailable()
     {
         var enabled = FrameworkCapabilities.Detect(null, null, projectProperties: new Dictionary<string, string?>
