@@ -3,3 +3,6 @@ scenario: Guide a .NET service using a single Generic Host, dependency lifetimes
 expected: Require resolved Microsoft.Extensions 10 facts before version-specific API advice. Keep one host/service provider, explain lifetime and options choices, and distinguish static composition locations from runtime proof.
 safety: Use evaluated symbols and package facts only; dynamic/reflection wiring remains unknown and no host is executed.
 proof: "tests/SdevEng.Tests/FrameworkCapabilitiesTests.cs: HostingFixturesUseResolvedSymbolsAndValidateContract"
+caching: Discover references/caching.md in canonical metadata; load only with a supported detected memory-cache fact. Unsupported or unused packages supply no registration fact. Preserve hosting and resilience resource hashes and legacy aliases.
+telemetry: Detect OpenTelemetry 1 logging, tracing and metric composition independently from installed packages; retain source locations and versions, never infer runtime emission or export.
+composition-proof: "tests/SdevEng.Tests/FrameworkCapabilitiesTests.cs: TelemetryCompositionRequiresResolvedSymbols; CachingReferenceIsDiscoveredAndLoadedOnlyForMatchingFacts"

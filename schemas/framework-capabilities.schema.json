@@ -3,7 +3,7 @@
   "title": "Static framework capability facts",
   "type": "array",
   "minItems": 4,
-  "maxItems": 19,
+  "maxItems": 22,
   "allOf": [
     { "contains": { "properties": { "id": { "const": "plain-console" } }, "required": ["id"] } },
     { "contains": { "properties": { "id": { "const": "generic-host-console" } }, "required": ["id"] } },
@@ -15,7 +15,7 @@
     "additionalProperties": false,
     "required": ["id", "status", "evidence"],
     "properties": {
-      "id": { "enum": ["plain-console", "generic-host-console", "console-redirection", "system-commandline", "generic-host", "dependency-injection", "configuration", "options", "logging", "background-service", "hosted-service", "http-client-factory", "http-client-typed", "http-client-named", "http-client-resilience", "memory-cache", "distributed-cache", "microsoft-extensions-telemetry", "opentelemetry"] },
+      "id": { "enum": ["plain-console", "generic-host-console", "console-redirection", "system-commandline", "generic-host", "dependency-injection", "configuration", "options", "logging", "background-service", "hosted-service", "http-client-factory", "http-client-typed", "http-client-named", "http-client-resilience", "memory-cache", "distributed-cache", "microsoft-extensions-telemetry", "opentelemetry", "telemetry-logging", "telemetry-tracing", "telemetry-metrics"] },
       "status": { "enum": ["detected", "absent", "unknown"] },
       "evidence": { "type": "string", "minLength": 1 },
       "version": { "type": ["string", "null"] },

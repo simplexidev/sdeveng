@@ -2,6 +2,27 @@
   "schemaVersion": 1,
   "cases": [
     {
+      "id": "telemetry-static-composition",
+      "source": "using Microsoft.Extensions.DependencyInjection; using Microsoft.Extensions.Logging; using OpenTelemetry; var s = new ServiceCollection(); s.AddLogging(l => l.AddOpenTelemetry()); s.AddOpenTelemetry().WithTracing(t => {}).WithMetrics(m => {});",
+      "packageVersions": { "OpenTelemetry": "1.15.3", "OpenTelemetry.Extensions.Hosting": "1.15.3" },
+      "expected": { "generic-host": "absent", "dependency-injection": "absent", "configuration": "absent", "options": "absent", "logging": "detected", "telemetry-logging": "detected", "telemetry-tracing": "detected", "telemetry-metrics": "detected" },
+      "expectedLocations": { "logging": 1, "telemetry-logging": 1, "telemetry-tracing": 1, "telemetry-metrics": 1 }
+    },
+    {
+      "id": "telemetry-unused-supported-packages",
+      "source": "System.Console.WriteLine(1);",
+      "packageVersions": { "OpenTelemetry": "1.15.3", "OpenTelemetry.Extensions.Hosting": "1.15.3" },
+      "expected": { "generic-host": "absent", "dependency-injection": "absent", "configuration": "absent", "options": "absent", "logging": "absent", "telemetry-logging": "absent", "telemetry-tracing": "absent", "telemetry-metrics": "absent" },
+      "expectedLocations": {}
+    },
+    {
+      "id": "telemetry-unsupported-composition-version",
+      "source": "System.Console.WriteLine(1);",
+      "packageVersions": { "OpenTelemetry": "2.0.0", "OpenTelemetry.Extensions.Hosting": "2.0.0" },
+      "expected": { "generic-host": "absent", "dependency-injection": "absent", "configuration": "absent", "options": "absent", "logging": "absent", "telemetry-logging": "unknown", "telemetry-tracing": "unknown", "telemetry-metrics": "unknown" },
+      "expectedLocations": {}
+    },
+    {
       "id": "typed-and-named-http-clients",
       "source": "using Microsoft.Extensions.DependencyInjection; var services = new ServiceCollection(); services.AddHttpClient<WidgetClient>(); services.AddHttpClient(\"catalog\", client => {}); class WidgetClient : System.Net.Http.HttpClient {}",
       "packageVersions": { "Microsoft.Extensions.Http": "10.0.0" },
