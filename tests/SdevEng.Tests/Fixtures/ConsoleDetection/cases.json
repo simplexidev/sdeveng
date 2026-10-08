@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "id": "plain-console",
+      "outputType": "Exe",
+      "source": "System.Console.WriteLine(1);",
+      "packageVersions": {},
+      "expected": ["detected", "absent", "unknown", "absent"]
+    },
+    {
+      "id": "hosted-console",
+      "outputType": "Exe",
+      "source": "var host = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder();",
+      "packageVersions": { "Microsoft.Extensions.Hosting": "10.0.12" },
+      "expected": ["absent", "detected", "unknown", "absent"]
+    },
+    {
+      "id": "redirected-io",
+      "outputType": "Exe",
+      "source": "if (System.Console.IsInputRedirected || System.Console.IsOutputRedirected) System.Console.WriteLine(1);",
+      "packageVersions": {},
+      "expected": ["detected", "absent", "detected", "absent"]
+    },
+    {
+      "id": "unsupported-commandline-version",
+      "outputType": "Exe",
+      "source": "System.Console.WriteLine(1);",
+      "packageVersions": { "System.CommandLine": "1.0.0" },
+      "expected": ["detected", "absent", "unknown", "detected"],
+      "expectedCommandLineSkillActivation": false
+    }
+  ]
+}
