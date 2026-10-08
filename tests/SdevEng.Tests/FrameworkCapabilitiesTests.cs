@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Json.Schema;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -51,6 +52,36 @@ public sealed class FrameworkCapabilitiesTests
     {
         Assert.Equal(new[] { "absent", "absent", "absent", "absent" }, FrameworkCapabilities.Detect("Library", Compile("System.Console.WriteLine(1);")).Select(fact => fact.Status));
         Assert.Equal(new[] { "unknown", "unknown", "unknown", "absent" }, FrameworkCapabilities.Detect("Exe", null).Select(fact => fact.Status));
+    }
+
+    [Fact]
+    public void RegisteredConsoleFixturesMatchIndependentExpectationsAndSchemas()
+    {
+        var root = AgentTool.FindToolkit();
+        var fixturePath = Path.Combine(root, "tests/SdevEng.Tests/Fixtures/ConsoleDetection/cases.json");
+        var fixtures = JsonNode.Parse(File.ReadAllText(fixturePath))!;
+        Assert.True(JsonSchema.FromFile(Path.Combine(root, "schemas/console-detection-fixtures.schema.json"))
+            .Evaluate(fixtures).IsValid);
+        var capabilitySchema = JsonSchema.FromFile(Path.Combine(root, "schemas/framework-capabilities.schema.json"));
+        var cases = fixtures["cases"]!.AsArray();
+        Assert.Equal(new[] { "plain-console", "hosted-console", "redirected-io", "unsupported-commandline-version" },
+            cases.Select(item => item!["id"]!.GetValue<string>()));
+        foreach (var item in cases)
+        {
+            var packages = item!["packageVersions"]!.AsObject().ToDictionary(pair => pair.Key,
+                pair => pair.Value?.GetValue<string>());
+            var facts = FrameworkCapabilities.Detect(item["outputType"]!.GetValue<string>(),
+                Compile(item["source"]!.GetValue<string>()), packages);
+            Assert.Equal(item["expected"]!.AsArray().Select(value => value!.GetValue<string>()),
+                facts.Select(fact => fact.Status));
+            Assert.True(capabilitySchema.Evaluate(JsonSerializer.SerializeToNode(facts, AgentTool.Json)).IsValid);
+            if (item["expectedCommandLineSkillActivation"] is JsonValue expectedActivation)
+            {
+                var version = facts.Single(fact => fact.Id == "system-commandline").Version;
+                Assert.Equal(expectedActivation.GetValue<bool>(), version == "2.0.0");
+                Assert.Equal("1.0.0", version);
+            }
+        }
     }
 
     [Fact]
