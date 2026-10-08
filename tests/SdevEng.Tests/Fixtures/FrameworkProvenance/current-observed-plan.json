@@ -1,0 +1,83 @@
+{
+  "schemaVersion": 1,
+  "kind": "framework-provenance-drift",
+  "mode": "facts",
+  "automaticAction": "none",
+  "entries": [
+    {
+      "frameworkId": "dotnet",
+      "sourceUri": "https://github.com/dotnet/skills",
+      "currentRevision": "4ed5f7c121da8dd31af31a35cef05070948c6556",
+      "currentHash": "unknown",
+      "supportedMajorVersions": [
+        10
+      ],
+      "observed": {
+        "frameworkId": "dotnet",
+        "sourceUri": "https://github.com/dotnet/skills",
+        "observedRevision": "synthetic-new-revision",
+        "observedHash": null,
+        "observedMajorVersion": 10,
+        "capturedAt": "2026-10-08T12:00:00Z",
+        "provenance": "synthetic migration regression fixture; no live qualification",
+        "unavailableReason": "synthetic hash unavailable"
+      },
+      "classification": "review-required",
+      "reasons": [
+        "revision-changed",
+        "hash-unknown",
+        "observation-unavailable: synthetic hash unavailable"
+      ]
+    },
+    {
+      "frameworkId": "microsoft.extensions",
+      "sourceUri": "https://github.com/dotnet/extensions",
+      "currentRevision": "unknown",
+      "currentHash": "unknown",
+      "supportedMajorVersions": [
+        10
+      ],
+      "observed": null,
+      "classification": "unknown",
+      "reasons": [
+        "observations-unavailable"
+      ]
+    },
+    {
+      "frameworkId": "system.commandline",
+      "sourceUri": "https://github.com/dotnet/command-line-api",
+      "currentRevision": "unknown",
+      "currentHash": "unknown",
+      "supportedMajorVersions": "unknown",
+      "observed": null,
+      "classification": "unknown",
+      "reasons": [
+        "observations-unavailable"
+      ]
+    },
+    {
+      "frameworkId": "avalonia",
+      "sourceUri": "https://github.com/AvaloniaUI/Avalonia",
+      "currentRevision": "unknown",
+      "currentHash": "unknown",
+      "supportedMajorVersions": "unknown",
+      "observed": null,
+      "classification": "unknown",
+      "reasons": [
+        "observations-unavailable"
+      ]
+    },
+    {
+      "frameworkId": "terminal.gui",
+      "sourceUri": "https://github.com/gui-cs/Terminal.Gui",
+      "currentRevision": "unknown",
+      "currentHash": "unknown",
+      "supportedMajorVersions": "unknown",
+      "observed": null,
+      "classification": "unknown",
+      "reasons": [
+        "observations-unavailable"
+      ]
+    }
+  ]
+}

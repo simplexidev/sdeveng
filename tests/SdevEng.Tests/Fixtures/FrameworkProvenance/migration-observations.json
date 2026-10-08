@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "observations": [
+    {
+      "frameworkId": "dotnet",
+      "sourceUri": "https://github.com/dotnet/skills",
+      "observedRevision": "synthetic-new-revision",
+      "observedHash": null,
+      "observedMajorVersion": 10,
+      "capturedAt": "2026-10-08T12:00:00Z",
+      "provenance": "synthetic migration regression fixture; no live qualification",
+      "unavailableReason": "synthetic hash unavailable"
+    }
+  ]
+}

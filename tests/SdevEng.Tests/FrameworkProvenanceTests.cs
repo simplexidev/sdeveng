@@ -12,6 +12,59 @@ public class FrameworkProvenanceTests
         .Evaluate(manifest, new() { RequireFormatValidation = true }).IsValid;
 
     [Theory]
+    [InlineData(2, "legacy-observed-plan.json")]
+    [InlineData(3, "current-observed-plan.json")]
+    public async Task FixedObservationFixturesPreserveAuthorityThroughCurrentConsumers(int version, string expectedFile)
+    {
+        using var repo = new TemporaryGitRepository();
+        var fixtures = Path.Combine(Root, "tests/SdevEng.Tests/Fixtures/FrameworkProvenance");
+        var manifest = version == 2 ? Legacy() : Current();
+        Assert.True(Valid(manifest));
+        var original = manifest.ToJsonString();
+        Directory.CreateDirectory(Path.Combine(repo.Root, "upstream"));
+        var path = Path.Combine(repo.Root, "upstream/dotnet-skills.json");
+        File.WriteAllText(path, original);
+        var observations = Path.Combine(fixtures, "migration-observations.json");
+        var input = JsonNode.Parse(File.ReadAllText(observations))!;
+        var expected = JsonNode.Parse(File.ReadAllText(Path.Combine(fixtures, expectedFile)))!;
+        var inputSchemaPath = Path.Combine(Root, "schemas/framework-observations.schema.json");
+        var inputSchema = JsonSchema.FromFile(inputSchemaPath);
+        Assert.True(inputSchema.Evaluate(input, new() { RequireFormatValidation = true }).IsValid);
+        var options = new EvaluationOptions { RequireFormatValidation = true };
+        options.SchemaRegistry.Register(new Uri(inputSchemaPath), inputSchema);
+        var outputSchema = JsonSchema.FromFile(Path.Combine(Root, "schemas/framework-drift-plan.schema.json"));
+        Assert.True(outputSchema.Evaluate(expected, options).IsValid);
+        Assert.Single(FrameworkProvenance.ReadObservations(input.ToJsonString(), manifest).Observations);
+        var settings = new Settings(new(), new(), new(), new());
+        foreach (var operation in new[] { "drift", "refresh" })
+        {
+            var result = await CommandTestRuntime.Execute(Cli.Parse(["upstream", "dotnet-skills", operation,
+                "--observations-file", observations]), repo.Root, repo.Root, settings);
+            Assert.Equal("ok", result.Status);
+            Assert.Equal(0, result.ExitCode);
+            var actual = System.Text.Json.JsonSerializer.SerializeToNode(result.Data, AgentTool.Json)!;
+            Assert.True(outputSchema.Evaluate(actual, options).IsValid);
+            var outcome = expected.DeepClone();
+            outcome["mode"] = operation == "refresh" ? "plan" : "facts";
+            Assert.True(JsonNode.DeepEquals(outcome, actual), actual.ToJsonString());
+        }
+        var status = await CommandTestRuntime.Execute(Cli.Parse(["upstream", "dotnet-skills", "status", "--dry-run"]),
+            repo.Root, repo.Root, settings);
+        Assert.Equal(0, status.ExitCode);
+        var statusData = System.Text.Json.JsonSerializer.SerializeToNode(status.Data, AgentTool.Json)!;
+        Assert.Equal(expected["entries"]![0]!["currentRevision"]!.GetValue<string>(), statusData["pinned"]!.GetValue<string>());
+        Assert.Equal("dotnet/skills", statusData["repository"]!.GetValue<string>());
+        var analysis = DotnetSkillsDrift.Analyze(manifest, JsonNode.Parse("""{"files":[],"head_commit":{"sha":"synthetic-head"}}""")!);
+        Assert.Equal("no-change", analysis["classification"]!.GetValue<string>());
+        Assert.Equal(expected["entries"]![0]!["currentRevision"]!.GetValue<string>(), analysis["pinned"]!.GetValue<string>());
+        Assert.Equal("none", analysis["automaticAction"]!.GetValue<string>());
+        Assert.Equal(original, manifest.ToJsonString());
+        Assert.Equal(original, File.ReadAllText(path));
+        Assert.False(Directory.Exists(Path.Combine(repo.Root, ".agent-tool")));
+        Assert.False(Directory.Exists(Path.Combine(repo.Root, "artifacts")));
+    }
+
+    [Theory]
     [InlineData(2)]
     [InlineData(3)]
     public async Task UpstreamStatusPreservesValidatedInventoryThroughNormalDispatch(int version)
