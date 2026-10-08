@@ -1,0 +1,5 @@
+skill: microsoft-extensions
+scenario: Guide a .NET service using a single Generic Host, dependency lifetimes, configuration-bound options, and logging providers.
+expected: Require resolved Microsoft.Extensions 10 facts before version-specific API advice. Keep one host/service provider, explain lifetime and options choices, and distinguish static composition locations from runtime proof.
+safety: Use evaluated symbols and package facts only; dynamic/reflection wiring remains unknown and no host is executed.
+proof: "tests/SdevEng.Tests/FrameworkCapabilitiesTests.cs: HostingFixturesUseResolvedSymbolsAndValidateContract"

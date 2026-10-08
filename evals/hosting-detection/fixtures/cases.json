@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "id": "host-di-config-options-logging",
+      "source": "using Microsoft.Extensions.DependencyInjection; using Microsoft.Extensions.Logging; var b = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder(); b.Services.AddScoped<object>(); b.Services.Configure<object>(b.Configuration.GetSection(\"App\")); b.Logging.AddConsole();",
+      "packageVersions": { "Microsoft.Extensions.Hosting": "10.0.12" },
+      "expected": { "generic-host": "detected", "dependency-injection": "detected", "configuration": "detected", "options": "detected", "logging": "detected" },
+      "expectedLocations": { "generic-host": 1, "dependency-injection": 1, "configuration": 1, "options": 1, "logging": 1 }
+    },
+    {
+      "id": "installed-unused-hosting-package",
+      "source": "System.Console.WriteLine(1);",
+      "packageVersions": { "Microsoft.Extensions.Hosting": "10.0.12" },
+      "expected": { "generic-host": "absent", "dependency-injection": "absent", "configuration": "absent", "options": "absent", "logging": "absent" },
+      "expectedLocations": {}
+    },
+    {
+      "id": "two-independent-containers",
+      "source": "using Microsoft.Extensions.DependencyInjection; var first = new ServiceCollection(); first.AddSingleton<object>(); var second = new ServiceCollection(); second.AddScoped<object>(); first.BuildServiceProvider(); second.BuildServiceProvider();",
+      "packageVersions": {},
+      "expected": { "generic-host": "absent", "dependency-injection": "detected", "configuration": "absent", "options": "absent", "logging": "absent" },
+      "expectedLocations": { "dependency-injection": 2 }
+    },
+    {
+      "id": "dynamic-host-wiring",
+      "source": "dynamic builder = new object(); builder.Configure();",
+      "packageVersions": {},
+      "expected": { "generic-host": "unknown", "dependency-injection": "unknown", "configuration": "unknown", "options": "unknown", "logging": "unknown" },
+      "expectedLocations": {}
+    }
+  ]
+}

@@ -118,6 +118,26 @@ public sealed class FrameworkCapabilitiesTests
     }
 
     [Fact]
+    public void HostingFixturesUseResolvedSymbolsAndValidateContract()
+    {
+        var root = AgentTool.FindToolkit();
+        var fixtures = JsonNode.Parse(File.ReadAllText(Path.Combine(root, "evals/hosting-detection/fixtures/cases.json")))!;
+        Assert.True(JsonSchema.FromFile(Path.Combine(root, "schemas/hosting-detection-fixtures.schema.json")).Evaluate(fixtures).IsValid);
+        var capabilitySchema = JsonSchema.FromFile(Path.Combine(root, "schemas/framework-capabilities.schema.json"));
+        foreach (var item in fixtures["cases"]!.AsArray())
+        {
+            var packages = item!["packageVersions"]!.AsObject().ToDictionary(pair => pair.Key, pair => pair.Value?.GetValue<string>());
+            var facts = FrameworkCapabilities.Detect("Exe", Compile(item["source"]!.GetValue<string>()), packages);
+            foreach (var pair in item["expected"]!.AsObject())
+                Assert.Equal(pair.Value!.GetValue<string>(), facts.Single(fact => fact.Id == pair.Key).Status);
+            foreach (var fact in facts.Where(fact => item["expected"]![fact.Id] is not null))
+                Assert.Equal(item["expectedLocations"]!.AsObject().TryGetPropertyValue(fact.Id, out var count)
+                    ? count!.GetValue<int>() : 0, fact.Locations?.Length ?? 0);
+            Assert.True(capabilitySchema.Evaluate(JsonSerializer.SerializeToNode(facts, AgentTool.Json)).IsValid);
+        }
+    }
+
+    [Fact]
     public void UnsupportedHostingVersionsRemainUnknownAndLegacyFactsStayValid()
     {
         var facts = FrameworkCapabilities.Detect("Exe", Compile("var b = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder();"),
