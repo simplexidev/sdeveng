@@ -10,6 +10,44 @@ namespace SdevEng.Tests;
 public sealed class FrameworkCapabilitiesTests
 {
     [Theory]
+    [InlineData("using Microsoft.Extensions.DependencyInjection; var s = new ServiceCollection(); s.AddLogging();", "detected", 1)]
+    [InlineData("using Microsoft.Extensions.Logging; var b = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder(); b.Logging.AddConsole().SetMinimumLevel(LogLevel.Debug);", "detected", 2)]
+    [InlineData("using Microsoft.Extensions.Hosting; using Microsoft.Extensions.Logging; Host.CreateDefaultBuilder().ConfigureLogging(b => b.AddDebug());", "detected", 2)]
+    [InlineData("using Microsoft.Extensions.Logging; var b = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder(); b.Logging.AddProvider(new Microsoft.Extensions.Logging.Console.ConsoleLoggerProvider(new Microsoft.Extensions.Options.OptionsMonitor<Microsoft.Extensions.Logging.Console.ConsoleLoggerOptions>(null!, null!, null!)));", "detected", 1)]
+    [InlineData("using Microsoft.Extensions.DependencyInjection; using Microsoft.Extensions.Logging; var s = new ServiceCollection(); s.AddSingleton<ILoggerProvider, Microsoft.Extensions.Logging.Console.ConsoleLoggerProvider>();", "detected", 1)]
+    [InlineData("System.Console.WriteLine(1);", "absent", 0)]
+    [InlineData("var b = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder();", "absent", 0)]
+    [InlineData("using Microsoft.Extensions.Logging; ILogger logger = null!; logger.LogInformation(\"hello\");", "absent", 0)]
+    [InlineData("Missing.AddLogging();", "unknown", 0)]
+    [InlineData("dynamic b = new object(); b.AddConsole();", "unknown", 0)]
+    [InlineData("typeof(object).GetMethod(\"AddLogging\")!.Invoke(null, null);", "unknown", 0)]
+    [InlineData("class Logging { public static void AddLogging() {} } class Program { static void Main() { Logging.AddLogging(); } }", "unknown", 0)]
+    public void LoggingCompositionUsesResolvedSymbols(string source, string status, int locations)
+    {
+        var facts = FrameworkCapabilities.Detect("Exe", Compile(source));
+        var fact = facts.Single(item => item.Id == "logging");
+        Assert.Equal(status, fact.Status);
+        Assert.Equal(locations, fact.Locations?.Length ?? 0);
+        Assert.All(fact.Locations ?? [], location => { Assert.Equal(1, location.Line); Assert.True(location.Column > 0); });
+        if (status == "detected") Assert.StartsWith("10.", fact.Version);
+        Assert.True(JsonSchema.FromFile(Path.Combine(AgentTool.FindToolkit(), "schemas/framework-capabilities.schema.json"))
+            .Evaluate(JsonSerializer.SerializeToNode(facts, AgentTool.Json)).IsValid);
+    }
+
+    [Theory]
+    [InlineData("Microsoft.Extensions.Logging", "using Microsoft.Extensions.DependencyInjection; var s = new ServiceCollection(); s.AddLogging();")]
+    [InlineData("Microsoft.Extensions.Logging.Console", "using Microsoft.Extensions.Logging; var b = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder(); b.Logging.AddConsole();")]
+    public void UnsupportedLoggingVersionsRemainUnknown(string package, string source)
+    {
+        var fact = FrameworkCapabilities.Detect("Exe", Compile(source),
+            new Dictionary<string, string?> { [package] = "9.0.0" }).Single(item => item.Id == "logging");
+        Assert.Equal("unknown", fact.Status);
+        Assert.Equal("9.0.0", fact.Version);
+        Assert.Equal("unsupported-microsoft-extensions-version", fact.Evidence);
+        Assert.Equal("unknown", FrameworkCapabilities.Detect("Exe", null).Single(item => item.Id == "logging").Status);
+    }
+
+    [Theory]
     [InlineData("using Microsoft.Extensions.Configuration; var c = new ConfigurationBuilder().Build(); var section = c.GetSection(\"App\"); section.Bind(new object()); var value = c.GetValue<int>(\"Count\");", "detected", "absent", 3, 0)]
     [InlineData("using Microsoft.Extensions.Configuration; var c = new ConfigurationBuilder().Build(); var value = c.Get<object>();", "detected", "absent", 1, 0)]
     [InlineData("using Microsoft.Extensions.DependencyInjection; var b = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder(); b.Services.AddOptions<object>().Bind(b.Configuration);", "absent", "detected", 0, 2)]
@@ -88,7 +126,7 @@ public sealed class FrameworkCapabilitiesTests
         Assert.Equal("unknown", host.Status);
         Assert.Equal("9.0.0", host.Version);
         Assert.Equal("unsupported-microsoft-extensions-version", host.Evidence);
-        foreach (var count in new[] { 4, 6 })
+        foreach (var count in new[] { 4, 6, 8 })
             Assert.True(JsonSchema.FromFile(Path.Combine(AgentTool.FindToolkit(), "schemas/framework-capabilities.schema.json"))
                 .Evaluate(JsonSerializer.SerializeToNode(facts.Take(count), AgentTool.Json)).IsValid);
     }
@@ -177,7 +215,7 @@ public sealed class FrameworkCapabilitiesTests
         repo.Write("App.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net10.0</TargetFramework><OutputType>Exe</OutputType><EnableDefaultCompileItems>false</EnableDefaultCompileItems></PropertyGroup><ItemGroup><Compile Include=\"Program.cs\" /></ItemGroup></Project>");
         var project = "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net10.0</TargetFramework><OutputType>Exe</OutputType></PropertyGroup><ItemGroup><PackageReference Include=\"Microsoft.Extensions.Hosting\" Version=\"10.0.12\" /></ItemGroup></Project>";
         repo.Write("Hosted/Hosted.csproj", project);
-        repo.Write("Hosted/Program.cs", "using Microsoft.Extensions.DependencyInjection; var builder = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder(); builder.Services.AddSingleton<object>(); builder.Services.Configure<object>(builder.Configuration.GetSection(\"App\"));");
+        repo.Write("Hosted/Program.cs", "using Microsoft.Extensions.DependencyInjection; using Microsoft.Extensions.Logging; var builder = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder(); builder.Services.AddSingleton<object>(); builder.Services.Configure<object>(builder.Configuration.GetSection(\"App\")); builder.Logging.AddConsole();");
         repo.Write("Unused/Unused.csproj", project);
         repo.Write("Unused/Program.cs", "System.Console.WriteLine(1);");
         repo.Write("CommandLine/CommandLine.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net10.0</TargetFramework><OutputType>Exe</OutputType></PropertyGroup><ItemGroup><PackageReference Include=\"System.CommandLine\" Version=\"2.0.0\" /></ItemGroup></Project>");
@@ -215,13 +253,13 @@ public sealed class FrameworkCapabilitiesTests
                 if (row["path"]!.GetValue<string>() == "CommandLine/CommandLine.csproj")
                     Assert.Equal("2.0.0", facts[3]!["version"]!.GetValue<string>());
                 Assert.True(JsonSchema.FromFile(Path.Combine(AgentTool.FindToolkit(), "schemas/framework-capabilities.schema.json")).Evaluate(facts).IsValid);
-                Assert.Equal(8, facts.AsArray().Count);
+                Assert.Equal(9, facts.AsArray().Count);
                 var path = row["path"]!.GetValue<string>();
                 var hosted = facts.AsArray().Single(fact => fact!["id"]!.GetValue<string>() == "generic-host")!;
                 var di = facts.AsArray().Single(fact => fact!["id"]!.GetValue<string>() == "dependency-injection")!;
                 Assert.Equal(path == "Hosted/Hosted.csproj" ? "detected" : path is "Broken/Broken.csproj" or "Unsupported/Unsupported.vbproj" ? "unknown" : "absent", hosted["status"]!.GetValue<string>());
                 Assert.Equal(hosted["status"]!.GetValue<string>(), di["status"]!.GetValue<string>());
-                foreach (var id in new[] { "configuration", "options" })
+                foreach (var id in new[] { "configuration", "options", "logging" })
                 {
                     var fact = facts.AsArray().Single(item => item!["id"]!.GetValue<string>() == id)!;
                     Assert.Equal(hosted["status"]!.GetValue<string>(), fact["status"]!.GetValue<string>());

@@ -32,7 +32,9 @@ public static class FrameworkCapabilities
                 {
                     var method = model.GetSymbolInfo(call).Symbol as IMethodSymbol;
                     if (method is null) { indirect = true; continue; }
-                    method = method.ReducedFrom ?? method;
+                    // Preserve inferred service types when restoring an extension receiver.
+                    if (method.ReducedFrom is { } unreduced)
+                        method = method.IsGenericMethod ? unreduced.Construct(method.TypeArguments.ToArray()) : unreduced;
                     if (matches(method))
                     {
                         var callVersion = packages?.GetValueOrDefault(method.ContainingAssembly.Name) ?? method.ContainingAssembly.Identity.Version.ToString();
@@ -82,7 +84,24 @@ public static class FrameworkCapabilities
                    method.Name is "Configure" or "PostConfigure"))) ||
                 (method.ContainingAssembly.Name == "Microsoft.Extensions.Options.ConfigurationExtensions" &&
                  method.ContainingType.Name is "OptionsConfigurationServiceCollectionExtensions" or "OptionsBuilderConfigurationExtensions" &&
-                 method.Name is "Configure" or "Bind" or "BindConfiguration"))];
+                 method.Name is "Configure" or "Bind" or "BindConfiguration")),
+            Fact("logging", "Microsoft.Extensions.Logging", method =>
+                (method.ContainingAssembly.Name == "Microsoft.Extensions.Logging" &&
+                 method.ContainingType.ToDisplayString() == "Microsoft.Extensions.DependencyInjection.LoggingServiceCollectionExtensions" &&
+                 method.Name == "AddLogging") ||
+                (method.ContainingAssembly.Name == "Microsoft.Extensions.Hosting" &&
+                 method.ContainingType.ToDisplayString() == "Microsoft.Extensions.Hosting.HostingHostBuilderExtensions" &&
+                 method.Name == "ConfigureLogging") ||
+                (method.ContainingAssembly.Name.StartsWith("Microsoft.Extensions.Logging", StringComparison.Ordinal) &&
+                 method.ContainingNamespace.ToDisplayString() == "Microsoft.Extensions.Logging" &&
+                 method.Parameters.FirstOrDefault()?.Type.ToDisplayString() == "Microsoft.Extensions.Logging.ILoggingBuilder") ||
+                (method.ContainingAssembly.Name == "Microsoft.Extensions.DependencyInjection.Abstractions" &&
+                 method.ContainingNamespace.ToDisplayString() is "Microsoft.Extensions.DependencyInjection" or "Microsoft.Extensions.DependencyInjection.Extensions" &&
+                 method.Name is "AddSingleton" or "AddScoped" or "AddTransient" or "TryAddSingleton" or "TryAddScoped" or "TryAddTransient" &&
+                 method.TypeArguments.Any(type => type.ContainingAssembly.Name == "Microsoft.Extensions.Logging.Abstractions" &&
+                     type.OriginalDefinition.ToDisplayString() is "Microsoft.Extensions.Logging.ILogger" or
+                         "Microsoft.Extensions.Logging.ILogger<TCategoryName>" or "Microsoft.Extensions.Logging.ILoggerProvider" or
+                         "Microsoft.Extensions.Logging.ILoggerFactory")))];
     }
 
     static FrameworkCapabilityFact[] DetectConsole(string? outputType, Compilation? compilation,
