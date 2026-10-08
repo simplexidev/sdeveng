@@ -11,7 +11,56 @@ public static class FrameworkCapabilities
         => DetectConsole(outputType, compilation, packageVersions)
             .Concat(DetectHosting(compilation, packageVersions))
             .Concat(DetectHttpClients(compilation, packageVersions))
-            .Concat(DetectHttpResilience(compilation, packageVersions)).ToArray();
+            .Concat(DetectHttpResilience(compilation, packageVersions))
+            .Concat(DetectCaching(compilation, packageVersions)).ToArray();
+
+    static FrameworkCapabilityFact[] DetectCaching(Compilation? compilation,
+        IReadOnlyDictionary<string, string?>? packages)
+    {
+        const string assembly = "Microsoft.Extensions.Caching.Memory";
+        var version = packages?.GetValueOrDefault(assembly) ?? compilation?.ReferencedAssemblyNames
+            .FirstOrDefault(item => item.Name == assembly)?.Version.ToString();
+        if (compilation is null || compilation.Language != LanguageNames.CSharp ||
+            compilation.GetDiagnostics().Any(item => item.Severity == DiagnosticSeverity.Error))
+            return [new("memory-cache", "unknown", "unavailable-or-incomplete-csharp-compilation", version),
+                new("distributed-cache", "unknown", "unavailable-or-incomplete-csharp-compilation", version)];
+        if (version is not null && (!Version.TryParse(version, out var parsed) || parsed.Major != 10))
+            return [new("memory-cache", "unknown", "unsupported-microsoft-extensions-version", version),
+                new("distributed-cache", "unknown", "unsupported-microsoft-extensions-version", version)];
+
+        FrameworkCapabilityFact DetectOne(string id, string methodName)
+        {
+            var locations = new List<FrameworkCapabilityLocation>();
+            var indirect = false;
+            foreach (var tree in compilation.SyntaxTrees)
+            {
+                var model = compilation.GetSemanticModel(tree);
+                foreach (var call in tree.GetRoot().DescendantNodes().OfType<InvocationExpressionSyntax>())
+                {
+                    var method = model.GetSymbolInfo(call).Symbol as IMethodSymbol;
+                    if (method is null) { indirect = true; continue; }
+                    if (method.ReducedFrom is { } unreduced)
+                        method = method.IsGenericMethod ? unreduced.Construct(method.TypeArguments.ToArray()) : unreduced;
+                    if (method.ContainingAssembly.Name == assembly &&
+                        method.ContainingType.ToDisplayString() == "Microsoft.Extensions.DependencyInjection.MemoryCacheServiceCollectionExtensions" &&
+                        method.Name == methodName)
+                    {
+                        var callVersion = packages?.GetValueOrDefault(assembly) ?? method.ContainingAssembly.Identity.Version.ToString();
+                        if (!Version.TryParse(callVersion, out var supported) || supported.Major != 10)
+                            return new(id, "unknown", "unsupported-microsoft-extensions-version", callVersion);
+                        var span = call.GetLocation().GetLineSpan();
+                        locations.Add(new(tree.FilePath, span.StartLinePosition.Line + 1, span.StartLinePosition.Character + 1));
+                    }
+                    else if (method.Locations.Any(item => item.IsInSource) || method.ContainingType.TypeKind == TypeKind.Delegate ||
+                        method.ContainingNamespace.ToDisplayString().StartsWith("System.Reflection", StringComparison.Ordinal)) indirect = true;
+                }
+            }
+            return new(id, locations.Count > 0 ? "detected" : indirect ? "unknown" : "absent",
+                locations.Count > 0 ? "roslyn-static-composition" : indirect ? "indirect-static-composition" : "roslyn-no-static-composition",
+                version, locations.Take(64).ToArray());
+        }
+        return [DetectOne("memory-cache", "AddMemoryCache"), DetectOne("distributed-cache", "AddDistributedMemoryCache")];
+    }
 
     static FrameworkCapabilityFact[] DetectHttpResilience(Compilation? compilation,
         IReadOnlyDictionary<string, string?>? packages)
