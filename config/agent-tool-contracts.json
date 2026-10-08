@@ -47,6 +47,8 @@
     { "command": "sarif summarize", "kind": "sarif-summary", "schemaVersion": 1, "mode": "summary" },
     { "command": "artifact inspect", "kind": "artifact-inspection", "schemaVersion": 1, "mode": "facts" },
     { "command": "artifact verify", "kind": "artifact-verification", "schemaVersion": 1, "mode": "facts" },
+    { "command": "upstream dotnet-skills drift", "kind": "framework-provenance-drift", "schemaVersion": 1, "mode": "facts" },
+    { "command": "upstream dotnet-skills refresh", "kind": "framework-provenance-drift", "schemaVersion": 1, "mode": "plan" },
     { "command": "upstream dotnet-skills", "kind": "dotnet-skills-drift", "schemaVersion": 1, "mode": "summary" }
   ]
 }

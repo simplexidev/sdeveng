@@ -1,0 +1,8 @@
+{
+  "provenance": "synthetic local snapshots; no live qualification",
+  "cases": [
+    ["identical", "current"], ["revision", "review-required"],
+    ["hash", "review-required"], ["unsupported", "unsupported"],
+    ["unknown", "unknown"], ["absent", "unknown"], ["unavailable", "unknown"]
+  ]
+}
