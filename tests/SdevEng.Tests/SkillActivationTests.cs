@@ -12,7 +12,10 @@ public sealed class SkillActivationTests
         var metadata = SkillCompatibilityMapReader.ReadMetadataIndex(root)
             .Single(skill => skill.Id == "avalonia");
         Assert.Equal(new[] { new SkillActivationCondition("avalonia", "11.3.0") }, metadata.Activation);
-        Assert.Equal("references/lifetime-ui-thread.md", Assert.Single(metadata.Resources!).Path);
+        Assert.Equal(new[] { "references/composition.md", "references/lifetime-ui-thread.md" },
+            metadata.Resources!.Select(resource => resource.Path).Order(StringComparer.Ordinal));
+        Assert.Equal(new[] { new SkillActivationCondition("avalonia", "11.3.0") },
+            Assert.Single(metadata.Resources!, resource => resource.Path == "references/composition.md").Activation);
         SkillCompatibilityMapReader.ValidateResources(root, [metadata]);
         var service = new SkillActivationService();
         SkillActivationContext Context(string? version) => new("coder", [], [], [],
@@ -33,6 +36,12 @@ public sealed class SkillActivationTests
         var loaded = await service.LoadReferenceAsync(root, Context("11.3.0"), "avalonia", "references/lifetime-ui-thread.md");
         Assert.Equal("loaded", loaded.Status);
         Assert.Contains("Dispatcher.UIThread", loaded.Content, StringComparison.Ordinal);
+        var composition = await service.LoadReferenceAsync(root, Context("11.3.0"), "avalonia", "references/composition.md");
+        Assert.Equal("loaded", composition.Status);
+        Assert.Contains("code-only", composition.Content, StringComparison.Ordinal);
+        Assert.Contains("XAML", composition.Content, StringComparison.Ordinal);
+        var unsupportedComposition = await service.LoadReferenceAsync(root, Context("12.0.0"), "avalonia", "references/composition.md");
+        Assert.Equal("skill-not-activated", unsupportedComposition.OmissionReason);
         var unsupported = await service.LoadReferenceAsync(root, Context("12.0.0"), "avalonia", "references/lifetime-ui-thread.md");
         Assert.Equal("skill-not-activated", unsupported.OmissionReason);
     }

@@ -4,7 +4,7 @@ description: Build or review Avalonia 11.3.0 applications using verified lifetim
 id: avalonia
 version: 3.0.0
 activation: '[{"id":"avalonia","frameworkVersion":"11.3.0"}]'
-resources: '[{"path":"references/lifetime-ui-thread.md","type":"reference","hash":"sha256:858e8865e7fde5874a38e00188491bc20508f559a0b7eb5d603cad53dbf92664"}]'
+resources: '[{"path":"references/lifetime-ui-thread.md","type":"reference","hash":"sha256:858e8865e7fde5874a38e00188491bc20508f559a0b7eb5d603cad53dbf92664"},{"path":"references/composition.md","type":"reference","hash":"sha256:7be941dda577c72ec20cedd06b75843f6ab608c1d8c536b290d3ebc96ebab73d","activation":[{"id":"avalonia","frameworkVersion":"11.3.0"}]}]'
 ---
 
 # Avalonia 11.3.0
