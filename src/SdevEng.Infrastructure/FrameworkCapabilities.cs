@@ -35,6 +35,9 @@ public static class FrameworkCapabilities
                     method = method.ReducedFrom ?? method;
                     if (matches(method))
                     {
+                        var callVersion = packages?.GetValueOrDefault(method.ContainingAssembly.Name) ?? method.ContainingAssembly.Identity.Version.ToString();
+                        if (!Version.TryParse(callVersion, out var supported) || supported.Major != 10)
+                            return new(id, "unknown", "unsupported-microsoft-extensions-version", callVersion);
                         var span = call.GetLocation().GetLineSpan();
                         locations.Add(new(tree.FilePath, span.StartLinePosition.Line + 1, span.StartLinePosition.Character + 1));
                     }
@@ -61,7 +64,25 @@ public static class FrameworkCapabilities
                 method.Parameters.FirstOrDefault()?.Type.ToDisplayString() == "Microsoft.Extensions.DependencyInjection.IServiceCollection") ||
                 (method.Name == "Add" && method.ContainingType.ToDisplayString() ==
                     "System.Collections.Generic.ICollection<Microsoft.Extensions.DependencyInjection.ServiceDescriptor>" &&
-                 method.ContainingType.TypeArguments[0].ContainingAssembly.Name == "Microsoft.Extensions.DependencyInjection.Abstractions"))];
+                 method.ContainingType.TypeArguments[0].ContainingAssembly.Name == "Microsoft.Extensions.DependencyInjection.Abstractions")),
+            Fact("configuration", "Microsoft.Extensions.Configuration.Abstractions", method =>
+                (method.ContainingAssembly.Name is "Microsoft.Extensions.Configuration.Abstractions" or "Microsoft.Extensions.Configuration" &&
+                 method.ContainingType.ToDisplayString() is "Microsoft.Extensions.Configuration.IConfiguration" or
+                    "Microsoft.Extensions.Configuration.ConfigurationManager" or "Microsoft.Extensions.Configuration.ConfigurationRoot" or
+                    "Microsoft.Extensions.Configuration.ConfigurationSection" &&
+                 method.Name == "GetSection") ||
+                (method.ContainingAssembly.Name == "Microsoft.Extensions.Configuration.Binder" &&
+                 method.ContainingType.ToDisplayString() == "Microsoft.Extensions.Configuration.ConfigurationBinder" &&
+                 method.Name is "Bind" or "Get" or "GetValue")),
+            Fact("options", "Microsoft.Extensions.Options", method =>
+                (method.ContainingAssembly.Name == "Microsoft.Extensions.Options" &&
+                 ((method.ContainingType.ToDisplayString() == "Microsoft.Extensions.DependencyInjection.OptionsServiceCollectionExtensions" &&
+                   method.Name is "AddOptions" or "Configure" or "PostConfigure") ||
+                  (method.ContainingType.OriginalDefinition.ToDisplayString() == "Microsoft.Extensions.Options.OptionsBuilder<TOptions>" &&
+                   method.Name is "Configure" or "PostConfigure"))) ||
+                (method.ContainingAssembly.Name == "Microsoft.Extensions.Options.ConfigurationExtensions" &&
+                 method.ContainingType.Name is "OptionsConfigurationServiceCollectionExtensions" or "OptionsBuilderConfigurationExtensions" &&
+                 method.Name is "Configure" or "Bind" or "BindConfiguration"))];
     }
 
     static FrameworkCapabilityFact[] DetectConsole(string? outputType, Compilation? compilation,

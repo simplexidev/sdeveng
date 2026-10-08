@@ -30,6 +30,14 @@ come from evaluated package references or resolved assembly identities.
 Installed-but-unused packages yield absent, while incomplete/unsupported
 compilations, unsupported versions and indirect/reflection-only wiring yield
 unknown. A detected fact proves source composition, not execution or a shared
-runtime container; multiple containers remain separately located. Configuration,
-options and logging detection are deferred. Existing four-fact records remain
-schema-compatible.
+runtime container; multiple containers remain separately located. Logging detection
+is deferred. Existing four- and six-fact records remain schema-compatible.
+
+`configuration` detects resolved IConfiguration GetSection calls (including the
+standard ConfigurationManager/Root/Section implementations) and ConfigurationBinder
+Bind/Get/GetValue calls. `options` detects AddOptions, Configure/PostConfigure,
+OptionsBuilder configuration and configuration-extension Bind/BindConfiguration
+calls. Both use the same Microsoft.Extensions 10 version gate, bounded locations
+and absent/unknown rules through both discovery commands. These project-wide
+source facts do not prove that a configuration source loaded or options were
+resolved at runtime; installed packages alone do not prove binding.
