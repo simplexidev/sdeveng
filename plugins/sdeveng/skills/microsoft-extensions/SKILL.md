@@ -20,3 +20,5 @@ Bind configuration through `IConfiguration` sections and typed options. Keep sec
 Static `sdeveng dotnet inspect` facts identify resolved Host, DI, configuration, options, and logging API calls with source locations. `unknown` means compilation or dynamic/reflection wiring prevents a static conclusion; installed packages alone do not prove use. Multiple service collections or `BuildServiceProvider` calls deserve review, but static facts do not prove runtime host identity, resolution, or behavior.
 
 Load [hosting reference](references/hosting.md) for version-matched upstream documentation.
+
+`background-service` and `hosted-service` facts require resolved Microsoft.Extensions 10 type identity and static `AddHostedService<T>` or singleton `IHostedService` registration. Unregistered types and matching names do not confirm composition. These facts do not prove startup or shutdown correctness. Pass `ExecuteAsync`'s stopping token to waits and work, honor `StopAsync` cancellation, and let the single Generic Host stop and dispose owned services.
