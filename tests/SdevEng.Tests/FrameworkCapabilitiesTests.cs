@@ -384,6 +384,9 @@ public sealed class FrameworkCapabilitiesTests
             foreach (var fact in facts.Where(fact => item["expected"]![fact.Id] is not null))
                 Assert.Equal(item["expectedLocations"]!.AsObject().TryGetPropertyValue(fact.Id, out var count)
                     ? count!.GetValue<int>() : 0, fact.Locations?.Length ?? 0);
+            if (item["expectedVersions"] is JsonObject versions)
+                foreach (var pair in versions)
+                    Assert.Equal(pair.Value?.GetValue<string>(), facts.Single(fact => fact.Id == pair.Key).Version);
             Assert.True(capabilitySchema.Evaluate(JsonSerializer.SerializeToNode(facts, AgentTool.Json)).IsValid);
         }
     }
