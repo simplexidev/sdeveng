@@ -190,6 +190,15 @@
       "migrationStatus": "retained"
     },
     {
+      "oldId": "microsoft-extensions",
+      "oldPath": "plugins/sdeveng/skills/microsoft-extensions/SKILL.md",
+      "canonicalId": "microsoft-extensions",
+      "canonicalPath": "plugins/sdeveng/skills/microsoft-extensions/SKILL.md",
+      "version": "3.0.0",
+      "aliases": ["sdeveng-engineering-toolkit:microsoft-extensions"],
+      "migrationStatus": "retained"
+    },
+    {
       "oldId": "issue-start",
       "oldPath": "plugins/sdeveng/skills/issue-start/SKILL.md",
       "canonicalId": "issue-start",

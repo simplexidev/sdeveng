@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Generic Host and Microsoft.Extensions detector fixtures",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "cases"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "cases": {
+      "type": "array",
+      "minItems": 4,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "source", "packageVersions", "expected", "expectedLocations"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "source": { "type": "string", "minLength": 1 },
+          "packageVersions": { "type": "object", "additionalProperties": { "type": ["string", "null"] } },
+          "expected": { "type": "object", "required": ["generic-host", "dependency-injection", "configuration", "options", "logging"], "additionalProperties": false, "properties": {
+            "generic-host": { "enum": ["detected", "absent", "unknown"] },
+            "dependency-injection": { "enum": ["detected", "absent", "unknown"] },
+            "configuration": { "enum": ["detected", "absent", "unknown"] },
+            "options": { "enum": ["detected", "absent", "unknown"] },
+            "logging": { "enum": ["detected", "absent", "unknown"] }
+          } },
+          "expectedLocations": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 0 } }
+        }
+      }
+    }
+  }
+}
