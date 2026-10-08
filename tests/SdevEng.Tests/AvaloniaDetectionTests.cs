@@ -55,6 +55,8 @@ public sealed class AvaloniaDetectionTests
         Assert.Equal(lifetime, facts.Single(item => item.Id == "avalonia-lifetime").Evidence);
         Assert.Equal(structure, facts.Single(item => item.Id == "avalonia-structure").Evidence);
         Assert.Equal(structure == "no-avalonia-ui-structure" ? "absent" : "detected", facts.Single(item => item.Id == "avalonia-structure").Status);
+        Assert.Equal(file.Length == 0 ? "absent" : "detected", facts.Single(item => item.Id == "avalonia-resources").Status);
+        Assert.Equal("unknown", facts.Single(item => item.Id == "avalonia-compiled-bindings").Status);
         Validate(facts);
     }
 
@@ -96,10 +98,11 @@ public sealed class AvaloniaDetectionTests
     {
         using var repo = new TemporaryGitRepository();
         repo.Write("App.csproj", """
-            <Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup>
+            <Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><TargetFramework>net10.0</TargetFramework><AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault></PropertyGroup>
             <ItemGroup><Reference Include="Avalonia"><HintPath>Avalonia.dll</HintPath></Reference>
             <Reference Include="Avalonia.Controls"><HintPath>Avalonia.Controls.dll</HintPath></Reference>
             <AvaloniaResource Include="App.axaml" />
+            <AvaloniaResource Include="Themes/DefaultTheme.axaml" />
             <Compile Remove="Negative/**/*.cs;Unresolved/**/*.cs;Unsupported/**/*.cs" /></ItemGroup></Project>
             """);
         var targetingPack = await Processes.Run("dotnet", ["msbuild", "App.csproj", "-nologo", "-getProperty:NetCoreTargetingPackRoot"], repo.Root);
@@ -114,9 +117,11 @@ public sealed class AvaloniaDetectionTests
         File.WriteAllBytes(Path.Combine(repo.Root, "Avalonia.dll"), Assembly("Avalonia", "[assembly: System.Reflection.AssemblyVersion(\"11.3.0.0\")] public class Marker {}", references));
         repo.Write("App.cs", "class App : Avalonia.Application { Avalonia.Controls.ApplicationLifetimes.ISingleViewApplicationLifetime lifetime; }");
         repo.Write("App.axaml", "<Application xmlns=\"https://github.com/avaloniaui\" />");
+        repo.Write("Themes/DefaultTheme.axaml", "<Styles xmlns=\"https://github.com/avaloniaui\" />");
         var projectXml = File.ReadAllText(Path.Combine(repo.Root, "App.csproj"))
             .Replace("<HintPath>", "<HintPath>../", StringComparison.Ordinal)
-            .Replace("<AvaloniaResource Include=\"App.axaml\" />", "", StringComparison.Ordinal);
+            .Replace("<AvaloniaResource Include=\"App.axaml\" />", "", StringComparison.Ordinal)
+            .Replace("<AvaloniaResource Include=\"Themes/DefaultTheme.axaml\" />", "", StringComparison.Ordinal);
         repo.Write("Negative/Negative.csproj", projectXml);
         repo.Write("Negative/Source.cs", "class Unrelated {}");
         repo.Write("Unresolved/Unresolved.csproj", projectXml);
@@ -140,6 +145,8 @@ public sealed class AvaloniaDetectionTests
             var facts = rows.Single(item => item!["path"]!.GetValue<string>() == "App.csproj")!["frameworkCapabilities"]!.AsArray();
             Assert.Equal("static-lifetime-types:ISingleViewApplicationLifetime", facts.Single(item => item!["id"]!.GetValue<string>() == "avalonia-lifetime")!["evidence"]!.GetValue<string>());
             Assert.Equal("xaml", facts.Single(item => item!["id"]!.GetValue<string>() == "avalonia-structure")!["evidence"]!.GetValue<string>());
+            Assert.Equal("detected", facts.Single(item => item!["id"]!.GetValue<string>() == "avalonia-themes")!["status"]!.GetValue<string>());
+            Assert.Equal("detected", facts.Single(item => item!["id"]!.GetValue<string>() == "avalonia-compiled-bindings")!["status"]!.GetValue<string>());
             Assert.True(JsonSchema.FromFile(Path.Combine(AgentTool.FindToolkit(), "schemas/framework-capabilities.schema.json")).Evaluate(facts).IsValid);
             foreach (var row in rows.Where(item => item!["path"]!.GetValue<string>() != "App.csproj"))
             {

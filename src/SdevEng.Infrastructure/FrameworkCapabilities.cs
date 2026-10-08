@@ -23,10 +23,11 @@ public static class FrameworkCapabilities
             .Concat(DetectPublishSettings(projectProperties))
             .Concat(DetectReflection(compilation))
             .Concat(DetectMicrosoftExtensionsAI(compilation, packageVersions))
-            .Concat(DetectAvalonia(compilation, packageVersions, avaloniaFiles, provenance)).ToArray();
+            .Concat(DetectAvalonia(compilation, packageVersions, avaloniaFiles, provenance, projectProperties)).ToArray();
 
     static FrameworkCapabilityFact[] DetectAvalonia(Compilation? compilation,
-        IReadOnlyDictionary<string, string?>? packages, IReadOnlyList<string>? files, JsonNode? provenance)
+        IReadOnlyDictionary<string, string?>? packages, IReadOnlyList<string>? files, JsonNode? provenance,
+        IReadOnlyDictionary<string, string?>? properties)
     {
         const string packageId = "Avalonia";
         var version = packages?.GetValueOrDefault(packageId) ?? compilation?.ReferencedAssemblyNames
@@ -43,9 +44,19 @@ public static class FrameworkCapabilities
             supported ? "resolved-package" : "unsupported-package-version";
         var package = new FrameworkCapabilityFact("avalonia", status, evidence, version);
         FrameworkCapabilityFact Fact(string id, string state, string reason) => new(id, state, reason, version);
-        if (status != "detected") return [package, Fact("avalonia-lifetime", status, evidence), Fact("avalonia-structure", status, evidence)];
+        var bindings = properties?.GetValueOrDefault("AvaloniaUseCompiledBindingsByDefault");
+        var bindingFact = bindings?.Trim().ToLowerInvariant() switch
+        {
+            "true" => Fact("avalonia-compiled-bindings", "detected", "project-default-enabled"),
+            "false" => Fact("avalonia-compiled-bindings", "absent", "project-default-disabled"),
+            _ => Fact("avalonia-compiled-bindings", "unknown", "evaluated-project-setting-unavailable")
+        };
+        if (status != "detected") return [package, Fact("avalonia-lifetime", status, evidence), Fact("avalonia-structure", status, evidence),
+            Fact("avalonia-resources", status, evidence), Fact("avalonia-themes", status, evidence), bindingFact];
         if (!complete) return [package, Fact("avalonia-lifetime", "unknown", "unavailable-or-incomplete-csharp-compilation"),
-            Fact("avalonia-structure", "unknown", "unavailable-or-incomplete-csharp-compilation")];
+            Fact("avalonia-structure", "unknown", "unavailable-or-incomplete-csharp-compilation"),
+            Fact("avalonia-resources", files is null ? "unknown" : "absent", files is null ? "evaluated-avalonia-resources-unavailable" : "no-evaluated-avalonia-resources"),
+            Fact("avalonia-themes", "unknown", "unavailable-or-incomplete-csharp-compilation"), bindingFact];
         bool AvaloniaType(ITypeSymbol? type) => type?.ContainingAssembly.Name is "Avalonia.Controls" or "Avalonia.Base";
         var lifetimes = new SortedSet<string>(StringComparer.Ordinal);
         var codeOnly = false;
@@ -82,10 +93,15 @@ public static class FrameworkCapabilities
             }
         }
         var xaml = files?.Any(file => Path.GetExtension(file) is ".axaml" or ".xaml") == true;
+        var resources = files is null ? "unknown" : files.Count > 0 ? "detected" : "absent";
+        var themeFiles = files?.Where(file => Path.GetFileName(file).Contains("theme", StringComparison.OrdinalIgnoreCase)).ToArray();
         return [package, Fact("avalonia-lifetime", lifetimes.Count > 0 ? "detected" : "absent",
                 lifetimes.Count > 0 ? "static-lifetime-types:" + string.Join(';', lifetimes) : "no-resolved-lifetime-types"),
             Fact("avalonia-structure", files is null ? "unknown" : xaml || ui ? "detected" : "absent",
-                files is null ? "evaluated-xaml-items-unavailable" : xaml ? codeOnly ? "mixed" : "xaml" : ui ? "code-only" : "no-avalonia-ui-structure")];
+                files is null ? "evaluated-xaml-items-unavailable" : xaml ? codeOnly ? "mixed" : "xaml" : ui ? "code-only" : "no-avalonia-ui-structure"),
+            Fact("avalonia-resources", resources, files is null ? "evaluated-avalonia-resources-unavailable" : resources == "detected" ? "evaluated-avalonia-resource-items" : "no-evaluated-avalonia-resources"),
+            Fact("avalonia-themes", themeFiles is null ? "unknown" : themeFiles.Length > 0 ? "detected" : "absent",
+                themeFiles is null ? "evaluated-avalonia-resources-unavailable" : themeFiles.Length > 0 ? "theme-named-resource-items" : "no-theme-named-resource-items"), bindingFact];
     }
 
     static FrameworkCapabilityFact[] DetectMicrosoftExtensionsAI(Compilation? compilation,

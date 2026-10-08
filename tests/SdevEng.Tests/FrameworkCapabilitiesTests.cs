@@ -720,7 +720,7 @@ public sealed class FrameworkCapabilitiesTests
                 if (row["path"]!.GetValue<string>() == "CommandLine/CommandLine.csproj")
                     Assert.Equal("2.0.0", facts[3]!["version"]!.GetValue<string>());
                 Assert.True(JsonSchema.FromFile(Path.Combine(AgentTool.FindToolkit(), "schemas/framework-capabilities.schema.json")).Evaluate(facts).IsValid);
-                Assert.Equal(34, facts.AsArray().Count);
+                Assert.Equal(37, facts.AsArray().Count);
                 foreach (var id in new[] { "microsoft-extensions-ai", "chat-client-registration", "chat-client-composition", "chat-tool-registration" })
                     Assert.Equal(path is "Broken/Broken.csproj" or "Unsupported/Unsupported.vbproj" ? "unknown" : "absent",
                         facts.AsArray().Single(fact => fact!["id"]!.GetValue<string>() == id)!["status"]!.GetValue<string>());
