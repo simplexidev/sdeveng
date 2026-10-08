@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Avalonia detector fixtures",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "cases"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "cases": {
+      "type": "array",
+      "minItems": 5,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "packageVersion", "source", "files", "compiledBindings", "expected"],
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "packageVersion": { "type": "string", "minLength": 1 },
+          "source": { "type": "string", "minLength": 1 },
+          "files": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+          "compiledBindings": { "type": ["string", "null"], "enum": ["true", "false", null] },
+          "expected": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["package", "structure", "themes", "compiledBindings"],
+            "properties": {
+              "package": { "enum": ["detected", "absent", "unknown"] },
+              "structure": { "enum": ["code-only", "xaml", "mixed", "no-avalonia-ui-structure", "unsupported-package-version"] },
+              "themes": { "enum": ["detected", "absent", "unknown"] },
+              "compiledBindings": { "enum": ["detected", "absent", "unknown"] }
+            }
+          }
+        }
+      }
+    }
+  }
+}

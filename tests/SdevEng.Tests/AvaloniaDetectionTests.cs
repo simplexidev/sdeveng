@@ -38,6 +38,37 @@ public sealed class AvaloniaDetectionTests
     }
     static JsonNode Registry() => JsonNode.Parse(File.ReadAllText(Path.Combine(AgentTool.FindToolkit(), "upstream/dotnet-skills.json")))!;
 
+    [Fact]
+    public void RegisteredAvaloniaFixturesMatchIndependentExpectationsAndSchemas()
+    {
+        var root = AgentTool.FindToolkit();
+        var fixtures = JsonNode.Parse(File.ReadAllText(Path.Combine(root, "tests/SdevEng.Tests/Fixtures/AvaloniaDetection/cases.json")))!;
+        Assert.True(JsonSchema.FromFile(Path.Combine(root, "schemas/avalonia-detection-fixtures.schema.json"))
+            .Evaluate(fixtures).IsValid);
+        var capabilitySchema = JsonSchema.FromFile(Path.Combine(root, "schemas/framework-capabilities.schema.json"));
+        var cases = fixtures["cases"]!.AsArray();
+        Assert.Equal(new[] { "code-only", "xaml-and-theme", "mixed", "unrelated-project", "unsupported-major" },
+            cases.Select(item => item!["id"]!.GetValue<string>()));
+        foreach (var item in cases)
+        {
+            var expected = item!["expected"]!;
+            var source = item["source"]!.GetValue<string>();
+            var compilation = CSharpCompilation.Create("Fixture", [CSharpSyntaxTree.ParseText(source)],
+                Platform.Append(MetadataReference.CreateFromImage(Assembly("Avalonia.Controls", Api))),
+                new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary));
+            var properties = new Dictionary<string, string?>();
+            if (item["compiledBindings"] is JsonValue setting) properties["AvaloniaUseCompiledBindingsByDefault"] = setting.GetValue<string>();
+            var facts = FrameworkCapabilities.Detect("Library", compilation,
+                new Dictionary<string, string?> { ["Avalonia"] = item["packageVersion"]!.GetValue<string>() },
+                properties, item["files"]!.AsArray().Select(file => file!.GetValue<string>()).ToArray(), Registry());
+            Assert.Equal(expected["package"]!.GetValue<string>(), facts.Single(fact => fact.Id == "avalonia").Status);
+            Assert.Equal(expected["structure"]!.GetValue<string>(), facts.Single(fact => fact.Id == "avalonia-structure").Evidence);
+            Assert.Equal(expected["themes"]!.GetValue<string>(), facts.Single(fact => fact.Id == "avalonia-themes").Status);
+            Assert.Equal(expected["compiledBindings"]!.GetValue<string>(), facts.Single(fact => fact.Id == "avalonia-compiled-bindings").Status);
+            Assert.True(capabilitySchema.Evaluate(JsonSerializer.SerializeToNode(facts, AgentTool.Json)).IsValid);
+        }
+    }
+
     [Theory]
     [InlineData("class App : Avalonia.Application { Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime lifetime; }", "", "static-lifetime-types:IClassicDesktopStyleApplicationLifetime", "code-only")]
     [InlineData("class App : Avalonia.Application { Avalonia.Controls.ApplicationLifetimes.ISingleViewApplicationLifetime lifetime; }", "App.axaml", "static-lifetime-types:ISingleViewApplicationLifetime", "xaml")]

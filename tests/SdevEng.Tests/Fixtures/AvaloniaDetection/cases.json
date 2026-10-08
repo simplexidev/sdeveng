@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "id": "code-only",
+      "packageVersion": "11.3.0",
+      "source": "class App : Avalonia.Application {} class View : Avalonia.Controls.Control {}",
+      "files": [],
+      "compiledBindings": "true",
+      "expected": { "package": "detected", "structure": "code-only", "themes": "absent", "compiledBindings": "detected" }
+    },
+    {
+      "id": "xaml-and-theme",
+      "packageVersion": "11.3.0",
+      "source": "class App : Avalonia.Application { Avalonia.Controls.ApplicationLifetimes.ISingleViewApplicationLifetime lifetime; }",
+      "files": ["App.axaml", "Themes/DefaultTheme.axaml"],
+      "compiledBindings": "false",
+      "expected": { "package": "detected", "structure": "xaml", "themes": "detected", "compiledBindings": "absent" }
+    },
+    {
+      "id": "mixed",
+      "packageVersion": "11.3.0",
+      "source": "class App : Avalonia.Application {} class View : Avalonia.Controls.Control {}",
+      "files": ["App.axaml"],
+      "compiledBindings": null,
+      "expected": { "package": "detected", "structure": "mixed", "themes": "absent", "compiledBindings": "unknown" }
+    },
+    {
+      "id": "unrelated-project",
+      "packageVersion": "11.3.0",
+      "source": "class Unrelated {}",
+      "files": [],
+      "compiledBindings": null,
+      "expected": { "package": "detected", "structure": "no-avalonia-ui-structure", "themes": "absent", "compiledBindings": "unknown" }
+    },
+    {
+      "id": "unsupported-major",
+      "packageVersion": "12.0.0",
+      "source": "class App : Avalonia.Application {}",
+      "files": ["App.axaml"],
+      "compiledBindings": null,
+      "expected": { "package": "unknown", "structure": "unsupported-package-version", "themes": "unknown", "compiledBindings": "unknown" }
+    }
+  ]
+}
