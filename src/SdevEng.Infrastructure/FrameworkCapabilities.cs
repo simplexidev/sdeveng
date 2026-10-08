@@ -10,6 +10,7 @@ public static class FrameworkCapabilities
         IReadOnlyDictionary<string, string?>? packageVersions = null)
         => DetectConsole(outputType, compilation, packageVersions)
             .Concat(DetectChannels(compilation))
+            .Concat(DetectLocalization(compilation))
             .Concat(DetectHosting(compilation, packageVersions))
             .Concat(DetectHttpClients(compilation, packageVersions))
             .Concat(DetectHttpResilience(compilation, packageVersions))
@@ -43,6 +44,36 @@ public static class FrameworkCapabilities
         }
         return [new(id, locations.Count > 0 ? "detected" : indirect ? "unknown" : "absent",
             locations.Count > 0 ? "roslyn-resolved-api-use" : indirect ? "unresolved-channel-api" : "roslyn-no-channel-api",
+            Locations: locations.Take(64).ToArray())];
+    }
+
+    static FrameworkCapabilityFact[] DetectLocalization(Compilation? compilation)
+    {
+        const string id = "localization";
+        if (compilation is null || compilation.Language != LanguageNames.CSharp ||
+            compilation.GetDiagnostics().Any(item => item.Severity == DiagnosticSeverity.Error))
+            return [new(id, "unknown", "unavailable-or-incomplete-csharp-compilation")];
+
+        var locations = new List<FrameworkCapabilityLocation>();
+        var indirect = false;
+        foreach (var tree in compilation.SyntaxTrees)
+        {
+            var model = compilation.GetSemanticModel(tree);
+            foreach (var call in tree.GetRoot().DescendantNodes().OfType<InvocationExpressionSyntax>())
+            {
+                var method = model.GetSymbolInfo(call).Symbol as IMethodSymbol;
+                if (method is not null && method.Name == "AddLocalization" &&
+                    method.ContainingType.ToDisplayString() == "Microsoft.Extensions.DependencyInjection.LocalizationServiceCollectionExtensions" &&
+                    method.ContainingAssembly.Name == "Microsoft.Extensions.Localization")
+                {
+                    var span = call.GetLocation().GetLineSpan();
+                    locations.Add(new(tree.FilePath, span.StartLinePosition.Line + 1, span.StartLinePosition.Character + 1));
+                }
+                else if (method is null && call.Expression.ToString().Contains("Localization", StringComparison.Ordinal)) indirect = true;
+            }
+        }
+        return [new(id, locations.Count > 0 ? "detected" : indirect ? "unknown" : "absent",
+            locations.Count > 0 ? "roslyn-resolved-api-use" : indirect ? "unresolved-localization-api" : "roslyn-no-localization-api",
             Locations: locations.Take(64).ToArray())];
     }
 
