@@ -311,9 +311,13 @@ public static class Projects
     public static async Task<FrameworkCapabilityFact[]> FrameworkCapabilities(string root, string project, JsonNode evaluation)
     {
         var outputType = evaluation["Properties"]?["OutputType"]?.GetValue<string>();
+        var packageVersions = evaluation["Items"]?["PackageReference"]?.AsArray()
+            .Where(item => string.Equals(item?["Identity"]?.GetValue<string>(), "System.CommandLine", StringComparison.OrdinalIgnoreCase))
+            .ToDictionary(item => item!["Identity"]!.GetValue<string>(),
+                item => item?["Version"]?.GetValue<string>() ?? item?["Metadata"]?["Version"]?.GetValue<string>(), StringComparer.OrdinalIgnoreCase);
         if (outputType != "Exe" || Path.GetExtension(project) != ".csproj" ||
             !string.IsNullOrEmpty(evaluation["Properties"]?["TargetFrameworks"]?.GetValue<string>()))
-            return SdevEng.FrameworkCapabilities.Detect(outputType, null);
+            return SdevEng.FrameworkCapabilities.Detect(outputType, null, packageVersions);
         lock (WorkspaceRegistrationLock)
         {
             if (!workspaceRegistered)
@@ -329,11 +333,11 @@ public static class Projects
         {
             var loaded = await workspace.OpenProjectAsync(Path.GetFullPath(project, root));
             var compilation = await loaded.GetCompilationAsync();
-            return SdevEng.FrameworkCapabilities.Detect(outputType, failed ? null : compilation);
+            return SdevEng.FrameworkCapabilities.Detect(outputType, failed ? null : compilation, packageVersions);
         }
         catch (Exception exception) when (exception is InvalidOperationException or IOException or ArgumentException)
         {
-            return SdevEng.FrameworkCapabilities.Detect(outputType, null);
+            return SdevEng.FrameworkCapabilities.Detect(outputType, null, packageVersions);
         }
     }
     public static string[] Discover(string root) => SafeFiles.Enumerate(root).Where(x => Path.GetExtension(x) is ".csproj" or ".fsproj" or ".vbproj").Order(StringComparer.Ordinal).ToArray();
