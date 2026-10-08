@@ -48,6 +48,12 @@ public sealed class MicrosoftExtensionsAIDetectionTests
             var facts = FrameworkCapabilities.Detect("Exe", compilation, packages);
             var package = facts.Single(fact => fact.Id == "microsoft-extensions-ai");
             var registration = facts.Single(fact => fact.Id == "chat-client-registration");
+            var composition = facts.Single(fact => fact.Id == "chat-client-composition");
+            if (row["composition"] is { } expectedComposition)
+            {
+                Assert.Equal(expectedComposition.GetValue<string>(), composition.Status);
+                Assert.Equal(row["compositionLocations"]!.GetValue<int>(), composition.Locations?.Length ?? 0);
+            }
             Assert.Equal(row["package"]!.GetValue<string>(), package.Status);
             Assert.Equal(row["registration"]!.GetValue<string>(), registration.Status);
             Assert.Equal(row["version"]?.GetValue<string>(), package.Version);
@@ -56,7 +62,7 @@ public sealed class MicrosoftExtensionsAIDetectionTests
                 .Evaluate(JsonSerializer.SerializeToNode(facts, AgentTool.Json)).IsValid);
             var context = new SkillActivationContext("coder", [], [], [],
                 new[] { new SkillFrameworkFact("microsoft-extensions", "10.0.0") }
-                .Concat(new[] { package, registration }.Where(fact => fact.Status == "detected")
+                .Concat(new[] { package, registration, composition }.Where(fact => fact.Status == "detected")
                     .Select(fact => new SkillFrameworkFact(fact.Id, fact.Version!))).ToArray());
             var service = new SkillActivationService();
             var loaded = await service.LoadReferenceAsync(root, context, "microsoft-extensions", "references/ai.md");
@@ -64,6 +70,7 @@ public sealed class MicrosoftExtensionsAIDetectionTests
             if (loaded.Status == "loaded") Assert.Equal(File.ReadAllText(Path.Combine(root, "plugins/sdeveng/skills/microsoft-extensions/references/ai.md")), loaded.Content);
         }
         Assert.Equal("unknown", FrameworkCapabilities.Detect("Exe", null).Single(fact => fact.Id == "chat-client-registration").Status);
+        Assert.Equal("unknown", FrameworkCapabilities.Detect("Exe", null).Single(fact => fact.Id == "chat-client-composition").Status);
     }
 
     [Theory]
@@ -91,7 +98,7 @@ public sealed class MicrosoftExtensionsAIDetectionTests
     {
         using var repo = new TemporaryGitRepository();
         foreach (var (name, source) in new[] {
-            ("Registered", "using Microsoft.Extensions.DependencyInjection; var services = new ServiceCollection(); services.AddChatClient(new Fake());" + Fake),
+            ("Registered", "using Microsoft.Extensions.DependencyInjection; using Microsoft.Extensions.AI; var services = new ServiceCollection(); services.AddChatClient(new Fake()).UseLogging();" + Fake),
             ("Unused", "System.Console.WriteLine(1);"),
             ("Unresolved", "Missing.ConfigureChatClient();") })
         {
@@ -119,6 +126,9 @@ public sealed class MicrosoftExtensionsAIDetectionTests
                 var expected = row["path"]!.GetValue<string>().Split('/')[0] switch { "Registered" => "detected", "Unused" => "absent", _ => "unknown" };
                 var registration = facts.AsArray().Single(fact => fact!["id"]!.GetValue<string>() == "chat-client-registration")!;
                 Assert.Equal(expected, registration["status"]!.GetValue<string>());
+                var composition = facts.AsArray().Single(fact => fact!["id"]!.GetValue<string>() == "chat-client-composition")!;
+                Assert.Equal(expected, composition["status"]!.GetValue<string>());
+                if (expected == "detected") Assert.EndsWith("Registered/Program.cs", composition["locations"]![0]!["path"]!.GetValue<string>());
                 if (expected == "detected") Assert.EndsWith("Registered/Program.cs", registration["locations"]![0]!["path"]!.GetValue<string>());
             }
             if (command[0] == "repo") Assert.True(JsonSchema.FromFile(Path.Combine(AgentTool.FindToolkit(), "schemas/repository-description.schema.json")).Evaluate(json).IsValid);

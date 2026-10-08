@@ -2,6 +2,62 @@
   "schemaVersion": 1,
   "cases": [
     {
+      "id": "bare-builder", "references": true,
+      "source": "using Microsoft.Extensions.AI; _ = new ChatClientBuilder(new Fake()).Build();",
+      "packages": { "Microsoft.Extensions.AI": "10.0.0" },
+      "package": "detected", "registration": "absent", "version": "10.0.0", "locations": 0,
+      "composition": "absent", "compositionLocations": 0
+    },
+    {
+      "id": "framework-decorator", "references": true,
+      "source": "_ = new Microsoft.Extensions.AI.OpenTelemetryChatClient(new Fake());",
+      "packages": { "Microsoft.Extensions.AI": "10.0.0" },
+      "package": "detected", "registration": "absent", "version": "10.0.0", "locations": 0,
+      "composition": "detected", "compositionLocations": 1
+    },
+    {
+      "id": "unresolved-middleware", "references": true,
+      "source": "Missing.UseLogging();",
+      "packages": { "Microsoft.Extensions.AI": "10.0.0" },
+      "package": "detected", "registration": "unknown", "version": "10.0.0", "locations": 0,
+      "composition": "unknown", "compositionLocations": 0
+    },
+    {
+      "id": "builder-middleware", "references": true,
+      "source": "using Microsoft.Extensions.AI; _ = new ChatClientBuilder(new Fake()).Use(client => client).UseLogging().Build();",
+      "packages": { "Microsoft.Extensions.AI": "10.0.0" },
+      "package": "detected", "registration": "absent", "version": "10.0.0", "locations": 0,
+      "composition": "detected", "compositionLocations": 2
+    },
+    {
+      "id": "custom-decorator", "references": true,
+      "source": "_ = new Decorator(new Fake()); class Decorator(Microsoft.Extensions.AI.IChatClient inner) : Microsoft.Extensions.AI.DelegatingChatClient(inner) {}",
+      "packages": { "Microsoft.Extensions.AI": "10.0.0" },
+      "package": "detected", "registration": "absent", "version": "10.0.0", "locations": 0,
+      "composition": "detected", "compositionLocations": 1
+    },
+    {
+      "id": "local-decorator-lookalike", "references": true,
+      "source": "_ = new Decorator(new Fake()); class Decorator(Fake inner) {}",
+      "packages": { "Microsoft.Extensions.AI": "10.0.0" },
+      "package": "detected", "registration": "absent", "version": "10.0.0", "locations": 0,
+      "composition": "absent", "compositionLocations": 0
+    },
+    {
+      "id": "dynamic-middleware", "references": true,
+      "source": "dynamic builder = new object(); builder.UseLogging();",
+      "packages": { "Microsoft.Extensions.AI": "10.0.0" },
+      "package": "detected", "registration": "unknown", "version": "10.0.0", "locations": 0,
+      "composition": "unknown", "compositionLocations": 0
+    },
+    {
+      "id": "unsupported-middleware", "references": true,
+      "source": "using Microsoft.Extensions.AI; _ = new ChatClientBuilder(new Fake()).UseLogging();",
+      "packages": { "Microsoft.Extensions.AI": "9.0.0" },
+      "package": "unknown", "registration": "unknown", "version": "9.0.0", "locations": 0,
+      "composition": "unknown", "compositionLocations": 0
+    },
+    {
       "id": "fake-client-registration", "references": true,
       "source": "using Microsoft.Extensions.DependencyInjection; var services = new ServiceCollection(); services.AddChatClient(new Fake());",
       "packages": { "Microsoft.Extensions.AI": "10.0.0" },
