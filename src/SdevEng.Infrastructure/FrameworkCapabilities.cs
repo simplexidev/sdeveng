@@ -10,7 +10,24 @@ public static class FrameworkCapabilities
         IReadOnlyDictionary<string, string?>? packageVersions = null)
         => DetectConsole(outputType, compilation, packageVersions)
             .Concat(DetectHosting(compilation, packageVersions))
-            .Concat(DetectHttpClients(compilation, packageVersions)).ToArray();
+            .Concat(DetectHttpClients(compilation, packageVersions))
+            .Concat(DetectHttpResilience(compilation, packageVersions)).ToArray();
+
+    static FrameworkCapabilityFact[] DetectHttpResilience(Compilation? compilation,
+        IReadOnlyDictionary<string, string?>? packages)
+    {
+        const string id = "http-client-resilience";
+        const string assembly = "Microsoft.Extensions.Http.Resilience";
+        var version = packages?.GetValueOrDefault(assembly) ?? compilation?.ReferencedAssemblyNames
+            .FirstOrDefault(item => item.Name == assembly)?.Version.ToString();
+        if (compilation is null || compilation.Language != LanguageNames.CSharp ||
+            compilation.GetDiagnostics().Any(item => item.Severity == DiagnosticSeverity.Error))
+            return [new(id, "unknown", "unavailable-or-incomplete-csharp-compilation", version)];
+        if (version is null) return [new(id, "absent", "resolved-package-not-present")];
+        return !Version.TryParse(version, out var parsed) || parsed.Major != 10
+            ? [new(id, "unknown", "unsupported-microsoft-extensions-version", version)]
+            : [new(id, "detected", "resolved-package", version)];
+    }
 
     static FrameworkCapabilityFact[] DetectHttpClients(Compilation? compilation,
         IReadOnlyDictionary<string, string?>? packages)

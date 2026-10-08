@@ -56,6 +56,37 @@ public sealed class FrameworkCapabilitiesTests
         Assert.Equal("unknown", unresolved.Single(item => item.Id == "http-client-named").Status);
     }
 
+    [Fact]
+    public async Task HttpResilienceRequiresSupportedResolvedPackageAndGatesItsReference()
+    {
+        var source = "System.Console.WriteLine(1);";
+        var supported = FrameworkCapabilities.Detect("Exe", Compile(source),
+            new Dictionary<string, string?> { ["Microsoft.Extensions.Http.Resilience"] = "10.0.0" });
+        var fact = supported.Single(item => item.Id == "http-client-resilience");
+        Assert.Equal(("detected", "resolved-package", "10.0.0"), (fact.Status, fact.Evidence, fact.Version));
+        Assert.Equal("absent", FrameworkCapabilities.Detect("Exe", Compile(source)).Single(item => item.Id == "http-client-resilience").Status);
+        var unsupported = FrameworkCapabilities.Detect("Exe", Compile(source),
+            new Dictionary<string, string?> { ["Microsoft.Extensions.Http.Resilience"] = "9.0.0" }).Single(item => item.Id == "http-client-resilience");
+        Assert.Equal("unknown", unsupported.Status);
+        Assert.Equal("unknown", FrameworkCapabilities.Detect("Exe", null).Single(item => item.Id == "http-client-resilience").Status);
+        var schema = JsonSchema.FromFile(Path.Combine(AgentTool.FindToolkit(), "schemas/framework-capabilities.schema.json"));
+        Assert.True(schema.Evaluate(JsonSerializer.SerializeToNode(supported, AgentTool.Json)).IsValid);
+
+        var root = AgentTool.FindToolkit();
+        var service = new SkillActivationService();
+        var skill = "microsoft-extensions";
+        var path = "references/http-client-resilience.md";
+        var context = new SkillActivationContext("coder", [], [], [], [new("microsoft-extensions", "10.0.0"), new("http-client-resilience", "10.0.0")]);
+        Assert.Equal("loaded", (await service.LoadReferenceAsync(root, context, skill, path)).Status);
+        Assert.Equal("resource-not-activated", (await service.LoadReferenceAsync(root,
+            context with { Frameworks = [new("microsoft-extensions", "10.0.0")] }, skill, path)).OmissionReason);
+        Assert.Equal("unknown-reference", (await service.LoadReferenceAsync(root, context, skill, "missing.md")).OmissionReason);
+        Assert.True(JsonSchema.FromFile(Path.Combine(root, "schemas/skill-metadata.schema.json"))
+            .Evaluate(JsonSerializer.SerializeToNode(SkillCompatibilityMapReader.ReadMetadataIndex(root).Single(item => item.Id == skill), new JsonSerializerOptions
+            { PropertyNamingPolicy = JsonNamingPolicy.CamelCase, DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull })!).IsValid);
+        SkillCompatibilityMapReader.ValidateResources(root, [SkillCompatibilityMapReader.ReadMetadataIndex(root).Single(item => item.Id == skill)]);
+    }
+
     [Theory]
     [InlineData("services.AddHostedService<Worker>();", "detected", "detected")]
     [InlineData("services.AddHostedService<Worker>(s => new Worker());", "detected", "detected")]
@@ -353,7 +384,7 @@ public sealed class FrameworkCapabilitiesTests
                 if (row["path"]!.GetValue<string>() == "CommandLine/CommandLine.csproj")
                     Assert.Equal("2.0.0", facts[3]!["version"]!.GetValue<string>());
                 Assert.True(JsonSchema.FromFile(Path.Combine(AgentTool.FindToolkit(), "schemas/framework-capabilities.schema.json")).Evaluate(facts).IsValid);
-                Assert.Equal(14, facts.AsArray().Count);
+                Assert.Equal(15, facts.AsArray().Count);
                 var httpClientFactory = facts.AsArray().Single(fact => fact!["id"]!.GetValue<string>() == "http-client-factory")!;
                 Assert.Equal(path == "Hosted/Hosted.csproj" ? "detected" : path is "Broken/Broken.csproj" or "Unsupported/Unsupported.vbproj" ? "unknown" : "absent",
                     httpClientFactory["status"]!.GetValue<string>());
