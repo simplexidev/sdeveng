@@ -66,6 +66,36 @@ public sealed class FrameworkCapabilitiesTests
     }
 
     [Fact]
+    public void TelemetryFactsDetectResolvedPackagesWithoutClaimingConfiguration()
+    {
+        var source = "System.Console.WriteLine(1);";
+        var installed = FrameworkCapabilities.Detect("Exe", Compile(source), new Dictionary<string, string?>
+        { ["Microsoft.Extensions.Telemetry"] = "10.0.0", ["OpenTelemetry.Exporter.Console"] = "1.9.0" });
+        foreach (var (id, version) in new[] { ("microsoft-extensions-telemetry", "10.0.0"), ("opentelemetry", "1.9.0") })
+        {
+            var fact = installed.Single(item => item.Id == id);
+            Assert.Equal(("detected", "resolved-package", version), (fact.Status, fact.Evidence, fact.Version));
+            Assert.Empty(fact.Locations ?? []);
+        }
+        var absent = FrameworkCapabilities.Detect("Exe", Compile(source));
+        Assert.Equal("absent", absent.Single(item => item.Id == "microsoft-extensions-telemetry").Status);
+        Assert.Equal("absent", absent.Single(item => item.Id == "opentelemetry").Status);
+        var unsupported = FrameworkCapabilities.Detect("Exe", Compile(source), new Dictionary<string, string?>
+        { ["Microsoft.Extensions.Telemetry"] = "9.0.0", ["OpenTelemetry"] = "2.0.0" });
+        foreach (var id in new[] { "microsoft-extensions-telemetry", "opentelemetry" })
+        {
+            Assert.Equal("unknown", unsupported.Single(item => item.Id == id).Status);
+            Assert.Equal("unsupported-package-version", unsupported.Single(item => item.Id == id).Evidence);
+        }
+        Assert.All(FrameworkCapabilities.Detect("Exe", null), fact =>
+        {
+            if (fact.Id is "microsoft-extensions-telemetry" or "opentelemetry") Assert.Equal("unknown", fact.Status);
+        });
+        Assert.True(JsonSchema.FromFile(Path.Combine(AgentTool.FindToolkit(), "schemas/framework-capabilities.schema.json"))
+            .Evaluate(JsonSerializer.SerializeToNode(installed, AgentTool.Json)).IsValid);
+    }
+
+    [Fact]
     public void HttpClientFactoryDistinguishesTypedAndNamedRegistrations()
     {
         var source = "using Microsoft.Extensions.DependencyInjection; var services = new ServiceCollection(); services.AddHttpClient<WidgetClient>(); services.AddHttpClient(\"catalog\", client => {}); class WidgetClient : System.Net.Http.HttpClient {}";
@@ -410,7 +440,7 @@ public sealed class FrameworkCapabilitiesTests
                 if (row["path"]!.GetValue<string>() == "CommandLine/CommandLine.csproj")
                     Assert.Equal("2.0.0", facts[3]!["version"]!.GetValue<string>());
                 Assert.True(JsonSchema.FromFile(Path.Combine(AgentTool.FindToolkit(), "schemas/framework-capabilities.schema.json")).Evaluate(facts).IsValid);
-                Assert.Equal(17, facts.AsArray().Count);
+                Assert.Equal(19, facts.AsArray().Count);
                 foreach (var id in new[] { "memory-cache", "distributed-cache" })
                 {
                     var cache = facts.AsArray().Single(fact => fact!["id"]!.GetValue<string>() == id)!;

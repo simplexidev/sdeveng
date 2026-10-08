@@ -30,7 +30,9 @@
             "http-client-named": { "enum": ["detected", "absent", "unknown"] },
             "http-client-resilience": { "enum": ["detected", "absent", "unknown"] },
             "memory-cache": { "enum": ["detected", "absent", "unknown"] },
-            "distributed-cache": { "enum": ["detected", "absent", "unknown"] }
+            "distributed-cache": { "enum": ["detected", "absent", "unknown"] },
+            "microsoft-extensions-telemetry": { "enum": ["detected", "absent", "unknown"] },
+            "opentelemetry": { "enum": ["detected", "absent", "unknown"] }
           } },
           "expectedLocations": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 0 } }
         }
