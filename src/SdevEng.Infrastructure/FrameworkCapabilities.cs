@@ -12,7 +12,31 @@ public static class FrameworkCapabilities
             .Concat(DetectHosting(compilation, packageVersions))
             .Concat(DetectHttpClients(compilation, packageVersions))
             .Concat(DetectHttpResilience(compilation, packageVersions))
-            .Concat(DetectCaching(compilation, packageVersions)).ToArray();
+            .Concat(DetectCaching(compilation, packageVersions))
+            .Concat(DetectTelemetry(compilation, packageVersions)).ToArray();
+
+    static FrameworkCapabilityFact[] DetectTelemetry(Compilation? compilation,
+        IReadOnlyDictionary<string, string?>? packages)
+    {
+        FrameworkCapabilityFact Package(string id, Func<string, bool> matches, int major)
+        {
+            var installed = packages?.Where(item => matches(item.Key)).OrderBy(item => item.Key, StringComparer.OrdinalIgnoreCase).ToArray() ?? [];
+            var version = installed.FirstOrDefault().Value ?? compilation?.ReferencedAssemblyNames
+                .Where(item => matches(item.Name)).OrderBy(item => item.Name, StringComparer.OrdinalIgnoreCase)
+                .Select(item => item.Version.ToString()).FirstOrDefault();
+            if (compilation is null || compilation.Language != LanguageNames.CSharp ||
+                compilation.GetDiagnostics().Any(item => item.Severity == DiagnosticSeverity.Error))
+                return new(id, "unknown", "unavailable-or-incomplete-csharp-compilation", version);
+            if (version is null) return new(id, "absent", "resolved-package-not-present");
+            return !Version.TryParse(version, out var parsed) || parsed.Major != major
+                ? new(id, "unknown", "unsupported-package-version", version)
+                : new(id, "detected", "resolved-package", version);
+        }
+        return [Package("microsoft-extensions-telemetry",
+                name => name.Equals("Microsoft.Extensions.Telemetry", StringComparison.OrdinalIgnoreCase), 10),
+            Package("opentelemetry", name => name.Equals("OpenTelemetry", StringComparison.OrdinalIgnoreCase) ||
+                name.StartsWith("OpenTelemetry.", StringComparison.OrdinalIgnoreCase), 1)];
+    }
 
     static FrameworkCapabilityFact[] DetectCaching(Compilation? compilation,
         IReadOnlyDictionary<string, string?>? packages)

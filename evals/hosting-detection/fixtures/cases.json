@@ -147,6 +147,20 @@
       "packageVersions": { "Microsoft.Extensions.Http.Resilience": "10.0.0" },
       "expected": { "generic-host": "unknown", "dependency-injection": "unknown", "configuration": "unknown", "options": "unknown", "logging": "unknown", "http-client-factory": "unknown", "http-client-typed": "unknown", "http-client-named": "unknown", "http-client-resilience": "detected" },
       "expectedLocations": {}
+    },
+    {
+      "id": "installed-telemetry-packages-unused",
+      "source": "System.Console.WriteLine(1);",
+      "packageVersions": { "Microsoft.Extensions.Telemetry": "10.0.0", "OpenTelemetry.Exporter.Console": "1.9.0" },
+      "expected": { "generic-host": "absent", "dependency-injection": "absent", "configuration": "absent", "options": "absent", "logging": "absent", "microsoft-extensions-telemetry": "detected", "opentelemetry": "detected" },
+      "expectedLocations": {}
+    },
+    {
+      "id": "unsupported-telemetry-package-versions",
+      "source": "System.Console.WriteLine(1);",
+      "packageVersions": { "Microsoft.Extensions.Telemetry": "9.0.0", "OpenTelemetry": "2.0.0" },
+      "expected": { "generic-host": "absent", "dependency-injection": "absent", "configuration": "absent", "options": "absent", "logging": "absent", "microsoft-extensions-telemetry": "unknown", "opentelemetry": "unknown" },
+      "expectedLocations": {}
     }
   ]
 }
