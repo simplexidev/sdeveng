@@ -122,7 +122,8 @@ public static class SkillCompatibilityMapReader
             if (resources is null || resources.Any(resource => resource is null) ||
                 resources.Select(resource => resource.Path).Distinct(StringComparer.Ordinal).Count() != resources.Length ||
                 resources.Any(resource => !System.Text.RegularExpressions.Regex.IsMatch(resource.Type ?? "", "^[a-z][a-z0-9-]*$") ||
-                    !System.Text.RegularExpressions.Regex.IsMatch(resource.Hash ?? "", "^sha256:[0-9a-f]{64}$")))
+                    !System.Text.RegularExpressions.Regex.IsMatch(resource.Hash ?? "", "^sha256:[0-9a-f]{64}$") ||
+                    resource.Activation?.Any(condition => string.IsNullOrWhiteSpace(condition.Id)) == true))
                 throw new ArgumentException("Invalid skill resources.");
         }
         SkillProfile[]? profiles = null;
@@ -342,4 +343,4 @@ public sealed record SkillProfile(string ModelFamily, string ModelRevision, stri
 }
 
 public sealed record SkillActivationCondition(string Id, string? FrameworkVersion = null);
-public sealed record SkillResource(string Path, string Type, string Hash);
+public sealed record SkillResource(string Path, string Type, string Hash, SkillActivationCondition[]? Activation = null);

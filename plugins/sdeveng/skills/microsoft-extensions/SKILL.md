@@ -4,7 +4,7 @@ description: Apply version-matched Microsoft.Extensions hosting, DI, configurati
 id: microsoft-extensions
 version: 3.0.0
 activation: '[{"id":"microsoft-extensions"}]'
-resources: '[{"path":"references/hosting.md","type":"reference","hash":"sha256:28da705488cae29f050a8b7651170727e9f0dbbff741a6e38914e9e59bb9c5d5"}]'
+resources: '[{"path":"references/hosting.md","type":"reference","hash":"sha256:28da705488cae29f050a8b7651170727e9f0dbbff741a6e38914e9e59bb9c5d5"},{"path":"references/http-client-resilience.md","type":"reference","hash":"sha256:9d9fdf8be5e527bbf806d570f0a185ad65a9667ad2da7ee3c94aee374620cba6","activation":[{"id":"http-client-resilience"}]}]'
 ---
 
 # Microsoft.Extensions 10
@@ -24,3 +24,5 @@ Load [hosting reference](references/hosting.md) for version-matched upstream doc
 `background-service` and `hosted-service` facts require resolved Microsoft.Extensions 10 type identity and static `AddHostedService<T>` or singleton `IHostedService` registration. Unregistered types and matching names do not confirm composition. These facts do not prove startup or shutdown correctness. Pass `ExecuteAsync`'s stopping token to waits and work, honor `StopAsync` cancellation, and let the single Generic Host stop and dispose owned services.
 
 `http-client-factory` identifies resolved `AddHttpClient` registrations; `http-client-typed` and `http-client-named` distinguish generic typed registrations and overloads whose first non-receiver argument is a name. These are static registration facts only: they do not prove a client was requested or that its configuration runs. Keep `HttpClient` instances factory-managed, avoid capturing transient typed clients in singletons, and pass cancellation tokens through outbound requests.
+
+The resilience reference is available only when static inspection detects the supported `Microsoft.Extensions.Http.Resilience` package. Package presence does not prove a pipeline is configured.

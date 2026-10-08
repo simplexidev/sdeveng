@@ -24,11 +24,11 @@ public sealed partial class SkillActivationService
         ArgumentException.ThrowIfNullOrWhiteSpace(skillId);
         var skill = (await ActivateAsync(toolkitRoot, context, cancellationToken).ConfigureAwait(false))
             .SingleOrDefault(candidate => candidate.Id == skillId);
-        return await LoadActivatedAsync(toolkitRoot, skillId, skill, referencePath, cancellationToken).ConfigureAwait(false);
+        return await LoadActivatedAsync(toolkitRoot, skillId, skill, context, referencePath, cancellationToken).ConfigureAwait(false);
     }
 
     private static async Task<SkillLoadResult> LoadActivatedAsync(string toolkitRoot, string skillId,
-        SkillMetadata? skill, string? referencePath, CancellationToken cancellationToken)
+        SkillMetadata? skill, SkillActivationContext context, string? referencePath, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         SkillLoadResult Omit(string reason) => new(skillId, referencePath, "omitted", null, reason, 0, 0);
@@ -36,6 +36,10 @@ public sealed partial class SkillActivationService
         var resource = referencePath is null ? null :
             (skill.Resources ?? []).SingleOrDefault(item => item.Path == referencePath && item.Type == "reference");
         if (referencePath is not null && resource is null) return Omit("unknown-reference");
+        if (resource?.Activation is { Length: > 0 } conditions && conditions.Any(condition =>
+            context.Frameworks.SingleOrDefault(fact => fact.Id == condition.Id) is not { } fact ||
+            (condition.FrameworkVersion is not null && fact.Version != condition.FrameworkVersion)))
+            return Omit("resource-not-activated");
         if (referencePath is not null && !SkillCompatibilityMapReader.IsSafeResourcePath(referencePath))
             return Omit("unsafe-path");
 

@@ -44,7 +44,7 @@ public sealed partial class SkillActivationService
         }
 
         foreach (var skill in activated)
-            Admit(await LoadActivatedAsync(toolkitRoot, skill.Id!, skill, null, cancellationToken).ConfigureAwait(false));
+            Admit(await LoadActivatedAsync(toolkitRoot, skill.Id!, skill, context, null, cancellationToken).ConfigureAwait(false));
         foreach (var request in references)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -54,7 +54,7 @@ public sealed partial class SkillActivationService
                 (skill.Resources ?? []).Any(resource => resource.Type == "reference" && resource.Path == request.ReferencePath))
                 Admit(new(request.SkillId, request.ReferencePath, "omitted", null, "instructions-not-loaded", 0, 0));
             else
-                Admit(await LoadActivatedAsync(toolkitRoot, request.SkillId, skill, request.ReferencePath, cancellationToken).ConfigureAwait(false));
+                Admit(await LoadActivatedAsync(toolkitRoot, request.SkillId, skill, context, request.ReferencePath, cancellationToken).ConfigureAwait(false));
         }
         var result = new SkillActivationLoadResult(1, context, budget.SkillsTokens, tokenizer.Manifest,
             activated.Select(skill => skill.Id!).ToArray(), consumed, budget.SkillsTokens - consumed, evidence);
