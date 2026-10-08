@@ -11,6 +11,9 @@ public sealed class UpstreamGitHubReaderTests
     {
         using var repo = new TemporaryGitRepository();
         var toolkit = AgentTool.FindToolkit();
+        var provenancePath = Path.Combine(toolkit, "upstream/dotnet-skills.json");
+        var original = File.ReadAllText(provenancePath);
+        Assert.Equal(3, FrameworkProvenance.Read(JsonNode.Parse(original)!)["manifestVersion"]!.GetValue<int>());
         var reader = new GitHubCommitReader(new FakeReadClient(
             """{"sha":"different"}""",
             """{"head_commit":{"sha":"newhead"},"files":[{"filename":"plugins/dotnet-test/skills/run-tests/SKILL.md","status":"modified"}]}"""));
@@ -21,6 +24,10 @@ public sealed class UpstreamGitHubReaderTests
         Assert.Equal("review-update", JsonSerializer(status.Data)["status"]!.GetValue<string>());
         var diff = await module.Execute(Cli.Parse(["upstream", "dotnet-skills", "check"]), toolkit, repo.Root, settings, CancellationToken.None);
         Assert.Equal("review-required", diff.Status);
+        var analysis = JsonSerializer(diff.Data)["analysis"]!;
+        Assert.Equal("none", analysis["automaticAction"]!.GetValue<string>());
+        Assert.Equal(JsonNode.Parse(original)!["snapshot"]!["commit"]!.GetValue<string>(), analysis["pinned"]!.GetValue<string>());
+        Assert.Equal(original, File.ReadAllText(provenancePath));
     }
 
     [Fact]

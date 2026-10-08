@@ -51,7 +51,7 @@ public static class FrameworkProvenance
                     Text(entry, "sourceRevision");
                     if (!Regex.IsMatch(Text(entry, "sourceHash"), "^(unknown|sha256:[0-9a-f]{64})$")) throw new FormatException("Invalid source hash.");
                     var captured = Text(entry, "capturedAt");
-                    if (!Regex.IsMatch(captured, @"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$") || !DateTimeOffset.TryParse(captured, CultureInfo.InvariantCulture, DateTimeStyles.None, out _)) throw new FormatException("Invalid capture time.");
+                    if (captured != "unknown" && (!Regex.IsMatch(captured, @"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$") || !DateTimeOffset.TryParse(captured, CultureInfo.InvariantCulture, DateTimeStyles.None, out _))) throw new FormatException("Invalid capture time.");
                     Strings(entry, "consumingSkillIds", true);
                 }
             }
