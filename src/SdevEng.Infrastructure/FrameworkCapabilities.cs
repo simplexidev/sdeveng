@@ -9,7 +9,52 @@ public static class FrameworkCapabilities
     public static FrameworkCapabilityFact[] Detect(string? outputType, Compilation? compilation,
         IReadOnlyDictionary<string, string?>? packageVersions = null)
         => DetectConsole(outputType, compilation, packageVersions)
-            .Concat(DetectHosting(compilation, packageVersions)).ToArray();
+            .Concat(DetectHosting(compilation, packageVersions))
+            .Append(DetectHttpClientFactory(compilation, packageVersions)).ToArray();
+
+    static FrameworkCapabilityFact DetectHttpClientFactory(Compilation? compilation,
+        IReadOnlyDictionary<string, string?>? packages)
+    {
+        const string id = "http-client-factory";
+        const string assembly = "Microsoft.Extensions.Http";
+        var version = packages?.GetValueOrDefault(assembly) ?? compilation?.ReferencedAssemblyNames
+            .FirstOrDefault(item => item.Name == assembly)?.Version.ToString();
+        if (compilation is null || compilation.Language != LanguageNames.CSharp ||
+            compilation.GetDiagnostics().Any(item => item.Severity == DiagnosticSeverity.Error))
+            return new(id, "unknown", "unavailable-or-incomplete-csharp-compilation", version);
+        if (version is not null && (!Version.TryParse(version, out var parsed) || parsed.Major != 10))
+            return new(id, "unknown", "unsupported-microsoft-extensions-version", version);
+
+        var locations = new List<FrameworkCapabilityLocation>();
+        var indirect = false;
+        foreach (var tree in compilation.SyntaxTrees)
+        {
+            var model = compilation.GetSemanticModel(tree);
+            foreach (var call in tree.GetRoot().DescendantNodes().OfType<InvocationExpressionSyntax>())
+            {
+                var method = model.GetSymbolInfo(call).Symbol as IMethodSymbol;
+                if (method is null) { indirect = true; continue; }
+                if (method.ReducedFrom is { } unreduced)
+                    method = method.IsGenericMethod ? unreduced.Construct(method.TypeArguments.ToArray()) : unreduced;
+                if (method.ContainingAssembly.Name == assembly &&
+                    method.ContainingType.ToDisplayString() == "Microsoft.Extensions.DependencyInjection.HttpClientFactoryServiceCollectionExtensions" &&
+                    method.Name == "AddHttpClient")
+                {
+                    var callVersion = packages?.GetValueOrDefault(assembly) ?? method.ContainingAssembly.Identity.Version.ToString();
+                    if (!Version.TryParse(callVersion, out var supported) || supported.Major != 10)
+                        return new(id, "unknown", "unsupported-microsoft-extensions-version", callVersion);
+                    var span = call.GetLocation().GetLineSpan();
+                    locations.Add(new(tree.FilePath, span.StartLinePosition.Line + 1, span.StartLinePosition.Character + 1));
+                }
+                else if (method.Locations.Any(item => item.IsInSource) || method.ContainingType.TypeKind == TypeKind.Delegate ||
+                    method.ContainingNamespace.ToDisplayString().StartsWith("System.Reflection", StringComparison.Ordinal))
+                    indirect = true;
+            }
+        }
+        return new(id, locations.Count > 0 ? "detected" : indirect ? "unknown" : "absent",
+            locations.Count > 0 ? "roslyn-static-composition" : indirect ? "indirect-static-composition" : "roslyn-no-static-composition",
+            version, locations.Take(64).ToArray());
+    }
 
     static FrameworkCapabilityFact[] DetectHosting(Compilation? compilation,
         IReadOnlyDictionary<string, string?>? packages)
