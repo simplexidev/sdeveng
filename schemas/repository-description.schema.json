@@ -23,7 +23,7 @@
           "language": { "enum": ["C#", "F#", "Visual Basic"] },
           "kind": { "enum": ["application", "library", "test"] },
           "frameworkCapabilities": {
-            "type": "array", "minItems": 4, "maxItems": 24, "uniqueItems": true,
+            "type": "array", "minItems": 4, "maxItems": 26, "uniqueItems": true,
             "allOf": [
               { "contains": { "properties": { "id": { "const": "plain-console" } }, "required": ["id"] } },
               { "contains": { "properties": { "id": { "const": "generic-host-console" } }, "required": ["id"] } },
@@ -34,7 +34,7 @@
               "type": "object", "additionalProperties": false,
               "required": ["id", "status", "evidence"],
               "properties": {
-                "id": { "enum": ["plain-console", "generic-host-console", "console-redirection", "system-commandline", "channels", "localization", "generic-host", "dependency-injection", "configuration", "options", "logging", "background-service", "hosted-service", "http-client-factory", "http-client-typed", "http-client-named", "http-client-resilience", "memory-cache", "distributed-cache", "microsoft-extensions-telemetry", "opentelemetry", "telemetry-logging", "telemetry-tracing", "telemetry-metrics"] },
+                "id": { "enum": ["plain-console", "generic-host-console", "console-redirection", "system-commandline", "channels", "localization", "generic-host", "dependency-injection", "configuration", "options", "logging", "background-service", "hosted-service", "http-client-factory", "http-client-typed", "http-client-named", "http-client-resilience", "memory-cache", "distributed-cache", "microsoft-extensions-telemetry", "opentelemetry", "telemetry-logging", "telemetry-tracing", "telemetry-metrics", "publish-trimmed", "publish-aot"] },
                 "status": { "enum": ["detected", "absent", "unknown"] },
                 "evidence": { "type": "string", "minLength": 1 },
                 "version": { "type": ["string", "null"] },

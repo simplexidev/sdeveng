@@ -13,6 +13,23 @@ public sealed class FrameworkCapabilitiesTests
 {
     const string Worker = "class Worker : Microsoft.Extensions.Hosting.BackgroundService { protected override System.Threading.Tasks.Task ExecuteAsync(System.Threading.CancellationToken stoppingToken) => System.Threading.Tasks.Task.Delay(-1, stoppingToken); }";
 
+    [Fact]
+    public void EvaluatedPublishSettingsDistinguishEnabledDisabledAndUnavailable()
+    {
+        var enabled = FrameworkCapabilities.Detect(null, null, projectProperties: new Dictionary<string, string?>
+        { ["PublishTrimmed"] = "true", ["PublishAot"] = "true", ["TargetFramework"] = "net10.0", ["RuntimeIdentifier"] = "linux-x64" });
+        Assert.Equal("detected", enabled.Single(item => item.Id == "publish-trimmed").Status);
+        Assert.Contains("net10.0;linux-x64", enabled.Single(item => item.Id == "publish-aot").Evidence);
+        var disabled = FrameworkCapabilities.Detect(null, null, projectProperties: new Dictionary<string, string?>
+        { ["PublishTrimmed"] = "false", ["PublishAot"] = "false" });
+        Assert.All(disabled.Where(item => item.Id is "publish-trimmed" or "publish-aot"), item => Assert.Equal("absent", item.Status));
+        var unresolved = FrameworkCapabilities.Detect(null, null, projectProperties: new Dictionary<string, string?>
+        { ["PublishTrimmed"] = "$(Unset)", ["PublishAot"] = "" });
+        Assert.All(unresolved.Where(item => item.Id is "publish-trimmed" or "publish-aot"), item => Assert.Equal("unknown", item.Status));
+        Assert.True(JsonSchema.FromFile(Path.Combine(AgentTool.FindToolkit(), "schemas/framework-capabilities.schema.json"))
+            .Evaluate(JsonSerializer.SerializeToNode(enabled, AgentTool.Json)).IsValid);
+    }
+
     [Theory]
     [InlineData("using Microsoft.Extensions.DependencyInjection; using Microsoft.Extensions.Logging; using OpenTelemetry; var s = new ServiceCollection(); s.AddLogging(l => l.AddOpenTelemetry()); s.AddOpenTelemetry().WithTracing(t => {}).WithMetrics(m => {});", "detected")]
     [InlineData("System.Console.WriteLine(1);", "absent")]
@@ -576,7 +593,7 @@ public sealed class FrameworkCapabilitiesTests
         using var repo = new TemporaryGitRepository();
         repo.Write("Program.cs", "System.Console.WriteLine(1);");
         // Independent project fixtures, including installed-but-unused Hosting.
-        repo.Write("App.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net10.0</TargetFramework><OutputType>Exe</OutputType><EnableDefaultCompileItems>false</EnableDefaultCompileItems></PropertyGroup><ItemGroup><Compile Include=\"Program.cs\" /></ItemGroup></Project>");
+        repo.Write("App.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net10.0</TargetFramework><OutputType>Exe</OutputType><PublishTrimmed>true</PublishTrimmed><PublishAot>false</PublishAot><EnableDefaultCompileItems>false</EnableDefaultCompileItems></PropertyGroup><ItemGroup><Compile Include=\"Program.cs\" /></ItemGroup></Project>");
         var project = "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net10.0</TargetFramework><OutputType>Exe</OutputType></PropertyGroup><ItemGroup><PackageReference Include=\"Microsoft.Extensions.Hosting\" Version=\"10.0.12\" /></ItemGroup></Project>";
         repo.Write("Hosted/Hosted.csproj", project.Replace("</Project>", "<ItemGroup><PackageReference Include=\"Microsoft.Extensions.Http\" Version=\"10.0.12\" /><PackageReference Include=\"Microsoft.Extensions.Caching.Memory\" Version=\"10.0.12\" /></ItemGroup></Project>", StringComparison.Ordinal));
         repo.Write("Hosted/Program.cs", "using Microsoft.Extensions.DependencyInjection; using Microsoft.Extensions.Logging; var builder = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder(); builder.Services.AddSingleton<object>(); builder.Services.Configure<object>(builder.Configuration.GetSection(\"App\")); builder.Logging.AddConsole(); builder.Services.AddHttpClient(); builder.Services.AddMemoryCache(); builder.Services.AddDistributedMemoryCache(); builder.Services.AddHostedService<Worker>(); " + Worker);
@@ -584,7 +601,7 @@ public sealed class FrameworkCapabilitiesTests
         repo.Write("Unused/Program.cs", "System.Console.WriteLine(1); " + Worker);
         repo.Write("CommandLine/CommandLine.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net10.0</TargetFramework><OutputType>Exe</OutputType></PropertyGroup><ItemGroup><PackageReference Include=\"System.CommandLine\" Version=\"2.0.0\" /></ItemGroup></Project>");
         repo.Write("CommandLine/Program.cs", "System.Console.WriteLine(1);");
-        repo.Write("Broken/Broken.csproj", project);
+        repo.Write("Broken/Broken.csproj", project.Replace("</PropertyGroup>", "<PublishTrimmed>$(Unset)</PublishTrimmed><PublishAot></PublishAot></PropertyGroup>", StringComparison.Ordinal));
         repo.Write("Broken/Program.cs", "Missing.Run();");
         repo.Write("Library/Library.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net10.0</TargetFramework></PropertyGroup></Project>");
         repo.Write("Unsupported/Unsupported.vbproj", "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net10.0</TargetFramework><OutputType>Exe</OutputType></PropertyGroup></Project>");
@@ -618,7 +635,16 @@ public sealed class FrameworkCapabilitiesTests
                 if (row["path"]!.GetValue<string>() == "CommandLine/CommandLine.csproj")
                     Assert.Equal("2.0.0", facts[3]!["version"]!.GetValue<string>());
                 Assert.True(JsonSchema.FromFile(Path.Combine(AgentTool.FindToolkit(), "schemas/framework-capabilities.schema.json")).Evaluate(facts).IsValid);
-                Assert.Equal(24, facts.AsArray().Count);
+                Assert.Equal(26, facts.AsArray().Count);
+                if (path == "App.csproj")
+                {
+                    Assert.Equal("detected", facts.AsArray().Single(fact => fact!["id"]!.GetValue<string>() == "publish-trimmed")!["status"]!.GetValue<string>());
+                    Assert.Equal("absent", facts.AsArray().Single(fact => fact!["id"]!.GetValue<string>() == "publish-aot")!["status"]!.GetValue<string>());
+                }
+                if (path == "Broken/Broken.csproj")
+                    Assert.All(facts.AsArray().Where(fact => fact!["id"]!.GetValue<string>() is "publish-trimmed" or "publish-aot"), fact => Assert.Equal("unknown", fact!["status"]!.GetValue<string>()));
+                Assert.Contains(facts.AsArray(), fact => fact!["id"]!.GetValue<string>() == "publish-trimmed");
+                Assert.Contains(facts.AsArray(), fact => fact!["id"]!.GetValue<string>() == "publish-aot");
                 Assert.Contains(facts.AsArray(), fact => fact!["id"]!.GetValue<string>() == "channels");
                 Assert.Contains(facts.AsArray(), fact => fact!["id"]!.GetValue<string>() == "localization");
                 foreach (var id in new[] { "memory-cache", "distributed-cache" })

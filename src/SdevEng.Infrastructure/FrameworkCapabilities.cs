@@ -7,7 +7,8 @@ namespace SdevEng;
 public static class FrameworkCapabilities
 {
     public static FrameworkCapabilityFact[] Detect(string? outputType, Compilation? compilation,
-        IReadOnlyDictionary<string, string?>? packageVersions = null)
+        IReadOnlyDictionary<string, string?>? packageVersions = null,
+        IReadOnlyDictionary<string, string?>? projectProperties = null)
         => DetectConsole(outputType, compilation, packageVersions)
             .Concat(DetectChannels(compilation))
             .Concat(DetectLocalization(compilation))
@@ -16,7 +17,28 @@ public static class FrameworkCapabilities
             .Concat(DetectHttpResilience(compilation, packageVersions))
             .Concat(DetectCaching(compilation, packageVersions))
             .Concat(DetectTelemetry(compilation, packageVersions))
-            .Concat(DetectTelemetryComposition(compilation, packageVersions)).ToArray();
+            .Concat(DetectTelemetryComposition(compilation, packageVersions))
+            .Concat(DetectPublishSettings(projectProperties)).ToArray();
+
+    static FrameworkCapabilityFact[] DetectPublishSettings(IReadOnlyDictionary<string, string?>? properties)
+    {
+        FrameworkCapabilityFact Fact(string id, string property)
+        {
+            if (properties is null || !properties.TryGetValue(property, out var value) || string.IsNullOrWhiteSpace(value))
+                return new(id, "unknown", "evaluated-project-setting-unavailable");
+            var trimmed = value.Trim();
+            if (bool.TryParse(trimmed, out var enabled))
+            {
+                var frameworks = properties.GetValueOrDefault("TargetFrameworks") ?? properties.GetValueOrDefault("TargetFramework") ?? "";
+                var rids = properties.GetValueOrDefault("RuntimeIdentifiers") ?? properties.GetValueOrDefault("RuntimeIdentifier") ?? "";
+                var context = string.Join(";", new[] { frameworks, rids }.Where(item => item.Length > 0));
+                return new(id, enabled ? "detected" : "absent",
+                    $"evaluated-{property.ToLowerInvariant()}-{(enabled ? "enabled" : "disabled")}" + (context.Length == 0 ? "" : $";{context}"));
+            }
+            return new(id, "unknown", "unsupported-evaluated-project-setting-value");
+        }
+        return [Fact("publish-trimmed", "PublishTrimmed"), Fact("publish-aot", "PublishAot")];
+    }
 
     static FrameworkCapabilityFact[] DetectChannels(Compilation? compilation)
     {

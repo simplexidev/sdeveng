@@ -311,12 +311,14 @@ public static class Projects
     public static async Task<FrameworkCapabilityFact[]> FrameworkCapabilities(string root, string project, JsonNode evaluation)
     {
         var outputType = evaluation["Properties"]?["OutputType"]?.GetValue<string>();
+        var projectProperties = evaluation["Properties"]?.AsObject().ToDictionary(item => item.Key,
+            item => item.Value?.GetValue<string>(), StringComparer.OrdinalIgnoreCase);
         var packageVersions = evaluation["Items"]?["PackageReference"]?.AsArray()
             .ToDictionary(item => item!["Identity"]!.GetValue<string>(),
                 item => item?["Version"]?.GetValue<string>() ?? item?["Metadata"]?["Version"]?.GetValue<string>(), StringComparer.OrdinalIgnoreCase);
         if (Path.GetExtension(project) != ".csproj" ||
             !string.IsNullOrEmpty(evaluation["Properties"]?["TargetFrameworks"]?.GetValue<string>()))
-            return SdevEng.FrameworkCapabilities.Detect(outputType, null, packageVersions);
+            return SdevEng.FrameworkCapabilities.Detect(outputType, null, packageVersions, projectProperties);
         lock (WorkspaceRegistrationLock)
         {
             if (!workspaceRegistered)
@@ -332,11 +334,11 @@ public static class Projects
         {
             var loaded = await workspace.OpenProjectAsync(Path.GetFullPath(project, root));
             var compilation = await loaded.GetCompilationAsync();
-            return SdevEng.FrameworkCapabilities.Detect(outputType, failed ? null : compilation, packageVersions);
+            return SdevEng.FrameworkCapabilities.Detect(outputType, failed ? null : compilation, packageVersions, projectProperties);
         }
         catch (Exception exception) when (exception is InvalidOperationException or IOException or ArgumentException)
         {
-            return SdevEng.FrameworkCapabilities.Detect(outputType, null, packageVersions);
+            return SdevEng.FrameworkCapabilities.Detect(outputType, null, packageVersions, projectProperties);
         }
     }
     public static string[] Discover(string root) => SafeFiles.Enumerate(root).Where(x => Path.GetExtension(x) is ".csproj" or ".fsproj" or ".vbproj").Order(StringComparer.Ordinal).ToArray();
@@ -596,7 +598,7 @@ public static class Projects
     }
     public static async Task<JsonNode> Evaluate(string root, string project)
     {
-        var result = await Processes.Run("dotnet", ["msbuild", project, "-nologo", "-getProperty:TargetFramework,TargetFrameworks,OutputType,IsTestProject,Nullable,ManagePackageVersionsCentrally,Deterministic,EnableNETAnalyzers,RestorePackagesWithLockFile,EnablePackageValidation,PackageValidationBaselineVersion,IsTestingPlatformApplication,TestingPlatformDotnetTestSupport,UseMicrosoftTestingPlatformRunner", "-getItem:ProjectReference,Compile,PackageReference"], root);
+        var result = await Processes.Run("dotnet", ["msbuild", project, "-nologo", "-getProperty:TargetFramework,TargetFrameworks,RuntimeIdentifier,RuntimeIdentifiers,PublishTrimmed,PublishAot,OutputType,IsTestProject,Nullable,ManagePackageVersionsCentrally,Deterministic,EnableNETAnalyzers,RestorePackagesWithLockFile,EnablePackageValidation,PackageValidationBaselineVersion,IsTestingPlatformApplication,TestingPlatformDotnetTestSupport,UseMicrosoftTestingPlatformRunner", "-getItem:ProjectReference,Compile,PackageReference"], root);
         if (result.ExitCode != 0) throw new InvalidOperationException($"MSBuild evaluation failed for {Path.GetFileName(project)}; graph cannot safely be narrowed.");
         return JsonNode.Parse(result.Output) ?? throw new InvalidOperationException("Empty MSBuild response.");
     }
