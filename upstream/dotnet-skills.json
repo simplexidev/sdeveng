@@ -5,6 +5,8 @@
     {
       "frameworkId": "dotnet",
       "aliases": [".NET"],
+      "releaseUri": "https://github.com/dotnet/skills/releases",
+      "documentationUri": "https://learn.microsoft.com/dotnet/",
       "supportedMajorVersions": "unknown",
       "sourceUri": "https://github.com/dotnet/skills",
       "sourceRevision": "4ed5f7c121da8dd31af31a35cef05070948c6556",
@@ -15,6 +17,8 @@
     {
       "frameworkId": "microsoft.extensions",
       "aliases": ["Microsoft.Extensions framework"],
+      "releaseUri": "https://github.com/dotnet/extensions/releases",
+      "documentationUri": "https://learn.microsoft.com/dotnet/core/extensions/",
       "supportedMajorVersions": "unknown",
       "sourceUri": "https://github.com/dotnet/extensions",
       "sourceRevision": "unknown",
@@ -25,6 +29,8 @@
     {
       "frameworkId": "system.commandline",
       "aliases": ["System.CommandLine framework"],
+      "releaseUri": "https://github.com/dotnet/command-line-api/releases",
+      "documentationUri": "https://learn.microsoft.com/dotnet/standard/commandline/",
       "supportedMajorVersions": "unknown",
       "sourceUri": "https://github.com/dotnet/command-line-api",
       "sourceRevision": "unknown",
@@ -35,6 +41,8 @@
     {
       "frameworkId": "avalonia",
       "aliases": ["Avalonia framework"],
+      "releaseUri": "https://github.com/AvaloniaUI/Avalonia/releases",
+      "documentationUri": "https://docs.avaloniaui.net/",
       "supportedMajorVersions": "unknown",
       "sourceUri": "https://github.com/AvaloniaUI/Avalonia",
       "sourceRevision": "unknown",
@@ -45,6 +53,8 @@
     {
       "frameworkId": "terminal.gui",
       "aliases": ["Terminal.Gui framework"],
+      "releaseUri": "https://github.com/gui-cs/Terminal.Gui/releases",
+      "documentationUri": "https://gui-cs.github.io/Terminal.GuiV2Docs/",
       "supportedMajorVersions": "unknown",
       "sourceUri": "https://github.com/gui-cs/Terminal.Gui",
       "sourceRevision": "unknown",

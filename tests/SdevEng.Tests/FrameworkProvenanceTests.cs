@@ -48,6 +48,11 @@ public class FrameworkProvenanceTests
         Assert.True(Valid(current));
         Assert.True(JsonNode.DeepEquals(legacy, FrameworkProvenance.Read(legacy)));
         var read = FrameworkProvenance.Read(current);
+        foreach (var entry in read["frameworks"]!.AsArray())
+        {
+            entry!.AsObject().Remove("releaseUri");
+            entry.AsObject().Remove("documentationUri");
+        }
         read.Remove("frameworks");
         read["manifestVersion"] = 2;
         Assert.True(JsonNode.DeepEquals(legacy, read));
@@ -89,6 +94,27 @@ public class FrameworkProvenanceTests
         }
     }
 
+    [Fact]
+    public void InventoryRegistersAuthoritativeReleaseAndDocumentationSources()
+    {
+        var expected = new Dictionary<string, (string Release, string Docs)>
+        {
+            ["dotnet"] = ("https://github.com/dotnet/skills/releases", "https://learn.microsoft.com/dotnet/"),
+            ["microsoft.extensions"] = ("https://github.com/dotnet/extensions/releases", "https://learn.microsoft.com/dotnet/core/extensions/"),
+            ["system.commandline"] = ("https://github.com/dotnet/command-line-api/releases", "https://learn.microsoft.com/dotnet/standard/commandline/"),
+            ["avalonia"] = ("https://github.com/AvaloniaUI/Avalonia/releases", "https://docs.avaloniaui.net/"),
+            ["terminal.gui"] = ("https://github.com/gui-cs/Terminal.Gui/releases", "https://gui-cs.github.io/Terminal.GuiV2Docs/")
+        };
+        foreach (var entry in FrameworkProvenance.Read(Current())["frameworks"]!.AsArray())
+        {
+            var value = entry!.AsObject();
+            var sources = expected[value["frameworkId"]!.GetValue<string>()];
+            Assert.Equal(sources.Release, value["releaseUri"]!.GetValue<string>());
+            Assert.Equal(sources.Docs, value["documentationUri"]!.GetValue<string>());
+            Assert.StartsWith("https://", value["sourceUri"]!.GetValue<string>());
+        }
+    }
+
     [Theory]
     [InlineData("dotnet")]
     [InlineData("microsoft.extensions")]
@@ -111,6 +137,8 @@ public class FrameworkProvenanceTests
     [InlineData("frameworkId", "future")]
     [InlineData("sourceHash", "refreshed")]
     [InlineData("sourceUri", "file:///tmp/source")]
+    [InlineData("releaseUri", "file:///tmp/releases")]
+    [InlineData("documentationUri", "file:///tmp/docs")]
     [InlineData("sourceRevision", "")]
     [InlineData("capturedAt", "2026-09-22")]
     [InlineData("supportedMajorVersions", "latest")]

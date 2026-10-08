@@ -39,7 +39,7 @@ public static class FrameworkProvenance
                 foreach (var node in entries)
                 {
                     var entry = node!.AsObject();
-                    string[] fields = ["frameworkId", "aliases", "supportedMajorVersions", "sourceUri", "sourceRevision", "sourceHash", "capturedAt", "consumingSkillIds"];
+                    string[] fields = ["frameworkId", "aliases", "supportedMajorVersions", "sourceUri", "releaseUri", "documentationUri", "sourceRevision", "sourceHash", "capturedAt", "consumingSkillIds"];
                     if (entry.Count != fields.Length || fields.Any(f => !entry.ContainsKey(f))) throw new FormatException("Invalid framework entry fields.");
                     var id = Text(entry, "frameworkId");
                     foreach (var alias in Strings(entry, "aliases", false))
@@ -52,6 +52,8 @@ public static class FrameworkProvenance
                     }
                     else if (majors.GetValue<string>() != "unknown") throw new FormatException("Invalid unknown version marker.");
                     if (!Uri.TryCreate(Text(entry, "sourceUri"), UriKind.Absolute, out var uri) || uri.Scheme != "https" || string.IsNullOrEmpty(uri.Host) || uri.AbsolutePath == "/") throw new FormatException("Invalid pinned source URI.");
+                    foreach (var field in new[] { "releaseUri", "documentationUri" })
+                        if (!Uri.TryCreate(Text(entry, field), UriKind.Absolute, out var reference) || reference.Scheme != "https" || string.IsNullOrEmpty(reference.Host)) throw new FormatException($"Invalid authoritative {field}.");
                     Text(entry, "sourceRevision");
                     if (!Regex.IsMatch(Text(entry, "sourceHash"), "^(unknown|sha256:[0-9a-f]{64})$")) throw new FormatException("Invalid source hash.");
                     var captured = Text(entry, "capturedAt");
