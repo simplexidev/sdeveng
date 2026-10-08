@@ -312,10 +312,9 @@ public static class Projects
     {
         var outputType = evaluation["Properties"]?["OutputType"]?.GetValue<string>();
         var packageVersions = evaluation["Items"]?["PackageReference"]?.AsArray()
-            .Where(item => string.Equals(item?["Identity"]?.GetValue<string>(), "System.CommandLine", StringComparison.OrdinalIgnoreCase))
             .ToDictionary(item => item!["Identity"]!.GetValue<string>(),
                 item => item?["Version"]?.GetValue<string>() ?? item?["Metadata"]?["Version"]?.GetValue<string>(), StringComparer.OrdinalIgnoreCase);
-        if (outputType != "Exe" || Path.GetExtension(project) != ".csproj" ||
+        if (Path.GetExtension(project) != ".csproj" ||
             !string.IsNullOrEmpty(evaluation["Properties"]?["TargetFrameworks"]?.GetValue<string>()))
             return SdevEng.FrameworkCapabilities.Detect(outputType, null, packageVersions);
         lock (WorkspaceRegistrationLock)

@@ -9,6 +9,41 @@ namespace SdevEng.Tests;
 
 public sealed class FrameworkCapabilitiesTests
 {
+    [Theory]
+    [InlineData("using Microsoft.Extensions.DependencyInjection; var b = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder(); b.Services.AddSingleton<object>(); b.Services.AddScoped<object>(); b.Services.AddTransient<object>();", "detected", "detected", 3)]
+    [InlineData("var b = new Microsoft.Extensions.Hosting.HostBuilder();", "detected", "absent", 0)]
+    [InlineData("using Microsoft.Extensions.DependencyInjection; IServiceCollection services = new ServiceCollection(); services.Add(ServiceDescriptor.Singleton<object, object>());", "absent", "detected", 1)]
+    [InlineData("using Microsoft.Extensions.DependencyInjection; using Microsoft.Extensions.DependencyInjection.Extensions; var services = new ServiceCollection(); services.TryAddSingleton<object>(); services.AddKeyedScoped<object>(\"key\");", "absent", "detected", 2)]
+    [InlineData("System.Console.WriteLine(1);", "absent", "absent", 0)]
+    [InlineData("class Host { public static void CreateApplicationBuilder() {} } class Program { static void Main() { Host.CreateApplicationBuilder(); } }", "unknown", "unknown", 0)]
+    [InlineData("Missing.Configure();", "unknown", "unknown", 0)]
+    [InlineData("typeof(object).GetMethod(\"Configure\")!.Invoke(null, null);", "unknown", "unknown", 0)]
+    [InlineData("using Microsoft.Extensions.DependencyInjection; var a = new ServiceCollection(); a.AddSingleton<object>(); var b = new ServiceCollection(); b.AddTransient<object>(); a.BuildServiceProvider(); b.BuildServiceProvider();", "absent", "detected", 2)]
+    public void HostingAndRegistrationsUseResolvedSymbols(string source, string host, string di, int registrations)
+    {
+        var facts = FrameworkCapabilities.Detect("Exe", Compile(source));
+        Assert.Equal(host, facts.Single(fact => fact.Id == "generic-host").Status);
+        var registration = facts.Single(fact => fact.Id == "dependency-injection");
+        Assert.Equal(di, registration.Status);
+        Assert.Equal(registrations, registration.Locations?.Length ?? 0);
+        Assert.All(registration.Locations ?? [], location => { Assert.Equal(1, location.Line); Assert.True(location.Column > 0); });
+        Assert.True(JsonSchema.FromFile(Path.Combine(AgentTool.FindToolkit(), "schemas/framework-capabilities.schema.json"))
+            .Evaluate(JsonSerializer.SerializeToNode(facts, AgentTool.Json)).IsValid);
+    }
+
+    [Fact]
+    public void UnsupportedHostingVersionsRemainUnknownAndLegacyFactsStayValid()
+    {
+        var facts = FrameworkCapabilities.Detect("Exe", Compile("var b = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder();"),
+            new Dictionary<string, string?> { ["Microsoft.Extensions.Hosting"] = "9.0.0" });
+        var host = facts.Single(fact => fact.Id == "generic-host");
+        Assert.Equal("unknown", host.Status);
+        Assert.Equal("9.0.0", host.Version);
+        Assert.Equal("unsupported-microsoft-extensions-version", host.Evidence);
+        Assert.True(JsonSchema.FromFile(Path.Combine(AgentTool.FindToolkit(), "schemas/framework-capabilities.schema.json"))
+            .Evaluate(JsonSerializer.SerializeToNode(facts.Take(4), AgentTool.Json)).IsValid);
+    }
+
     static CSharpCompilation Compile(string source) => CSharpCompilation.Create("Fixture",
         [CSharpSyntaxTree.ParseText(source)],
         ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!).Split(Path.PathSeparator)
@@ -28,7 +63,7 @@ public sealed class FrameworkCapabilitiesTests
     public void UsesEntryPointSymbolsRatherThanInstalledPackagesOrUncalledCode(string source, string plain, string host)
     {
         var facts = FrameworkCapabilities.Detect("Exe", Compile(source));
-        Assert.Equal(new[] { plain, host, "unknown", "absent" }, facts.Select(fact => fact.Status));
+        Assert.Equal(new[] { plain, host, "unknown", "absent" }, facts.Take(4).Select(fact => fact.Status));
         var schema = JsonSchema.FromFile(Path.Combine(AgentTool.FindToolkit(), "schemas/framework-capabilities.schema.json"));
         Assert.True(schema.Evaluate(JsonSerializer.SerializeToNode(facts, AgentTool.Json)).IsValid);
     }
@@ -50,8 +85,8 @@ public sealed class FrameworkCapabilitiesTests
     [Fact]
     public void LibrariesAndUnavailableCompilationsDoNotClaimConsoleSupport()
     {
-        Assert.Equal(new[] { "absent", "absent", "absent", "absent" }, FrameworkCapabilities.Detect("Library", Compile("System.Console.WriteLine(1);")).Select(fact => fact.Status));
-        Assert.Equal(new[] { "unknown", "unknown", "unknown", "absent" }, FrameworkCapabilities.Detect("Exe", null).Select(fact => fact.Status));
+        Assert.Equal(new[] { "absent", "absent", "absent", "absent" }, FrameworkCapabilities.Detect("Library", Compile("System.Console.WriteLine(1);")).Take(4).Select(fact => fact.Status));
+        Assert.Equal(new[] { "unknown", "unknown", "unknown", "absent" }, FrameworkCapabilities.Detect("Exe", null).Take(4).Select(fact => fact.Status));
     }
 
     [Fact]
@@ -73,7 +108,7 @@ public sealed class FrameworkCapabilitiesTests
             var facts = FrameworkCapabilities.Detect(item["outputType"]!.GetValue<string>(),
                 Compile(item["source"]!.GetValue<string>()), packages);
             Assert.Equal(item["expected"]!.AsArray().Select(value => value!.GetValue<string>()),
-                facts.Select(fact => fact.Status));
+                facts.Take(4).Select(fact => fact.Status));
             Assert.True(capabilitySchema.Evaluate(JsonSerializer.SerializeToNode(facts, AgentTool.Json)).IsValid);
             if (item["expectedCommandLineSkillActivation"] is JsonValue expectedActivation)
             {
@@ -93,7 +128,7 @@ public sealed class FrameworkCapabilitiesTests
         repo.Write("App.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net10.0</TargetFramework><OutputType>Exe</OutputType><EnableDefaultCompileItems>false</EnableDefaultCompileItems></PropertyGroup><ItemGroup><Compile Include=\"Program.cs\" /></ItemGroup></Project>");
         var project = "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net10.0</TargetFramework><OutputType>Exe</OutputType></PropertyGroup><ItemGroup><PackageReference Include=\"Microsoft.Extensions.Hosting\" Version=\"10.0.12\" /></ItemGroup></Project>";
         repo.Write("Hosted/Hosted.csproj", project);
-        repo.Write("Hosted/Program.cs", "var builder = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder();");
+        repo.Write("Hosted/Program.cs", "using Microsoft.Extensions.DependencyInjection; var builder = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder(); builder.Services.AddSingleton<object>();");
         repo.Write("Unused/Unused.csproj", project);
         repo.Write("Unused/Program.cs", "System.Console.WriteLine(1);");
         repo.Write("CommandLine/CommandLine.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net10.0</TargetFramework><OutputType>Exe</OutputType></PropertyGroup><ItemGroup><PackageReference Include=\"System.CommandLine\" Version=\"2.0.0\" /></ItemGroup></Project>");
@@ -126,11 +161,22 @@ public sealed class FrameworkCapabilitiesTests
             foreach (var row in json["projects"]!.AsArray())
             {
                 var facts = row!["frameworkCapabilities"]!;
-                Assert.Equal(expected[row["path"]!.GetValue<string>()], facts.AsArray().Select(fact => fact!["status"]!.GetValue<string>()));
-                Assert.Equal(new[] { "plain-console", "generic-host-console", "console-redirection", "system-commandline" }, facts.AsArray().Select(fact => fact!["id"]!.GetValue<string>()));
+                Assert.Equal(expected[row["path"]!.GetValue<string>()], facts.AsArray().Take(4).Select(fact => fact!["status"]!.GetValue<string>()));
+                Assert.Equal(new[] { "plain-console", "generic-host-console", "console-redirection", "system-commandline" }, facts.AsArray().Take(4).Select(fact => fact!["id"]!.GetValue<string>()));
                 if (row["path"]!.GetValue<string>() == "CommandLine/CommandLine.csproj")
                     Assert.Equal("2.0.0", facts[3]!["version"]!.GetValue<string>());
                 Assert.True(JsonSchema.FromFile(Path.Combine(AgentTool.FindToolkit(), "schemas/framework-capabilities.schema.json")).Evaluate(facts).IsValid);
+                Assert.Equal(6, facts.AsArray().Count);
+                var path = row["path"]!.GetValue<string>();
+                var hosted = facts.AsArray().Single(fact => fact!["id"]!.GetValue<string>() == "generic-host")!;
+                var di = facts.AsArray().Single(fact => fact!["id"]!.GetValue<string>() == "dependency-injection")!;
+                Assert.Equal(path == "Hosted/Hosted.csproj" ? "detected" : path is "Broken/Broken.csproj" or "Unsupported/Unsupported.vbproj" ? "unknown" : "absent", hosted["status"]!.GetValue<string>());
+                Assert.Equal(hosted["status"]!.GetValue<string>(), di["status"]!.GetValue<string>());
+                if (path == "Hosted/Hosted.csproj")
+                {
+                    Assert.Equal("10.0.12", hosted["version"]!.GetValue<string>());
+                    Assert.EndsWith("Hosted/Program.cs", di["locations"]![0]!["path"]!.GetValue<string>());
+                }
             }
             if (command[0] == "repo")
                 Assert.True(JsonSchema.FromFile(Path.Combine(AgentTool.FindToolkit(), "schemas/repository-description.schema.json")).Evaluate(json).IsValid);
