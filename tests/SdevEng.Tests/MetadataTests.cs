@@ -321,7 +321,7 @@ public class MetadataTests
     [Fact]
     public void DotnetSkillsProvenanceIsPinnedCompleteAndReferenceOnly()
     {
-        var manifest = JsonNode.Parse(File.ReadAllText(Path.Combine(Root, "upstream/dotnet-skills.json")))!;
+        var manifest = FrameworkProvenance.Read(JsonNode.Parse(File.ReadAllText(Path.Combine(Root, "upstream/dotnet-skills.json")))!);
         Assert.Equal("dotnet/skills", manifest["snapshot"]!["repository"]!.GetValue<string>());
         Assert.Matches("^[0-9a-f]{40}$", manifest["snapshot"]!["commit"]!.GetValue<string>());
         Assert.Equal("MIT", manifest["snapshot"]!["license"]!["spdx"]!.GetValue<string>());

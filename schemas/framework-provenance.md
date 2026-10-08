@@ -3,8 +3,16 @@
 `dotnet-skills-provenance.schema.json` remains the canonical inventory schema.
 Version 2 is unchanged. Version 3 retains every version-2 field and requires
 `frameworks`; `FrameworkProvenance.Read` validates the versioned entries before
-`DotnetSkillsDrift` uses the inventory. Reading returns a copy and performs no
+`DotnetSkillsDrift` and `upstream status` use the inventory. Reading returns a copy and performs no
 network access, writes, migration or reference refresh.
+
+Direct consumers are the upstream command module (status), `DotnetSkillsDrift`
+(status/diff/check and drift/refresh), and the pinned-inventory metadata assertion.
+All use the compatible reader. Raw test fixture reads/writes intentionally build
+inputs for validation; there is no production inventory writer. The historical
+filename, schema path, command names and status `plugins` field remain compatible.
+Status returns the entire validated inventory, preserving v2/v3 source/version
+facts, aliases and unknowns; invalid versions or entries fail closed.
 
 Each entry declares a canonical framework ID (`dotnet`, `microsoft.extensions`,
 `system.commandline`, `avalonia`, `terminal.gui`), explicit aliases, supported

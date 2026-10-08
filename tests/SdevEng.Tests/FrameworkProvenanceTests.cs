@@ -11,6 +11,57 @@ public class FrameworkProvenanceTests
     static bool Valid(JsonNode manifest) => JsonSchema.FromFile(Path.Combine(Root, "schemas/dotnet-skills-provenance.schema.json"))
         .Evaluate(manifest, new() { RequireFormatValidation = true }).IsValid;
 
+    [Theory]
+    [InlineData(2)]
+    [InlineData(3)]
+    public async Task UpstreamStatusPreservesValidatedInventoryThroughNormalDispatch(int version)
+    {
+        using var repo = new TemporaryGitRepository();
+        var upstream = Path.Combine(repo.Root, "upstream");
+        Directory.CreateDirectory(upstream);
+        var manifest = version == 2 ? Legacy() : Current();
+        var original = manifest.ToJsonString();
+        var path = Path.Combine(upstream, "dotnet-skills.json");
+        File.WriteAllText(path, original);
+        File.WriteAllText(Path.Combine(upstream, "tools.json"), "{\"tools\":[]}");
+        File.WriteAllText(Path.Combine(upstream, "versions.json"), "{\"repositories\":[]}");
+
+        var result = await CommandTestRuntime.Execute(Cli.Parse(["upstream", "status"]),
+            repo.Root, repo.Root, new Settings(new(), new(), new(), new()));
+        Assert.Equal("ok", result.Status);
+        Assert.Equal(0, result.ExitCode);
+        var data = System.Text.Json.JsonSerializer.SerializeToNode(result.Data, AgentTool.Json)!;
+        Assert.Equal(new[] { "plugins", "tools", "versions" }, data.AsObject().Select(p => p.Key));
+        Assert.True(JsonNode.DeepEquals(manifest, data["plugins"]));
+        Assert.True(Valid(data["plugins"]!));
+        Assert.True(JsonNode.DeepEquals(JsonNode.Parse("{\"tools\":[]}"), data["tools"]));
+        Assert.True(JsonNode.DeepEquals(JsonNode.Parse("{\"repositories\":[]}"), data["versions"]));
+        Assert.Equal(original, File.ReadAllText(path));
+        Assert.False(Directory.Exists(Path.Combine(repo.Root, ".agent-tool")));
+    }
+
+    [Theory]
+    [InlineData("version")]
+    [InlineData("hash")]
+    [InlineData("alias")]
+    [InlineData("empty")]
+    public async Task DirectStatusConsumerRejectsInvalidInventoryThroughNormalDispatch(string scenario)
+    {
+        using var repo = new TemporaryGitRepository();
+        Directory.CreateDirectory(Path.Combine(repo.Root, "upstream"));
+        var manifest = Current();
+        if (scenario == "version") manifest["manifestVersion"] = 4;
+        if (scenario == "hash") manifest["frameworks"]![0]!["sourceHash"] = "bad";
+        if (scenario == "alias") manifest["frameworks"]![0]!["aliases"] = new JsonArray("avalonia");
+        var original = scenario == "empty" ? "null" : manifest.ToJsonString();
+        var path = Path.Combine(repo.Root, "upstream/dotnet-skills.json");
+        File.WriteAllText(path, original);
+        await Assert.ThrowsAsync<FormatException>(() => CommandTestRuntime.Execute(Cli.Parse(["upstream", "status"]),
+            repo.Root, repo.Root, new Settings(new(), new(), new(), new())));
+        Assert.Equal(original, File.ReadAllText(path));
+        Assert.False(Directory.Exists(Path.Combine(repo.Root, ".agent-tool")));
+    }
+
     [Fact]
     public async Task ExistingCommandReadsBothVersionsWithoutWritingOrRefreshing()
     {

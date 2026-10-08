@@ -47,6 +47,36 @@ public sealed class UpstreamGitHubReaderTests
 
     static JsonObject JsonSerializer(object? value) => System.Text.Json.JsonSerializer.SerializeToNode(value, AgentTool.Json)!.AsObject();
 
+    [Theory]
+    [InlineData("status", "dotnet-skills-status")]
+    [InlineData("diff", "dotnet-skills-diff")]
+    [InlineData("check", "dotnet-skills-diff")]
+    public async Task CompatibleDriftConsumerPreservesUnavailableResult(string operation, string kind)
+    {
+        using var repo = new TemporaryGitRepository();
+        var toolkit = AgentTool.FindToolkit();
+        var path = Path.Combine(toolkit, "upstream/dotnet-skills.json");
+        var original = File.ReadAllText(path);
+        var module = new AgentTool.UpstreamCommandModule(new GitHubCommitReader(new UnavailableReadClient()));
+        var result = await module.Execute(Cli.Parse(["upstream", "dotnet-skills", operation]),
+            toolkit, repo.Root, new Settings(new(), new(), new(), new()), CancellationToken.None);
+        Assert.Equal("unavailable", result.Status);
+        Assert.Equal(1, result.ExitCode);
+        var data = JsonSerializer(result.Data);
+        Assert.Equal(kind, data["kind"]!.GetValue<string>());
+        Assert.Equal("dotnet/skills", data["repository"]!.GetValue<string>());
+        Assert.Equal("4ed5f7c121da8dd31af31a35cef05070948c6556", data["pinned"]!.GetValue<string>());
+        if (operation == "status") Assert.Null(data["latest"]);
+        Assert.Equal(original, File.ReadAllText(path));
+        Assert.False(Directory.Exists(Path.Combine(repo.Root, ".agent-tool")));
+    }
+
+    sealed class UnavailableReadClient : IGitHubReadClient
+    {
+        public Task<HttpResponseMessage> GetAsync(Uri endpoint, CancellationToken cancellationToken = default)
+            => Task.FromResult(new HttpResponseMessage(HttpStatusCode.ServiceUnavailable));
+    }
+
     sealed class FakeReadClient(params string[] bodies) : IGitHubReadClient
     {
         int _index;
