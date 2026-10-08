@@ -19,7 +19,69 @@ public static class FrameworkCapabilities
             .Concat(DetectTelemetry(compilation, packageVersions))
             .Concat(DetectTelemetryComposition(compilation, packageVersions))
             .Concat(DetectPublishSettings(projectProperties))
-            .Concat(DetectReflection(compilation)).ToArray();
+            .Concat(DetectReflection(compilation))
+            .Concat(DetectMicrosoftExtensionsAI(compilation, packageVersions)).ToArray();
+
+    static FrameworkCapabilityFact[] DetectMicrosoftExtensionsAI(Compilation? compilation,
+        IReadOnlyDictionary<string, string?>? packages)
+    {
+        const string ai = "Microsoft.Extensions.AI";
+        const string abstractions = "Microsoft.Extensions.AI.Abstractions";
+        string? VersionOf(string name) => packages?.GetValueOrDefault(name) ?? compilation?.ReferencedAssemblyNames
+            .FirstOrDefault(item => item.Name == name)?.Version.ToString();
+        var versions = new[] { VersionOf(ai), VersionOf(abstractions) }.Where(value => value is not null).ToArray();
+        var version = packages?.GetValueOrDefault(ai) ?? packages?.GetValueOrDefault(abstractions) ??
+            VersionOf(ai) ?? VersionOf(abstractions);
+        var complete = compilation is not null && compilation.Language == LanguageNames.CSharp &&
+            !compilation.GetDiagnostics().Any(item => item.Severity == DiagnosticSeverity.Error);
+        var unsupported = versions.Any(value => !System.Version.TryParse(value, out var parsed) || parsed.Major != 10);
+        var package = new FrameworkCapabilityFact("microsoft-extensions-ai",
+            version is null ? complete ? "absent" : "unknown" : unsupported ? "unknown" : "detected",
+            version is null ? complete ? "resolved-package-not-present" : "package-evidence-unavailable" :
+                unsupported ? "unsupported-package-version" : "resolved-package", version);
+        FrameworkCapabilityFact Registration(string status, string evidence, FrameworkCapabilityLocation[]? locations = null)
+            => new("chat-client-registration", status, evidence, version, locations);
+        if (!complete) return [package, Registration("unknown", "unavailable-or-incomplete-csharp-compilation")];
+        if (unsupported) return [package, Registration("unknown", "unsupported-package-version")];
+        var chat = compilation!.GetTypeByMetadataName("Microsoft.Extensions.AI.IChatClient");
+        var locations = new List<FrameworkCapabilityLocation>();
+        var indirect = false;
+        foreach (var tree in compilation.SyntaxTrees)
+        {
+            var model = compilation.GetSemanticModel(tree);
+            foreach (var call in tree.GetRoot().DescendantNodes().OfType<InvocationExpressionSyntax>())
+            {
+                if (model.GetSymbolInfo(call).Symbol is not IMethodSymbol method) { indirect = true; continue; }
+                if (method.ReducedFrom is { } original)
+                    method = method.IsGenericMethod ? original.Construct(method.TypeArguments.ToArray()) : original;
+                var registration = chat?.ContainingAssembly.Name == abstractions &&
+                    ((method.ContainingAssembly.Name == ai &&
+                      method.ContainingType.ToDisplayString() == "Microsoft.Extensions.DependencyInjection.ChatClientBuilderServiceCollectionExtensions" &&
+                      method.Name is "AddChatClient" or "AddKeyedChatClient") ||
+                     (method.ContainingAssembly.Name == "Microsoft.Extensions.DependencyInjection.Abstractions" &&
+                      method.ContainingType.ToDisplayString() is "Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions" or
+                          "Microsoft.Extensions.DependencyInjection.Extensions.ServiceCollectionDescriptorExtensions" &&
+                      method.Name is "AddSingleton" or "AddScoped" or "AddTransient" or "TryAddSingleton" or "TryAddScoped" or
+                          "TryAddTransient" or "AddKeyedSingleton" or "AddKeyedScoped" or "AddKeyedTransient" &&
+                      (SymbolEqualityComparer.Default.Equals(method.TypeArguments.FirstOrDefault(), chat) ||
+                       model.GetOperation(call) is Microsoft.CodeAnalysis.Operations.IInvocationOperation operation &&
+                       operation.Arguments.Any(argument => argument.Parameter?.Name is "serviceType" or "service" &&
+                           argument.Value is Microsoft.CodeAnalysis.Operations.ITypeOfOperation typeOf &&
+                           SymbolEqualityComparer.Default.Equals(typeOf.TypeOperand, chat)))));
+                if (registration)
+                {
+                    var span = call.GetLocation().GetLineSpan();
+                    locations.Add(new(tree.FilePath, span.StartLinePosition.Line + 1, span.StartLinePosition.Character + 1));
+                }
+                else if (method.Locations.Any(item => item.IsInSource) || method.ContainingType.TypeKind == TypeKind.Delegate ||
+                    method.ContainingNamespace.ToDisplayString().StartsWith("System.Reflection", StringComparison.Ordinal) ||
+                    method.ContainingType.ToDisplayString() == "Microsoft.Extensions.DependencyInjection.ServiceDescriptor") indirect = true;
+            }
+        }
+        return [package, Registration(locations.Count > 0 ? "detected" : indirect ? "unknown" : "absent",
+            locations.Count > 0 ? "roslyn-static-registration-not-runtime-proof" : indirect ? "indirect-static-composition" : "roslyn-no-static-registration",
+            locations.Take(64).ToArray())];
+    }
 
     static FrameworkCapabilityFact[] DetectReflection(Compilation? compilation)
     {

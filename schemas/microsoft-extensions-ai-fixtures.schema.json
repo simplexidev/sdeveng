@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Offline Microsoft.Extensions.AI static detection fixtures",
+  "type": "object", "additionalProperties": false,
+  "required": ["schemaVersion", "cases"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "cases": { "type": "array", "minItems": 4, "items": {
+      "type": "object", "additionalProperties": false,
+      "required": ["id", "source", "references", "packages", "package", "registration", "version", "locations"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "source": { "type": "string", "minLength": 1 },
+        "references": { "type": "boolean" },
+        "packages": { "type": "object", "additionalProperties": { "type": ["string", "null"] } },
+        "package": { "enum": ["detected", "absent", "unknown"] },
+        "registration": { "enum": ["detected", "absent", "unknown"] },
+        "version": { "type": ["string", "null"] },
+        "locations": { "type": "integer", "minimum": 0, "maximum": 64 }
+      }
+    } }
+  }
+}

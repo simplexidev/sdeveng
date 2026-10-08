@@ -6,3 +6,4 @@ proof: "tests/SdevEng.Tests/FrameworkCapabilitiesTests.cs: ChannelsFactAndRefere
 caching: Discover references/caching.md in canonical metadata; load only with a supported detected memory-cache fact. Unsupported or unused packages supply no registration fact. Preserve hosting and resilience resource hashes and legacy aliases.
 telemetry: Detect OpenTelemetry 1 logging, tracing and metric composition independently from installed packages; retain source locations and versions, never infer runtime emission or export.
 composition-proof: "tests/SdevEng.Tests/FrameworkCapabilitiesTests.cs: TelemetryCompositionRequiresResolvedSymbols; CachingReferenceIsDiscoveredAndLoadedOnlyForMatchingFacts"
+ai: Discover the pinned application AI reference only for supported chat-client-registration facts; installed packages alone do not activate it. See ../microsoft-extensions-ai/eval.yaml for offline detector and normal-discovery proof.

@@ -1,0 +1,75 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "id": "fake-client-registration", "references": true,
+      "source": "using Microsoft.Extensions.DependencyInjection; var services = new ServiceCollection(); services.AddChatClient(new Fake());",
+      "packages": { "Microsoft.Extensions.AI": "10.0.0" },
+      "package": "detected", "registration": "detected", "version": "10.0.0", "locations": 1
+    },
+    {
+      "id": "package-present-unused", "references": true,
+      "source": "System.Console.WriteLine(1);",
+      "packages": { "Microsoft.Extensions.AI": "10.0.0" },
+      "package": "detected", "registration": "absent", "version": "10.0.0", "locations": 0
+    },
+    {
+      "id": "abstractions-only-di-registration", "references": true,
+      "source": "using Microsoft.Extensions.DependencyInjection; var services = new ServiceCollection(); services.AddSingleton<Microsoft.Extensions.AI.IChatClient, Fake>();",
+      "packages": { "Microsoft.Extensions.AI.Abstractions": "10.0.0" },
+      "package": "detected", "registration": "detected", "version": "10.0.0", "locations": 1
+    },
+    {
+      "id": "no-package", "references": false,
+      "source": "System.Console.WriteLine(1);",
+      "packages": {}, "package": "absent", "registration": "absent", "version": null, "locations": 0
+    },
+    {
+      "id": "matching-local-name", "references": false,
+      "source": "using Microsoft.Extensions.DependencyInjection; var services = new ServiceCollection(); services.AddSingleton<IChatClient, Local>(); interface IChatClient {} class Local : IChatClient {}",
+      "packages": {}, "package": "absent", "registration": "absent", "version": null, "locations": 0
+    },
+    {
+      "id": "unregistered-client", "references": true,
+      "source": "_ = new Fake();",
+      "packages": { "Microsoft.Extensions.AI": "10.0.0" },
+      "package": "detected", "registration": "absent", "version": "10.0.0", "locations": 0
+    },
+    {
+      "id": "concrete-client-service-only", "references": true,
+      "source": "using Microsoft.Extensions.DependencyInjection; var services = new ServiceCollection(); services.AddSingleton(typeof(Fake), typeof(Fake));",
+      "packages": { "Microsoft.Extensions.AI": "10.0.0" },
+      "package": "detected", "registration": "absent", "version": "10.0.0", "locations": 0
+    },
+    {
+      "id": "unresolved-registration", "references": true,
+      "source": "Missing.AddChatClient();",
+      "packages": { "Microsoft.Extensions.AI": "10.0.0" },
+      "package": "detected", "registration": "unknown", "version": "10.0.0", "locations": 0
+    },
+    {
+      "id": "dynamic-registration", "references": true,
+      "source": "dynamic services = new object(); services.AddChatClient(new Fake());",
+      "packages": { "Microsoft.Extensions.AI": "10.0.0" },
+      "package": "detected", "registration": "unknown", "version": "10.0.0", "locations": 0
+    },
+    {
+      "id": "indirect-registration", "references": true,
+      "source": "Configure(); void Configure() {}",
+      "packages": { "Microsoft.Extensions.AI": "10.0.0" },
+      "package": "detected", "registration": "unknown", "version": "10.0.0", "locations": 0
+    },
+    {
+      "id": "unsupported-version", "references": true,
+      "source": "using Microsoft.Extensions.DependencyInjection; var services = new ServiceCollection(); services.AddChatClient(new Fake());",
+      "packages": { "Microsoft.Extensions.AI": "9.0.0" },
+      "package": "unknown", "registration": "unknown", "version": "9.0.0", "locations": 0
+    },
+    {
+      "id": "mixed-unsupported-version", "references": true,
+      "source": "using Microsoft.Extensions.DependencyInjection; var services = new ServiceCollection(); services.AddChatClient(new Fake());",
+      "packages": { "Microsoft.Extensions.AI": "10.0.0", "Microsoft.Extensions.AI.Abstractions": "9.0.0" },
+      "package": "unknown", "registration": "unknown", "version": "10.0.0", "locations": 0
+    }
+  ]
+}
