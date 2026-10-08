@@ -72,26 +72,42 @@ public class FrameworkProvenanceTests
         Assert.Equal(".NET", Assert.Single(entry["aliases"]!.AsArray())!.GetValue<string>());
         Assert.Equal(manifest["snapshot"]!["url"]!.GetValue<string>(), entry["sourceUri"]!.GetValue<string>());
         Assert.Equal(manifest["snapshot"]!["commit"]!.GetValue<string>(), entry["sourceRevision"]!.GetValue<string>());
-        foreach (var field in new[] { "supportedMajorVersions", "sourceHash", "capturedAt" })
+        Assert.Equal(new[] { 10 }, entry["supportedMajorVersions"]!.AsArray().Select(v => v!.GetValue<int>()));
+        foreach (var field in new[] { "sourceHash", "capturedAt" })
             Assert.Equal("unknown", entry[field]!.GetValue<string>());
         foreach (var skill in entry["consumingSkillIds"]!.AsArray())
             Assert.True(File.Exists(Path.Combine(Root, "plugins/sdeveng/skills", skill!.GetValue<string>(), "SKILL.md")));
     }
 
     [Fact]
-    public void InventorySeedsEverySupportedFrameworkWithoutFabricatingPins()
+    public void InventoryRecordsSupportedMajorBoundariesWithoutChangingHistoricalPins()
     {
         var manifest = FrameworkProvenance.Read(Current());
         Assert.Equal(FrameworkProvenance.FrameworkIds.Order(), manifest["frameworks"]!.AsArray()
             .Select(entry => entry!["frameworkId"]!.GetValue<string>()).Order());
-        foreach (var entry in manifest["frameworks"]!.AsArray().Skip(1))
+        var supported = new Dictionary<string, int[]>
         {
-            Assert.Equal("unknown", entry!["supportedMajorVersions"]!.GetValue<string>());
-            Assert.Equal("unknown", entry["sourceRevision"]!.GetValue<string>());
-            Assert.Equal("unknown", entry["sourceHash"]!.GetValue<string>());
-            Assert.Equal("unknown", entry["capturedAt"]!.GetValue<string>());
+            ["dotnet"] = [10],
+            ["microsoft.extensions"] = [10]
+        };
+        foreach (var entry in manifest["frameworks"]!.AsArray())
+        {
+            var value = entry!.AsObject();
+            var id = value["frameworkId"]!.GetValue<string>();
+            if (supported.TryGetValue(id, out var majors))
+                Assert.Equal(majors, value["supportedMajorVersions"]!.AsArray().Select(x => x!.GetValue<int>()));
+            else
+                Assert.Equal("unknown", value["supportedMajorVersions"]!.GetValue<string>());
+            if (id != "dotnet")
+            {
+                Assert.Equal("unknown", value["sourceRevision"]!.GetValue<string>());
+                Assert.Equal("unknown", value["sourceHash"]!.GetValue<string>());
+                Assert.Equal("unknown", value["capturedAt"]!.GetValue<string>());
+            }
             Assert.NotEmpty(entry["consumingSkillIds"]!.AsArray());
         }
+        Assert.Equal("4ed5f7c121da8dd31af31a35cef05070948c6556", manifest["frameworks"]![0]!["sourceRevision"]!.GetValue<string>());
+        Assert.True(Valid(manifest));
     }
 
     [Fact]
@@ -127,7 +143,7 @@ public class FrameworkProvenanceTests
         var entry = JsonNode.Parse(File.ReadAllText(Path.Combine(Root, "tests/SdevEng.Tests/Fixtures/FrameworkProvenance/framework.json")))!;
         manifest["frameworks"] = new JsonArray(entry);
         entry["frameworkId"] = id;
-        entry["supportedMajorVersions"] = new JsonArray(10, 11);
+        entry["supportedMajorVersions"] = new JsonArray(10);
         entry["sourceHash"] = "sha256:" + new string('a', 64);
         Assert.True(Valid(manifest));
         Assert.True(JsonNode.DeepEquals(manifest, FrameworkProvenance.Read(manifest)));
@@ -165,6 +181,9 @@ public class FrameworkProvenanceTests
         Assert.Throws<FormatException>(() => DotnetSkillsDrift.Analyze(manifest, JsonNode.Parse("""{"files":[]}""")!));
         manifest = Current();
         manifest["frameworks"]![0]!["supportedMajorVersions"] = new JsonArray(10, 10);
+        Assert.False(Valid(manifest));
+        Assert.Throws<FormatException>(() => FrameworkProvenance.Read(manifest));
+        manifest["frameworks"]![0]!["supportedMajorVersions"] = new JsonArray(0);
         Assert.False(Valid(manifest));
         Assert.Throws<FormatException>(() => FrameworkProvenance.Read(manifest));
     }
