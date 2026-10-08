@@ -1,0 +1,4 @@
+id: avalonia-skill
+title: Avalonia version-gated composition and lifetime references
+scenario: Load only declared Avalonia references for the verified 11.3.0 package; composition guidance supports detected XAML, code-only, or mixed structure without mandating XAML, lifetime guidance preserves detected desktop or single-view behavior, and unsupported majors are rejected.
+proof: tests/SdevEng.Tests/SkillActivationTests.cs: AvaloniaSkillActivatesAndLoadsOnlyForVerifiedPackageVersion

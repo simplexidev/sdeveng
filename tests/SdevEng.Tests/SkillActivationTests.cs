@@ -6,6 +6,47 @@ namespace SdevEng.Tests;
 public sealed class SkillActivationTests
 {
     [Fact]
+    public async Task AvaloniaSkillActivatesAndLoadsOnlyForVerifiedPackageVersion()
+    {
+        var root = AgentTool.FindToolkit();
+        var metadata = SkillCompatibilityMapReader.ReadMetadataIndex(root)
+            .Single(skill => skill.Id == "avalonia");
+        Assert.Equal(new[] { new SkillActivationCondition("avalonia", "11.3.0") }, metadata.Activation);
+        Assert.Equal(new[] { "references/composition.md", "references/lifetime-ui-thread.md" },
+            metadata.Resources!.Select(resource => resource.Path).Order(StringComparer.Ordinal));
+        Assert.Equal(new[] { new SkillActivationCondition("avalonia", "11.3.0") },
+            Assert.Single(metadata.Resources!, resource => resource.Path == "references/composition.md").Activation);
+        SkillCompatibilityMapReader.ValidateResources(root, [metadata]);
+        var service = new SkillActivationService();
+        SkillActivationContext Context(string? version) => new("coder", [], [], [],
+            version is null ? [] : [new("avalonia", version)]);
+        Assert.Contains(service.Activate(root, Context("11.3.0")), skill => skill.Id == "avalonia");
+        Assert.DoesNotContain(service.Activate(root, Context("12.0.0")), skill => skill.Id == "avalonia");
+        Assert.DoesNotContain(service.Activate(root, Context(null)), skill => skill.Id == "avalonia");
+        var body = SkillCompatibilityMapReader.ReadSelectedSkill(root, "avalonia", "test", "1", "coder");
+        Assert.Contains("11.3.0", body, StringComparison.Ordinal);
+        Assert.Contains("dotnet-skills-provenance.md", body, StringComparison.Ordinal);
+        Assert.Contains("code-only", body, StringComparison.Ordinal);
+        var schema = JsonSchema.FromFile(Path.Combine(root, "schemas/skill-metadata.schema.json"));
+        Assert.True(schema.Evaluate(JsonSerializer.SerializeToNode(metadata, new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase,
+            DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+        })!).IsValid);
+        var loaded = await service.LoadReferenceAsync(root, Context("11.3.0"), "avalonia", "references/lifetime-ui-thread.md");
+        Assert.Equal("loaded", loaded.Status);
+        Assert.Contains("Dispatcher.UIThread", loaded.Content, StringComparison.Ordinal);
+        var composition = await service.LoadReferenceAsync(root, Context("11.3.0"), "avalonia", "references/composition.md");
+        Assert.Equal("loaded", composition.Status);
+        Assert.Contains("code-only", composition.Content, StringComparison.Ordinal);
+        Assert.Contains("XAML", composition.Content, StringComparison.Ordinal);
+        var unsupportedComposition = await service.LoadReferenceAsync(root, Context("12.0.0"), "avalonia", "references/composition.md");
+        Assert.Equal("skill-not-activated", unsupportedComposition.OmissionReason);
+        var unsupported = await service.LoadReferenceAsync(root, Context("12.0.0"), "avalonia", "references/lifetime-ui-thread.md");
+        Assert.Equal("skill-not-activated", unsupported.OmissionReason);
+    }
+
+    [Fact]
     public void SystemCommandLineSkillLoadsOnlyForResolvedVersionAndItsReferenceHashIsValid()
     {
         var root = AgentTool.FindToolkit();

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Avalonia"
+  short_description: "Version-matched Avalonia guidance"
+  default_prompt: "Use verified Avalonia version and project facts to guide this UI task."
