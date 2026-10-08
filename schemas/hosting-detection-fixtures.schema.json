@@ -23,6 +23,8 @@
             "configuration": { "enum": ["detected", "absent", "unknown"] },
             "options": { "enum": ["detected", "absent", "unknown"] },
             "logging": { "enum": ["detected", "absent", "unknown"] },
+            "channels": { "enum": ["detected", "absent", "unknown"] },
+            "localization": { "enum": ["detected", "absent", "unknown"] },
             "background-service": { "enum": ["detected", "absent", "unknown"] },
             "hosted-service": { "enum": ["detected", "absent", "unknown"] },
             "http-client-factory": { "enum": ["detected", "absent", "unknown"] },
