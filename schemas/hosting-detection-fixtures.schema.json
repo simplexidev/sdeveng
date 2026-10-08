@@ -32,7 +32,10 @@
             "memory-cache": { "enum": ["detected", "absent", "unknown"] },
             "distributed-cache": { "enum": ["detected", "absent", "unknown"] },
             "microsoft-extensions-telemetry": { "enum": ["detected", "absent", "unknown"] },
-            "opentelemetry": { "enum": ["detected", "absent", "unknown"] }
+            "opentelemetry": { "enum": ["detected", "absent", "unknown"] },
+            "telemetry-logging": { "enum": ["detected", "absent", "unknown"] },
+            "telemetry-tracing": { "enum": ["detected", "absent", "unknown"] },
+            "telemetry-metrics": { "enum": ["detected", "absent", "unknown"] }
           } },
           "expectedLocations": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 0 } }
         }

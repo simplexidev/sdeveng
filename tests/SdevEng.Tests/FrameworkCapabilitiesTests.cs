@@ -14,6 +14,62 @@ public sealed class FrameworkCapabilitiesTests
     const string Worker = "class Worker : Microsoft.Extensions.Hosting.BackgroundService { protected override System.Threading.Tasks.Task ExecuteAsync(System.Threading.CancellationToken stoppingToken) => System.Threading.Tasks.Task.Delay(-1, stoppingToken); }";
 
     [Theory]
+    [InlineData("using Microsoft.Extensions.DependencyInjection; using Microsoft.Extensions.Logging; using OpenTelemetry; var s = new ServiceCollection(); s.AddLogging(l => l.AddOpenTelemetry()); s.AddOpenTelemetry().WithTracing(t => {}).WithMetrics(m => {});", "detected")]
+    [InlineData("System.Console.WriteLine(1);", "absent")]
+    [InlineData("Missing.WithTracing();", "unknown")]
+    public void TelemetryCompositionRequiresResolvedSymbols(string source, string status)
+    {
+        var packages = new Dictionary<string, string?> { ["OpenTelemetry"] = "1.9.0", ["OpenTelemetry.Extensions.Hosting"] = "1.9.0" };
+        var compilation = Compile(source, telemetry: true);
+        var facts = FrameworkCapabilities.Detect("Exe", compilation, packages);
+        foreach (var id in new[] { "telemetry-logging", "telemetry-tracing", "telemetry-metrics" })
+        {
+            var fact = facts.Single(item => item.Id == id);
+            Assert.Equal((id, status), (fact.Id, fact.Status));
+            Assert.Equal("1.9.0", fact.Version);
+            Assert.Equal(status == "detected" ? 1 : 0, fact.Locations?.Length ?? 0);
+            Assert.All(fact.Locations ?? [], location => { Assert.Equal(1, location.Line); Assert.True(location.Column > 0); });
+            Assert.Equal("unknown", FrameworkCapabilities.Detect("Exe", null, packages).Single(item => item.Id == id).Status);
+            Assert.Equal("unknown", FrameworkCapabilities.Detect("Exe", Compile(source),
+                new Dictionary<string, string?> { ["OpenTelemetry"] = "2.0.0", ["OpenTelemetry.Extensions.Hosting"] = "2.0.0" })
+                .Single(item => item.Id == id).Status);
+        }
+        Assert.True(JsonSchema.FromFile(Path.Combine(AgentTool.FindToolkit(), "schemas/framework-capabilities.schema.json"))
+            .Evaluate(JsonSerializer.SerializeToNode(facts, AgentTool.Json)).IsValid);
+    }
+
+    [Fact]
+    public async Task CachingReferenceIsDiscoveredAndLoadedOnlyForMatchingFacts()
+    {
+        var root = AgentTool.FindToolkit();
+        var service = new SkillActivationService();
+        var context = new SkillActivationContext("coder", [], [], [], [new("microsoft-extensions", "10.0.0"), new("memory-cache", "10.0.0")]);
+        var metadata = Assert.Single(service.Activate(root, context), item => item.Id == "microsoft-extensions");
+        Assert.Contains(metadata.Resources!, item => item.Path == "references/caching.md");
+        var loaded = await service.LoadReferenceAsync(root, context, "microsoft-extensions", "references/caching.md");
+        Assert.Equal("loaded", loaded.Status);
+        Assert.Equal(File.ReadAllText(Path.Combine(root, "plugins/sdeveng/skills/microsoft-extensions/references/caching.md")), loaded.Content);
+        Assert.Equal("resource-not-activated", (await service.LoadReferenceAsync(root,
+            context with { Frameworks = [new("microsoft-extensions", "10.0.0")] }, "microsoft-extensions", "references/caching.md")).OmissionReason);
+        foreach (var version in new[] { "10.0.0", "9.0.0" })
+        {
+            var facts = FrameworkCapabilities.Detect("Exe", Compile("System.Console.WriteLine(1);"),
+                new Dictionary<string, string?> { ["Microsoft.Extensions.Caching.Memory"] = version });
+            var cache = facts.Single(item => item.Id == "memory-cache");
+            Assert.Equal(version == "10.0.0" ? "absent" : "unknown", cache.Status);
+            var unmatched = context with
+            {
+                Frameworks = new[] { new SkillFrameworkFact("microsoft-extensions", "10.0.0") }
+                .Concat(facts.Where(item => item.Id == "memory-cache" && item.Status == "detected")
+                    .Select(item => new SkillFrameworkFact(item.Id, item.Version!))).ToArray()
+            };
+            Assert.Equal("resource-not-activated", (await service.LoadReferenceAsync(root, unmatched,
+                "microsoft-extensions", "references/caching.md")).OmissionReason);
+        }
+        SkillCompatibilityMapReader.ValidateResources(root, [metadata]);
+    }
+
+    [Theory]
     [InlineData("using Microsoft.Extensions.DependencyInjection; var services = new ServiceCollection(); services.AddHttpClient();", "detected", 1)]
     [InlineData("System.Console.WriteLine(1);", "absent", 0)]
     [InlineData("Missing.AddHttpClient();", "unknown", 0)]
@@ -291,7 +347,7 @@ public sealed class FrameworkCapabilitiesTests
         foreach (var item in fixtures["cases"]!.AsArray())
         {
             var packages = item!["packageVersions"]!.AsObject().ToDictionary(pair => pair.Key, pair => pair.Value?.GetValue<string>());
-            var facts = FrameworkCapabilities.Detect("Exe", Compile(item["source"]!.GetValue<string>()), packages);
+            var facts = FrameworkCapabilities.Detect("Exe", Compile(item["source"]!.GetValue<string>(), telemetry: item["id"]!.GetValue<string>().StartsWith("telemetry-static", StringComparison.Ordinal)), packages);
             foreach (var pair in item["expected"]!.AsObject())
                 Assert.Equal(pair.Value!.GetValue<string>(), facts.Single(fact => fact.Id == pair.Key).Status);
             foreach (var fact in facts.Where(fact => item["expected"]![fact.Id] is not null))
@@ -315,11 +371,14 @@ public sealed class FrameworkCapabilitiesTests
                 .Evaluate(JsonSerializer.SerializeToNode(facts.Take(count), AgentTool.Json)).IsValid);
     }
 
-    static CSharpCompilation Compile(string source) => CSharpCompilation.Create("Fixture",
+    static CSharpCompilation Compile(string source, bool telemetry = false) => CSharpCompilation.Create("Fixture",
         [CSharpSyntaxTree.ParseText(source)],
         ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!).Split(Path.PathSeparator)
             .Append(typeof(Host).Assembly.Location).Append(typeof(IHttpClientFactory).Assembly.Location)
             .Append(typeof(IMemoryCache).Assembly.Location)
+            .Append(typeof(OpenTelemetry.OpenTelemetryBuilder).Assembly.Location)
+            .Append(typeof(OpenTelemetry.Trace.TracerProviderBuilder).Assembly.Location)
+            .Where(path => telemetry || !Path.GetFileName(path).StartsWith("OpenTelemetry", StringComparison.Ordinal))
             .Distinct().Select(path => MetadataReference.CreateFromFile(path)),
         new CSharpCompilationOptions(OutputKind.ConsoleApplication));
 
@@ -440,7 +499,7 @@ public sealed class FrameworkCapabilitiesTests
                 if (row["path"]!.GetValue<string>() == "CommandLine/CommandLine.csproj")
                     Assert.Equal("2.0.0", facts[3]!["version"]!.GetValue<string>());
                 Assert.True(JsonSchema.FromFile(Path.Combine(AgentTool.FindToolkit(), "schemas/framework-capabilities.schema.json")).Evaluate(facts).IsValid);
-                Assert.Equal(19, facts.AsArray().Count);
+                Assert.Equal(22, facts.AsArray().Count);
                 foreach (var id in new[] { "memory-cache", "distributed-cache" })
                 {
                     var cache = facts.AsArray().Single(fact => fact!["id"]!.GetValue<string>() == id)!;
