@@ -62,7 +62,7 @@ public class FrameworkProvenanceTests
     {
         var manifest = FrameworkProvenance.Read(Current());
         Assert.Equal(3, manifest["manifestVersion"]!.GetValue<int>());
-        var entry = Assert.Single(manifest["frameworks"]!.AsArray())!;
+        var entry = Assert.Single(manifest["frameworks"]!.AsArray(), x => x!["frameworkId"]!.GetValue<string>() == "dotnet")!;
         Assert.Equal("dotnet", entry["frameworkId"]!.GetValue<string>());
         Assert.Equal(".NET", Assert.Single(entry["aliases"]!.AsArray())!.GetValue<string>());
         Assert.Equal(manifest["snapshot"]!["url"]!.GetValue<string>(), entry["sourceUri"]!.GetValue<string>());
@@ -71,6 +71,22 @@ public class FrameworkProvenanceTests
             Assert.Equal("unknown", entry[field]!.GetValue<string>());
         foreach (var skill in entry["consumingSkillIds"]!.AsArray())
             Assert.True(File.Exists(Path.Combine(Root, "plugins/sdeveng/skills", skill!.GetValue<string>(), "SKILL.md")));
+    }
+
+    [Fact]
+    public void InventorySeedsEverySupportedFrameworkWithoutFabricatingPins()
+    {
+        var manifest = FrameworkProvenance.Read(Current());
+        Assert.Equal(FrameworkProvenance.FrameworkIds.Order(), manifest["frameworks"]!.AsArray()
+            .Select(entry => entry!["frameworkId"]!.GetValue<string>()).Order());
+        foreach (var entry in manifest["frameworks"]!.AsArray().Skip(1))
+        {
+            Assert.Equal("unknown", entry!["supportedMajorVersions"]!.GetValue<string>());
+            Assert.Equal("unknown", entry["sourceRevision"]!.GetValue<string>());
+            Assert.Equal("unknown", entry["sourceHash"]!.GetValue<string>());
+            Assert.Equal("unknown", entry["capturedAt"]!.GetValue<string>());
+            Assert.NotEmpty(entry["consumingSkillIds"]!.AsArray());
+        }
     }
 
     [Theory]
@@ -83,7 +99,7 @@ public class FrameworkProvenanceTests
     {
         var manifest = Current();
         var entry = JsonNode.Parse(File.ReadAllText(Path.Combine(Root, "tests/SdevEng.Tests/Fixtures/FrameworkProvenance/framework.json")))!;
-        manifest["frameworks"]![0] = entry;
+        manifest["frameworks"] = new JsonArray(entry);
         entry["frameworkId"] = id;
         entry["supportedMajorVersions"] = new JsonArray(10, 11);
         entry["sourceHash"] = "sha256:" + new string('a', 64);

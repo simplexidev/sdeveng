@@ -11,6 +11,46 @@
       "sourceHash": "unknown",
       "capturedAt": "unknown",
       "consumingSkillIds": ["api-compatibility", "run-dotnet-tests"]
+    },
+    {
+      "frameworkId": "microsoft.extensions",
+      "aliases": ["Microsoft.Extensions framework"],
+      "supportedMajorVersions": "unknown",
+      "sourceUri": "https://github.com/dotnet/extensions",
+      "sourceRevision": "unknown",
+      "sourceHash": "unknown",
+      "capturedAt": "unknown",
+      "consumingSkillIds": ["api-compatibility"]
+    },
+    {
+      "frameworkId": "system.commandline",
+      "aliases": ["System.CommandLine framework"],
+      "supportedMajorVersions": "unknown",
+      "sourceUri": "https://github.com/dotnet/command-line-api",
+      "sourceRevision": "unknown",
+      "sourceHash": "unknown",
+      "capturedAt": "unknown",
+      "consumingSkillIds": ["api-compatibility"]
+    },
+    {
+      "frameworkId": "avalonia",
+      "aliases": ["Avalonia framework"],
+      "supportedMajorVersions": "unknown",
+      "sourceUri": "https://github.com/AvaloniaUI/Avalonia",
+      "sourceRevision": "unknown",
+      "sourceHash": "unknown",
+      "capturedAt": "unknown",
+      "consumingSkillIds": ["api-compatibility"]
+    },
+    {
+      "frameworkId": "terminal.gui",
+      "aliases": ["Terminal.Gui framework"],
+      "supportedMajorVersions": "unknown",
+      "sourceUri": "https://github.com/gui-cs/Terminal.Gui",
+      "sourceRevision": "unknown",
+      "sourceHash": "unknown",
+      "capturedAt": "unknown",
+      "consumingSkillIds": ["api-compatibility"]
     }
   ],
   "snapshot": {
