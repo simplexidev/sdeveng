@@ -296,6 +296,18 @@ public class MetadataTests
         }
     }
     [Fact]
+    public void ReleaseVerificationSkillRequiresOwnedHashedEvidenceAndCompleteGateReporting()
+    {
+        var release = File.ReadAllText(Path.Combine(Root, "plugins/sdeveng/skills/release-verify/SKILL.md"));
+        Assert.Contains("sdeveng release evidence --profile NAME", release, StringComparison.Ordinal);
+        Assert.Contains("--evidence-file PATH", release, StringComparison.Ordinal);
+        Assert.Contains("--tag TAG", release, StringComparison.Ordinal);
+        Assert.Contains("artifact hashes", release, StringComparison.Ordinal);
+        Assert.Contains("source and owner", release, StringComparison.Ordinal);
+        Assert.Contains("not-observed gates are not passes", release, StringComparison.Ordinal);
+        Assert.Contains("missing required gates prevent a readiness claim", release, StringComparison.Ordinal);
+    }
+    [Fact]
     public void FactoryCommitAndPushSkillsUseOwnedGitMutations()
     {
         var prepareCommit = File.ReadAllText(Path.Combine(Root, "plugins/sdeveng/skills/prepare-commit/SKILL.md"));
