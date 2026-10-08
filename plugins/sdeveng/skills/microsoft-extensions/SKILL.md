@@ -4,7 +4,7 @@ description: Apply version-matched Microsoft.Extensions hosting, DI, configurati
 id: microsoft-extensions
 version: 3.0.0
 activation: '[{"id":"microsoft-extensions"}]'
-resources: '[{"path":"references/hosting.md","type":"reference","hash":"sha256:28da705488cae29f050a8b7651170727e9f0dbbff741a6e38914e9e59bb9c5d5"},{"path":"references/http-client-resilience.md","type":"reference","hash":"sha256:9d9fdf8be5e527bbf806d570f0a185ad65a9667ad2da7ee3c94aee374620cba6","activation":[{"id":"http-client-resilience"}]},{"path":"references/caching.md","type":"reference","hash":"sha256:bd47f7aca0e7f04f0469890b77cca01125f8859be85ee6d1ce2f5b9fdfcdab1a","activation":[{"id":"memory-cache"}]}]'
+resources: '[{"path":"references/hosting.md","type":"reference","hash":"sha256:28da705488cae29f050a8b7651170727e9f0dbbff741a6e38914e9e59bb9c5d5"},{"path":"references/http-client-resilience.md","type":"reference","hash":"sha256:9d9fdf8be5e527bbf806d570f0a185ad65a9667ad2da7ee3c94aee374620cba6","activation":[{"id":"http-client-resilience"}]},{"path":"references/caching.md","type":"reference","hash":"sha256:bd47f7aca0e7f04f0469890b77cca01125f8859be85ee6d1ce2f5b9fdfcdab1a","activation":[{"id":"memory-cache"}]},{"path":"references/telemetry.md","type":"reference","hash":"sha256:c51c9d3b26e4175c8f5bbacc9fab2e08fb2ac4d4a413233574e043cbd33a5f03","activation":[{"id":"telemetry-logging"}]}]'
 ---
 
 # Microsoft.Extensions 10
@@ -30,3 +30,5 @@ Load [hosting reference](references/hosting.md) for version-matched upstream doc
 The resilience reference is available only when static inspection detects the supported `Microsoft.Extensions.Http.Resilience` package. Package presence does not prove a pipeline is configured.
 
 Load [caching](references/caching.md) only for a detected supported memory-cache registration. `telemetry-logging`, `telemetry-tracing`, and `telemetry-metrics` identify resolved OpenTelemetry 1 logging provider and tracing/metric composition calls with locations; installed packages and static configuration do not prove runtime emission or export.
+
+Load [telemetry](references/telemetry.md) only when static inspection detects a supported telemetry composition fact.

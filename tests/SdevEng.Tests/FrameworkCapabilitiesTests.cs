@@ -69,6 +69,37 @@ public sealed class FrameworkCapabilitiesTests
         SkillCompatibilityMapReader.ValidateResources(root, [metadata]);
     }
 
+    [Fact]
+    public async Task TelemetryReferenceRequiresDetectedCompositionAndIsHashValidated()
+    {
+        var root = AgentTool.FindToolkit();
+        var service = new SkillActivationService();
+        var skill = "microsoft-extensions";
+        var path = "references/telemetry.md";
+        var composed = new SkillActivationContext("coder", [], [], [],
+        [new("microsoft-extensions", "10.0.0"), new("telemetry-logging", "1.9.0")]);
+        var metadata = Assert.Single(service.Activate(root, composed), item => item.Id == skill);
+        Assert.Contains(metadata.Resources!, item => item.Path == path && Assert.Single(item.Activation!).Id == "telemetry-logging");
+        Assert.Equal("loaded", (await service.LoadReferenceAsync(root, composed, skill, path)).Status);
+
+        foreach (var frameworks in new[]
+        {
+            new[] { new SkillFrameworkFact("microsoft-extensions", "10.0.0"), new SkillFrameworkFact("opentelemetry", "1.9.0") },
+            new[] { new SkillFrameworkFact("microsoft-extensions", "10.0.0"), new SkillFrameworkFact("telemetry-tracing", "2.0.0") }
+        })
+            Assert.Equal("resource-not-activated", (await service.LoadReferenceAsync(root,
+                composed with { Frameworks = frameworks }, skill, path)).OmissionReason);
+
+        Assert.Equal("resource-not-activated", (await service.LoadReferenceAsync(root,
+            composed with { Frameworks = [new("microsoft-extensions", "10.0.0")] }, skill, path)).OmissionReason);
+        Assert.Equal(File.ReadAllText(Path.Combine(root, "plugins/sdeveng/skills/microsoft-extensions", path)),
+            (await service.LoadReferenceAsync(root, composed, skill, path)).Content);
+        Assert.True(JsonSchema.FromFile(Path.Combine(root, "schemas/skill-metadata.schema.json"))
+            .Evaluate(JsonSerializer.SerializeToNode(metadata, new JsonSerializerOptions
+            { PropertyNamingPolicy = JsonNamingPolicy.CamelCase, DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull })!).IsValid);
+        SkillCompatibilityMapReader.ValidateResources(root, [metadata]);
+    }
+
     [Theory]
     [InlineData("using Microsoft.Extensions.DependencyInjection; var services = new ServiceCollection(); services.AddHttpClient();", "detected", 1)]
     [InlineData("System.Console.WriteLine(1);", "absent", 0)]
