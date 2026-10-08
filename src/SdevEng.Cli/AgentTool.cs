@@ -2334,7 +2334,7 @@ public static class DotnetSkillsDrift
     public static async Task<Result> Run(string toolkit, string artifacts, string? operation, bool dryRun, GitHubCommitReader? commitReader = null)
     {
         if (operation is not ("status" or "diff" or "check")) throw new ArgumentException("Usage: upstream dotnet-skills <status|diff|check> [--dry-run].");
-        var manifest = JsonNode.Parse(File.ReadAllText(Path.Combine(toolkit, "upstream/dotnet-skills.json"))) ?? throw new FormatException("Dotnet skills provenance manifest is empty.");
+        var manifest = FrameworkProvenance.Read(JsonNode.Parse(File.ReadAllText(Path.Combine(toolkit, "upstream/dotnet-skills.json"))) ?? throw new FormatException("Dotnet skills provenance manifest is empty."));
         var snapshot = manifest["snapshot"]?.AsObject() ?? throw new FormatException("Dotnet skills provenance snapshot is missing.");
         var repository = Required(snapshot, "repository"); var pinned = Required(snapshot, "commit");
         if (operation == "status")
@@ -2368,6 +2368,7 @@ public static class DotnetSkillsDrift
 
     public static JsonObject Analyze(JsonNode manifest, JsonNode authoritative)
     {
+        manifest = FrameworkProvenance.Read(manifest);
         var snapshot = manifest["snapshot"]?.AsObject() ?? throw new FormatException("Provenance snapshot is missing.");
         var repository = Required(snapshot, "repository"); var pinned = Required(snapshot, "commit");
         var files = authoritative["files"]?.AsArray() ?? throw new FormatException("Authoritative comparison has no files array.");
