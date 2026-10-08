@@ -40,6 +40,22 @@ public sealed class FrameworkCapabilitiesTests
         Assert.Equal("unknown", FrameworkCapabilities.Detect("Exe", null).Single(item => item.Id == "http-client-factory").Status);
     }
 
+    [Fact]
+    public void HttpClientFactoryDistinguishesTypedAndNamedRegistrations()
+    {
+        var source = "using Microsoft.Extensions.DependencyInjection; var services = new ServiceCollection(); services.AddHttpClient<WidgetClient>(); services.AddHttpClient(\"catalog\", client => {}); class WidgetClient : System.Net.Http.HttpClient {}";
+        var facts = FrameworkCapabilities.Detect("Exe", Compile(source));
+        Assert.Equal(("detected", 2), (facts.Single(item => item.Id == "http-client-factory").Status, facts.Single(item => item.Id == "http-client-factory").Locations?.Length ?? 0));
+        Assert.Equal(("detected", 1), (facts.Single(item => item.Id == "http-client-typed").Status, facts.Single(item => item.Id == "http-client-typed").Locations?.Length ?? 0));
+        Assert.Equal(("detected", 1), (facts.Single(item => item.Id == "http-client-named").Status, facts.Single(item => item.Id == "http-client-named").Locations?.Length ?? 0));
+        var plain = FrameworkCapabilities.Detect("Exe", Compile("var client = new System.Net.Http.HttpClient();"));
+        Assert.Equal("absent", plain.Single(item => item.Id == "http-client-typed").Status);
+        Assert.Equal("absent", plain.Single(item => item.Id == "http-client-named").Status);
+        var unresolved = FrameworkCapabilities.Detect("Exe", Compile("Missing.AddHttpClient<WidgetClient>(); class WidgetClient {}"));
+        Assert.Equal("unknown", unresolved.Single(item => item.Id == "http-client-typed").Status);
+        Assert.Equal("unknown", unresolved.Single(item => item.Id == "http-client-named").Status);
+    }
+
     [Theory]
     [InlineData("services.AddHostedService<Worker>();", "detected", "detected")]
     [InlineData("services.AddHostedService<Worker>(s => new Worker());", "detected", "detected")]
@@ -337,10 +353,13 @@ public sealed class FrameworkCapabilitiesTests
                 if (row["path"]!.GetValue<string>() == "CommandLine/CommandLine.csproj")
                     Assert.Equal("2.0.0", facts[3]!["version"]!.GetValue<string>());
                 Assert.True(JsonSchema.FromFile(Path.Combine(AgentTool.FindToolkit(), "schemas/framework-capabilities.schema.json")).Evaluate(facts).IsValid);
-                Assert.Equal(12, facts.AsArray().Count);
+                Assert.Equal(14, facts.AsArray().Count);
                 var httpClientFactory = facts.AsArray().Single(fact => fact!["id"]!.GetValue<string>() == "http-client-factory")!;
                 Assert.Equal(path == "Hosted/Hosted.csproj" ? "detected" : path is "Broken/Broken.csproj" or "Unsupported/Unsupported.vbproj" ? "unknown" : "absent",
                     httpClientFactory["status"]!.GetValue<string>());
+                var expectedClientShape = path is "Broken/Broken.csproj" or "Unsupported/Unsupported.vbproj" ? "unknown" : "absent";
+                Assert.Equal(expectedClientShape, facts.AsArray().Single(fact => fact!["id"]!.GetValue<string>() == "http-client-typed")!["status"]!.GetValue<string>());
+                Assert.Equal(expectedClientShape, facts.AsArray().Single(fact => fact!["id"]!.GetValue<string>() == "http-client-named")!["status"]!.GetValue<string>());
                 if (path == "Hosted/Hosted.csproj")
                 {
                     Assert.Equal("10.0.12", httpClientFactory["version"]!.GetValue<string>());

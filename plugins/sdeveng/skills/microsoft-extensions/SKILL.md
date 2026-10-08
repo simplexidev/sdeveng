@@ -22,3 +22,5 @@ Static `sdeveng dotnet inspect` facts identify resolved Host, DI, configuration,
 Load [hosting reference](references/hosting.md) for version-matched upstream documentation.
 
 `background-service` and `hosted-service` facts require resolved Microsoft.Extensions 10 type identity and static `AddHostedService<T>` or singleton `IHostedService` registration. Unregistered types and matching names do not confirm composition. These facts do not prove startup or shutdown correctness. Pass `ExecuteAsync`'s stopping token to waits and work, honor `StopAsync` cancellation, and let the single Generic Host stop and dispose owned services.
+
+`http-client-factory` identifies resolved `AddHttpClient` registrations; `http-client-typed` and `http-client-named` distinguish generic typed registrations and overloads whose first non-receiver argument is a name. These are static registration facts only: they do not prove a client was requested or that its configuration runs. Keep `HttpClient` instances factory-managed, avoid capturing transient typed clients in singletons, and pass cancellation tokens through outbound requests.
