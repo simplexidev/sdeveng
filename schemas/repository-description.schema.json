@@ -22,6 +22,22 @@
           "path": { "type": "string", "minLength": 1 },
           "language": { "enum": ["C#", "F#", "Visual Basic"] },
           "kind": { "enum": ["application", "library", "test"] },
+          "frameworkCapabilities": {
+            "type": "array", "minItems": 2, "maxItems": 2, "uniqueItems": true,
+            "allOf": [
+              { "contains": { "properties": { "id": { "const": "plain-console" } }, "required": ["id"] } },
+              { "contains": { "properties": { "id": { "const": "generic-host-console" } }, "required": ["id"] } }
+            ],
+            "items": {
+              "type": "object", "additionalProperties": false,
+              "required": ["id", "status", "evidence"],
+              "properties": {
+                "id": { "enum": ["plain-console", "generic-host-console"] },
+                "status": { "enum": ["detected", "absent", "unknown"] },
+                "evidence": { "type": "string", "minLength": 1 }
+              }
+            }
+          },
           "targetFrameworks": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
           "ownedFiles": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
           "projectReferences": { "type": "array", "items": { "type": "string", "minLength": 1 } },

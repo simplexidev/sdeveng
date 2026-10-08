@@ -72,7 +72,8 @@ public static class Repository
                 targetFrameworks,
                 ownedFiles,
                 projectReferences = references,
-                packageReferences = packages
+                packageReferences = packages,
+                frameworkCapabilities = await Projects.FrameworkCapabilities(repositoryRoot, path, evaluation)
             });
         }
         return new
@@ -307,6 +308,34 @@ public static class Projects
 {
     private static readonly object WorkspaceRegistrationLock = new();
     private static bool workspaceRegistered;
+    public static async Task<FrameworkCapabilityFact[]> FrameworkCapabilities(string root, string project, JsonNode evaluation)
+    {
+        var outputType = evaluation["Properties"]?["OutputType"]?.GetValue<string>();
+        if (outputType != "Exe" || Path.GetExtension(project) != ".csproj" ||
+            !string.IsNullOrEmpty(evaluation["Properties"]?["TargetFrameworks"]?.GetValue<string>()))
+            return SdevEng.FrameworkCapabilities.Detect(outputType, null);
+        lock (WorkspaceRegistrationLock)
+        {
+            if (!workspaceRegistered)
+            {
+                if (!MSBuildLocator.IsRegistered) MSBuildLocator.RegisterDefaults();
+                workspaceRegistered = true;
+            }
+        }
+        using var workspace = MSBuildWorkspace.Create();
+        var failed = false;
+        workspace.WorkspaceFailed += (_, args) => failed |= args.Diagnostic.Kind == WorkspaceDiagnosticKind.Failure;
+        try
+        {
+            var loaded = await workspace.OpenProjectAsync(Path.GetFullPath(project, root));
+            var compilation = await loaded.GetCompilationAsync();
+            return SdevEng.FrameworkCapabilities.Detect(outputType, failed ? null : compilation);
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or IOException or ArgumentException)
+        {
+            return SdevEng.FrameworkCapabilities.Detect(outputType, null);
+        }
+    }
     public static string[] Discover(string root) => SafeFiles.Enumerate(root).Where(x => Path.GetExtension(x) is ".csproj" or ".fsproj" or ".vbproj").Order(StringComparer.Ordinal).ToArray();
     public static string[] Solutions(string root) => SafeFiles.Enumerate(root).Where(x => Path.GetExtension(x) is ".sln" or ".slnx").Order(StringComparer.Ordinal).ToArray();
     public static async Task<SolutionWorkspaceModel> LoadSolution(string root, string solution)
@@ -688,7 +717,7 @@ public static class DotnetFacts
             var references = items?["ProjectReference"]?.AsArray().Select(item => item?["FullPath"]?.GetValue<string>()).OfType<string>().Select(path => Rel(root, path)).Order(StringComparer.Ordinal).ToArray() ?? [];
             var packages = items?["PackageReference"]?.AsArray().Select(item => new { id = item?["Identity"]?.GetValue<string>(), version = ItemValue(item, "Version") }).OrderBy(item => item.id, StringComparer.Ordinal).ToArray() ?? [];
             var profile = TestProfileFor(root, properties, packages.Select(package => package.id).OfType<string>());
-            rows.Add(new { path = Rel(root, project), language = Path.GetExtension(project) switch { ".fsproj" => "F#", ".vbproj" => "Visual Basic", _ => "C#" }, targetFrameworks, isTest = IsTrue(properties["IsTestProject"]), testPlatform = profile.Platform, testFramework = profile.Framework, testCommandMode = profile.CommandMode, projectReferences = references, packageReferences = packages });
+            rows.Add(new { path = Rel(root, project), language = Path.GetExtension(project) switch { ".fsproj" => "F#", ".vbproj" => "Visual Basic", _ => "C#" }, targetFrameworks, isTest = IsTrue(properties["IsTestProject"]), testPlatform = profile.Platform, testFramework = profile.Framework, testCommandMode = profile.CommandMode, projectReferences = references, packageReferences = packages, frameworkCapabilities = await Projects.FrameworkCapabilities(root, project, evaluation) });
             edges.AddRange(references.Select(reference => new { from = Rel(root, project), to = reference }));
         }
         JsonNode? globalJson = null; var globalJsonPath = Path.Combine(root, "global.json"); if (File.Exists(globalJsonPath)) globalJson = JsonNode.Parse(File.ReadAllText(globalJsonPath));

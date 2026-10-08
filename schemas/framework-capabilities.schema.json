@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Static framework capability facts",
+  "type": "array",
+  "minItems": 2,
+  "maxItems": 2,
+  "allOf": [
+    { "contains": { "properties": { "id": { "const": "plain-console" } }, "required": ["id"] } },
+    { "contains": { "properties": { "id": { "const": "generic-host-console" } }, "required": ["id"] } }
+  ],
+  "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["id", "status", "evidence"],
+    "properties": {
+      "id": { "enum": ["plain-console", "generic-host-console"] },
+      "status": { "enum": ["detected", "absent", "unknown"] },
+      "evidence": { "type": "string", "minLength": 1 }
+    }
+  },
+  "uniqueItems": true
+}
