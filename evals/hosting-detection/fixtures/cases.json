@@ -16,6 +16,13 @@
       "expectedLocations": { "dependency-injection": 1, "hosted-service": 1 }
     },
     {
+      "id": "registered-worker-ignores-cancellation",
+      "source": "using Microsoft.Extensions.DependencyInjection; var s = new ServiceCollection(); s.AddHostedService<Worker>(); class Worker : Microsoft.Extensions.Hosting.BackgroundService { protected override System.Threading.Tasks.Task ExecuteAsync(System.Threading.CancellationToken stoppingToken) => System.Threading.Tasks.Task.Delay(-1); }",
+      "packageVersions": {},
+      "expected": { "generic-host": "absent", "dependency-injection": "absent", "configuration": "absent", "options": "absent", "logging": "absent", "background-service": "detected", "hosted-service": "detected" },
+      "expectedLocations": { "background-service": 1, "hosted-service": 1 }
+    },
+    {
       "id": "unregistered-worker",
       "source": "System.Console.WriteLine(1); class Worker : Microsoft.Extensions.Hosting.BackgroundService { protected override System.Threading.Tasks.Task ExecuteAsync(System.Threading.CancellationToken token) => System.Threading.Tasks.Task.CompletedTask; }",
       "packageVersions": {},
