@@ -33,11 +33,15 @@ public static class FrameworkProvenance
                 var identities = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 foreach (var node in entries)
                 {
+                    var id = Text(node!.AsObject(), "frameworkId");
+                    if (!FrameworkIds.Contains(id) || !identities.Add(id)) throw new FormatException("Duplicate or unknown framework ID.");
+                }
+                foreach (var node in entries)
+                {
                     var entry = node!.AsObject();
                     string[] fields = ["frameworkId", "aliases", "supportedMajorVersions", "sourceUri", "sourceRevision", "sourceHash", "capturedAt", "consumingSkillIds"];
                     if (entry.Count != fields.Length || fields.Any(f => !entry.ContainsKey(f))) throw new FormatException("Invalid framework entry fields.");
                     var id = Text(entry, "frameworkId");
-                    if (!FrameworkIds.Contains(id) || !identities.Add(id)) throw new FormatException("Duplicate or unknown framework ID.");
                     foreach (var alias in Strings(entry, "aliases", false))
                         if (FrameworkIds.Contains(alias, StringComparer.OrdinalIgnoreCase) || !identities.Add(alias)) throw new FormatException("Ambiguous framework alias.");
                     var majors = entry["supportedMajorVersions"]!;
