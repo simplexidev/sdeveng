@@ -16,6 +16,34 @@
       "expectedLocations": {}
     },
     {
+      "id": "memory-and-distributed-cache-registrations",
+      "source": "using Microsoft.Extensions.DependencyInjection; var services = new ServiceCollection(); services.AddMemoryCache(); services.AddDistributedMemoryCache();",
+      "packageVersions": { "Microsoft.Extensions.Caching.Memory": "10.0.0" },
+      "expected": { "generic-host": "absent", "dependency-injection": "absent", "configuration": "absent", "options": "absent", "logging": "absent", "memory-cache": "detected", "distributed-cache": "detected" },
+      "expectedLocations": { "memory-cache": 1, "distributed-cache": 1 }
+    },
+    {
+      "id": "no-cache-registration",
+      "source": "System.Console.WriteLine(1);",
+      "packageVersions": { "Microsoft.Extensions.Caching.Memory": "10.0.0" },
+      "expected": { "generic-host": "absent", "dependency-injection": "absent", "configuration": "absent", "options": "absent", "logging": "absent", "memory-cache": "absent", "distributed-cache": "absent" },
+      "expectedLocations": {}
+    },
+    {
+      "id": "unresolved-cache-registration",
+      "source": "Missing.AddMemoryCache(); Missing.AddDistributedMemoryCache();",
+      "packageVersions": { "Microsoft.Extensions.Caching.Memory": "10.0.0" },
+      "expected": { "generic-host": "unknown", "dependency-injection": "unknown", "configuration": "unknown", "options": "unknown", "logging": "unknown", "memory-cache": "unknown", "distributed-cache": "unknown" },
+      "expectedLocations": {}
+    },
+    {
+      "id": "unsupported-cache-package-version",
+      "source": "using Microsoft.Extensions.DependencyInjection; var services = new ServiceCollection(); services.AddMemoryCache(); services.AddDistributedMemoryCache();",
+      "packageVersions": { "Microsoft.Extensions.Caching.Memory": "9.0.0" },
+      "expected": { "generic-host": "absent", "dependency-injection": "absent", "configuration": "absent", "options": "absent", "logging": "absent", "memory-cache": "unknown", "distributed-cache": "unknown" },
+      "expectedLocations": {}
+    },
+    {
       "id": "unresolved-http-client-registration",
       "source": "Missing.AddHttpClient<WidgetClient>(); class WidgetClient {}",
       "packageVersions": {},

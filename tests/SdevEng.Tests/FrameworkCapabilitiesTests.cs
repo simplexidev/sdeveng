@@ -5,6 +5,7 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Http;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace SdevEng.Tests;
 
@@ -38,6 +39,30 @@ public sealed class FrameworkCapabilitiesTests
         Assert.Equal("unknown", unsupported.Status);
         Assert.Equal("unsupported-microsoft-extensions-version", unsupported.Evidence);
         Assert.Equal("unknown", FrameworkCapabilities.Detect("Exe", null).Single(item => item.Id == "http-client-factory").Status);
+    }
+
+    [Theory]
+    [InlineData("using Microsoft.Extensions.DependencyInjection; var s = new ServiceCollection(); s.AddMemoryCache(); s.AddDistributedMemoryCache();", "detected", "detected")]
+    [InlineData("System.Console.WriteLine(1);", "absent", "absent")]
+    [InlineData("Missing.AddMemoryCache(); Missing.AddDistributedMemoryCache();", "unknown", "unknown")]
+    public void CacheRegistrationsRequireResolvedRoslynSymbols(string source, string memory, string distributed)
+    {
+        var facts = FrameworkCapabilities.Detect("Exe", Compile(source),
+            new Dictionary<string, string?> { ["Microsoft.Extensions.Caching.Memory"] = "10.0.0" });
+        Assert.Equal(memory, facts.Single(fact => fact.Id == "memory-cache").Status);
+        Assert.Equal(distributed, facts.Single(fact => fact.Id == "distributed-cache").Status);
+        foreach (var id in new[] { "memory-cache", "distributed-cache" })
+        {
+            var fact = facts.Single(item => item.Id == id);
+            Assert.Equal(memory == "detected" ? 1 : 0, fact.Locations?.Length ?? 0);
+            Assert.All(fact.Locations ?? [], location => Assert.Equal(1, location.Line));
+        }
+        Assert.Equal("unknown", FrameworkCapabilities.Detect("Exe", null).Single(fact => fact.Id == "memory-cache").Status);
+        Assert.Equal("unknown", FrameworkCapabilities.Detect("Exe", Compile("System.Console.WriteLine(1);"),
+            new Dictionary<string, string?> { ["Microsoft.Extensions.Caching.Memory"] = "9.0.0" })
+            .Single(fact => fact.Id == "distributed-cache").Status);
+        Assert.True(JsonSchema.FromFile(Path.Combine(AgentTool.FindToolkit(), "schemas/framework-capabilities.schema.json"))
+            .Evaluate(JsonSerializer.SerializeToNode(facts, AgentTool.Json)).IsValid);
     }
 
     [Fact]
@@ -264,6 +289,7 @@ public sealed class FrameworkCapabilitiesTests
         [CSharpSyntaxTree.ParseText(source)],
         ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!).Split(Path.PathSeparator)
             .Append(typeof(Host).Assembly.Location).Append(typeof(IHttpClientFactory).Assembly.Location)
+            .Append(typeof(IMemoryCache).Assembly.Location)
             .Distinct().Select(path => MetadataReference.CreateFromFile(path)),
         new CSharpCompilationOptions(OutputKind.ConsoleApplication));
 
@@ -344,8 +370,8 @@ public sealed class FrameworkCapabilitiesTests
         // Independent project fixtures, including installed-but-unused Hosting.
         repo.Write("App.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net10.0</TargetFramework><OutputType>Exe</OutputType><EnableDefaultCompileItems>false</EnableDefaultCompileItems></PropertyGroup><ItemGroup><Compile Include=\"Program.cs\" /></ItemGroup></Project>");
         var project = "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net10.0</TargetFramework><OutputType>Exe</OutputType></PropertyGroup><ItemGroup><PackageReference Include=\"Microsoft.Extensions.Hosting\" Version=\"10.0.12\" /></ItemGroup></Project>";
-        repo.Write("Hosted/Hosted.csproj", project.Replace("</Project>", "<ItemGroup><PackageReference Include=\"Microsoft.Extensions.Http\" Version=\"10.0.12\" /></ItemGroup></Project>", StringComparison.Ordinal));
-        repo.Write("Hosted/Program.cs", "using Microsoft.Extensions.DependencyInjection; using Microsoft.Extensions.Logging; var builder = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder(); builder.Services.AddSingleton<object>(); builder.Services.Configure<object>(builder.Configuration.GetSection(\"App\")); builder.Logging.AddConsole(); builder.Services.AddHttpClient(); builder.Services.AddHostedService<Worker>(); " + Worker);
+        repo.Write("Hosted/Hosted.csproj", project.Replace("</Project>", "<ItemGroup><PackageReference Include=\"Microsoft.Extensions.Http\" Version=\"10.0.12\" /><PackageReference Include=\"Microsoft.Extensions.Caching.Memory\" Version=\"10.0.12\" /></ItemGroup></Project>", StringComparison.Ordinal));
+        repo.Write("Hosted/Program.cs", "using Microsoft.Extensions.DependencyInjection; using Microsoft.Extensions.Logging; var builder = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder(); builder.Services.AddSingleton<object>(); builder.Services.Configure<object>(builder.Configuration.GetSection(\"App\")); builder.Logging.AddConsole(); builder.Services.AddHttpClient(); builder.Services.AddMemoryCache(); builder.Services.AddDistributedMemoryCache(); builder.Services.AddHostedService<Worker>(); " + Worker);
         repo.Write("Unused/Unused.csproj", project);
         repo.Write("Unused/Program.cs", "System.Console.WriteLine(1); " + Worker);
         repo.Write("CommandLine/CommandLine.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net10.0</TargetFramework><OutputType>Exe</OutputType></PropertyGroup><ItemGroup><PackageReference Include=\"System.CommandLine\" Version=\"2.0.0\" /></ItemGroup></Project>");
@@ -384,7 +410,18 @@ public sealed class FrameworkCapabilitiesTests
                 if (row["path"]!.GetValue<string>() == "CommandLine/CommandLine.csproj")
                     Assert.Equal("2.0.0", facts[3]!["version"]!.GetValue<string>());
                 Assert.True(JsonSchema.FromFile(Path.Combine(AgentTool.FindToolkit(), "schemas/framework-capabilities.schema.json")).Evaluate(facts).IsValid);
-                Assert.Equal(15, facts.AsArray().Count);
+                Assert.Equal(17, facts.AsArray().Count);
+                foreach (var id in new[] { "memory-cache", "distributed-cache" })
+                {
+                    var cache = facts.AsArray().Single(fact => fact!["id"]!.GetValue<string>() == id)!;
+                    Assert.Equal(path == "Hosted/Hosted.csproj" ? "detected" : path is "Broken/Broken.csproj" or "Unsupported/Unsupported.vbproj" ? "unknown" : "absent",
+                        cache["status"]!.GetValue<string>());
+                    if (path == "Hosted/Hosted.csproj")
+                    {
+                        Assert.Equal("10.0.12", cache["version"]!.GetValue<string>());
+                        Assert.EndsWith("Hosted/Program.cs", cache["locations"]![0]!["path"]!.GetValue<string>());
+                    }
+                }
                 var httpClientFactory = facts.AsArray().Single(fact => fact!["id"]!.GetValue<string>() == "http-client-factory")!;
                 Assert.Equal(path == "Hosted/Hosted.csproj" ? "detected" : path is "Broken/Broken.csproj" or "Unsupported/Unsupported.vbproj" ? "unknown" : "absent",
                     httpClientFactory["status"]!.GetValue<string>());

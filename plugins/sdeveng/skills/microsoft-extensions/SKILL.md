@@ -25,4 +25,6 @@ Load [hosting reference](references/hosting.md) for version-matched upstream doc
 
 `http-client-factory` identifies resolved `AddHttpClient` registrations; `http-client-typed` and `http-client-named` distinguish generic typed registrations and overloads whose first non-receiver argument is a name. These are static registration facts only: they do not prove a client was requested or that its configuration runs. Keep `HttpClient` instances factory-managed, avoid capturing transient typed clients in singletons, and pass cancellation tokens through outbound requests.
 
+`memory-cache` and `distributed-cache` identify resolved `AddMemoryCache` and `AddDistributedMemoryCache` registrations. Package presence does not establish registration or runtime use. Keep cache keys bounded and avoid embedding secrets or unbounded user input; static facts do not establish eviction or provider behavior.
+
 The resilience reference is available only when static inspection detects the supported `Microsoft.Extensions.Http.Resilience` package. Package presence does not prove a pipeline is configured.

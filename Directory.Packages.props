@@ -9,6 +9,7 @@
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
     <PackageVersion Include="Microsoft.Extensions.Hosting" Version="10.0.12" />
     <PackageVersion Include="Microsoft.Extensions.Http" Version="10.0.12" />
+    <PackageVersion Include="Microsoft.Extensions.Caching.Memory" Version="10.0.12" />
     <PackageVersion Include="Microsoft.Build.Locator" Version="1.8.1" />
     <PackageVersion Include="Microsoft.Build.Tasks.Core" Version="17.14.28" />
     <PackageVersion Include="System.Security.Cryptography.Xml" Version="10.0.12" />
