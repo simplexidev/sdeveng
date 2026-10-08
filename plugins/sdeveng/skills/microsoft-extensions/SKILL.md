@@ -4,7 +4,7 @@ description: Apply version-matched Microsoft.Extensions hosting, DI, configurati
 id: microsoft-extensions
 version: 3.0.0
 activation: '[{"id":"microsoft-extensions"}]'
-resources: '[{"path":"references/hosting.md","type":"reference","hash":"sha256:e37b2f418e2ce24dc9af77004c8d4008b5310141ae4ed9aa2224addae6f3ccd5"}]'
+resources: '[{"path":"references/hosting.md","type":"reference","hash":"sha256:28da705488cae29f050a8b7651170727e9f0dbbff741a6e38914e9e59bb9c5d5"}]'
 ---
 
 # Microsoft.Extensions 10
