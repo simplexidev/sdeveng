@@ -13,6 +13,51 @@ public sealed class FrameworkCapabilitiesTests
 {
     const string Worker = "class Worker : Microsoft.Extensions.Hosting.BackgroundService { protected override System.Threading.Tasks.Task ExecuteAsync(System.Threading.CancellationToken stoppingToken) => System.Threading.Tasks.Task.Delay(-1, stoppingToken); }";
 
+    [Theory]
+    [InlineData("_ = System.Type.GetType(\"Widget\");", "detected", 1)]
+    [InlineData("_ = typeof(string).GetMethods(); _ = System.Activator.CreateInstance(typeof(object));", "detected", 2)]
+    [InlineData("_ = System.Reflection.Assembly.LoadFrom(\"plugin.dll\"); _ = typeof(System.Collections.Generic.List<>).MakeGenericType(typeof(int));", "detected", 2)]
+    [InlineData("Fake.GetMethods(); class Fake { public static void GetMethods() {} }", "absent", 0)]
+    [InlineData("System.Console.WriteLine(1);", "absent", 0)]
+    [InlineData("Missing.GetMethods();", "unknown", 0)]
+    public void ReflectionFactsAreLimitedResolvedCandidates(string source, string status, int count)
+    {
+        var facts = FrameworkCapabilities.Detect("Exe", Compile(source));
+        var fact = facts.Single(item => item.Id == "reflection-sensitive");
+        Assert.Equal(status, fact.Status);
+        Assert.Contains("limited-analysis", fact.Evidence);
+        Assert.Equal(count, fact.Locations?.Length ?? 0);
+        Assert.All(fact.Locations ?? [], location => { Assert.Equal(1, location.Line); Assert.True(location.Column > 0); });
+        Assert.Equal("unknown", FrameworkCapabilities.Detect(null, null).Single(item => item.Id == fact.Id).Status);
+        Assert.True(JsonSchema.FromFile(Path.Combine(AgentTool.FindToolkit(), "schemas/framework-capabilities.schema.json"))
+            .Evaluate(JsonSerializer.SerializeToNode(facts, AgentTool.Json)).IsValid);
+    }
+
+    [Fact]
+    public async Task TrimmingReferenceRequiresDetectedEvaluatedSetting()
+    {
+        var root = AgentTool.FindToolkit();
+        var service = new SkillActivationService();
+        const string path = "references/trimming.md";
+        foreach (var value in new[] { "true", "false", "$(Unset)", "" })
+        {
+            var facts = FrameworkCapabilities.Detect(null, null, projectProperties: new Dictionary<string, string?> { ["PublishTrimmed"] = value });
+            var context = new SkillActivationContext("coder", ["public-api-change"], [], [],
+                facts.Where(item => item.Status == "detected").Select(item => new SkillFrameworkFact(item.Id, item.Version ?? "1.0.0")).ToArray());
+            var metadata = Assert.Single(service.Activate(root, context), item => item.Id == "api-compatibility");
+            Assert.Equal("publish-trimmed", Assert.Single(Assert.Single(metadata.Resources!, item => item.Path == path).Activation!).Id);
+            var loaded = await service.LoadReferenceAsync(root, context, "api-compatibility", path);
+            Assert.Equal(value == "true" ? "loaded" : "omitted", loaded.Status);
+            if (value == "true")
+            {
+                Assert.Equal(File.ReadAllText(Path.Combine(root, "plugins/sdeveng/skills/api-compatibility", path)), loaded.Content);
+                Assert.Contains(service.Activate(root, context with { RequestedCapabilities = [] }), item => item.Id == "api-compatibility");
+            }
+            else Assert.Equal("resource-not-activated", loaded.OmissionReason);
+            SkillCompatibilityMapReader.ValidateResources(root, [metadata]);
+        }
+    }
+
     [Fact]
     public void EvaluatedPublishSettingsDistinguishEnabledDisabledAndUnavailable()
     {
@@ -591,7 +636,7 @@ public sealed class FrameworkCapabilitiesTests
     public async Task NormalDiscoveryProjectsTheSharedFactsAndValidatesTheContract()
     {
         using var repo = new TemporaryGitRepository();
-        repo.Write("Program.cs", "System.Console.WriteLine(1);");
+        repo.Write("Program.cs", "System.Console.WriteLine(1); _ = typeof(string).GetMethods();");
         // Independent project fixtures, including installed-but-unused Hosting.
         repo.Write("App.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net10.0</TargetFramework><OutputType>Exe</OutputType><PublishTrimmed>true</PublishTrimmed><PublishAot>false</PublishAot><EnableDefaultCompileItems>false</EnableDefaultCompileItems></PropertyGroup><ItemGroup><Compile Include=\"Program.cs\" /></ItemGroup></Project>");
         var project = "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net10.0</TargetFramework><OutputType>Exe</OutputType></PropertyGroup><ItemGroup><PackageReference Include=\"Microsoft.Extensions.Hosting\" Version=\"10.0.12\" /></ItemGroup></Project>";
@@ -635,9 +680,14 @@ public sealed class FrameworkCapabilitiesTests
                 if (row["path"]!.GetValue<string>() == "CommandLine/CommandLine.csproj")
                     Assert.Equal("2.0.0", facts[3]!["version"]!.GetValue<string>());
                 Assert.True(JsonSchema.FromFile(Path.Combine(AgentTool.FindToolkit(), "schemas/framework-capabilities.schema.json")).Evaluate(facts).IsValid);
-                Assert.Equal(26, facts.AsArray().Count);
+                Assert.Equal(27, facts.AsArray().Count);
                 if (path == "App.csproj")
                 {
+                    var reflection = facts.AsArray().Single(fact => fact!["id"]!.GetValue<string>() == "reflection-sensitive")!;
+                    Assert.Equal("detected", reflection["status"]!.GetValue<string>());
+                    var location = Assert.Single(reflection["locations"]!.AsArray())!;
+                    Assert.EndsWith("Program.cs", location["path"]!.GetValue<string>());
+                    Assert.Equal(1, location["line"]!.GetValue<int>());
                     Assert.Equal("detected", facts.AsArray().Single(fact => fact!["id"]!.GetValue<string>() == "publish-trimmed")!["status"]!.GetValue<string>());
                     Assert.Equal("absent", facts.AsArray().Single(fact => fact!["id"]!.GetValue<string>() == "publish-aot")!["status"]!.GetValue<string>());
                 }

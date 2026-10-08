@@ -2,6 +2,13 @@
   "schemaVersion": 1,
   "cases": [
     {
+      "id": "synthetic-reflection-trimming-candidate",
+      "source": "_ = typeof(string).GetMethods();",
+      "packageVersions": {},
+      "expected": { "generic-host": "absent", "dependency-injection": "absent", "configuration": "absent", "options": "absent", "logging": "absent", "reflection-sensitive": "detected" },
+      "expectedLocations": { "reflection-sensitive": 1 }
+    },
+    {
       "id": "telemetry-static-composition",
       "source": "using Microsoft.Extensions.DependencyInjection; using Microsoft.Extensions.Logging; using OpenTelemetry; var s = new ServiceCollection(); s.AddLogging(l => l.AddOpenTelemetry()); s.AddOpenTelemetry().WithTracing(t => {}).WithMetrics(m => {});",
       "packageVersions": { "OpenTelemetry": "1.15.3", "OpenTelemetry.Extensions.Hosting": "1.15.3" },
