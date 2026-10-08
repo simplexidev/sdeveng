@@ -6,7 +6,8 @@
       "source": "using Microsoft.Extensions.DependencyInjection; using Microsoft.Extensions.Logging; using OpenTelemetry; var s = new ServiceCollection(); s.AddLogging(l => l.AddOpenTelemetry()); s.AddOpenTelemetry().WithTracing(t => {}).WithMetrics(m => {});",
       "packageVersions": { "OpenTelemetry": "1.15.3", "OpenTelemetry.Extensions.Hosting": "1.15.3" },
       "expected": { "generic-host": "absent", "dependency-injection": "absent", "configuration": "absent", "options": "absent", "logging": "detected", "telemetry-logging": "detected", "telemetry-tracing": "detected", "telemetry-metrics": "detected" },
-      "expectedLocations": { "logging": 1, "telemetry-logging": 1, "telemetry-tracing": 1, "telemetry-metrics": 1 }
+      "expectedLocations": { "logging": 1, "telemetry-logging": 1, "telemetry-tracing": 1, "telemetry-metrics": 1 },
+      "expectedVersions": { "telemetry-logging": "1.15.3", "telemetry-tracing": "1.15.3", "telemetry-metrics": "1.15.3" }
     },
     {
       "id": "telemetry-unused-supported-packages",
@@ -41,14 +42,16 @@
       "source": "using Microsoft.Extensions.DependencyInjection; var services = new ServiceCollection(); services.AddMemoryCache(); services.AddDistributedMemoryCache();",
       "packageVersions": { "Microsoft.Extensions.Caching.Memory": "10.0.0" },
       "expected": { "generic-host": "absent", "dependency-injection": "absent", "configuration": "absent", "options": "absent", "logging": "absent", "memory-cache": "detected", "distributed-cache": "detected" },
-      "expectedLocations": { "memory-cache": 1, "distributed-cache": 1 }
+      "expectedLocations": { "memory-cache": 1, "distributed-cache": 1 },
+      "expectedVersions": { "memory-cache": "10.0.0", "distributed-cache": "10.0.0" }
     },
     {
       "id": "no-cache-registration",
       "source": "System.Console.WriteLine(1);",
       "packageVersions": { "Microsoft.Extensions.Caching.Memory": "10.0.0" },
       "expected": { "generic-host": "absent", "dependency-injection": "absent", "configuration": "absent", "options": "absent", "logging": "absent", "memory-cache": "absent", "distributed-cache": "absent" },
-      "expectedLocations": {}
+      "expectedLocations": {},
+      "expectedVersions": { "memory-cache": "10.0.0", "distributed-cache": "10.0.0" }
     },
     {
       "id": "unresolved-cache-registration",
@@ -62,7 +65,8 @@
       "source": "using Microsoft.Extensions.DependencyInjection; var services = new ServiceCollection(); services.AddMemoryCache(); services.AddDistributedMemoryCache();",
       "packageVersions": { "Microsoft.Extensions.Caching.Memory": "9.0.0" },
       "expected": { "generic-host": "absent", "dependency-injection": "absent", "configuration": "absent", "options": "absent", "logging": "absent", "memory-cache": "unknown", "distributed-cache": "unknown" },
-      "expectedLocations": {}
+      "expectedLocations": {},
+      "expectedVersions": { "memory-cache": "9.0.0", "distributed-cache": "9.0.0" }
     },
     {
       "id": "unresolved-http-client-registration",
@@ -174,14 +178,16 @@
       "source": "System.Console.WriteLine(1);",
       "packageVersions": { "Microsoft.Extensions.Telemetry": "10.0.0", "OpenTelemetry.Exporter.Console": "1.9.0" },
       "expected": { "generic-host": "absent", "dependency-injection": "absent", "configuration": "absent", "options": "absent", "logging": "absent", "microsoft-extensions-telemetry": "detected", "opentelemetry": "detected" },
-      "expectedLocations": {}
+      "expectedLocations": {},
+      "expectedVersions": { "microsoft-extensions-telemetry": "10.0.0", "opentelemetry": "1.9.0" }
     },
     {
       "id": "unsupported-telemetry-package-versions",
       "source": "System.Console.WriteLine(1);",
       "packageVersions": { "Microsoft.Extensions.Telemetry": "9.0.0", "OpenTelemetry": "2.0.0" },
       "expected": { "generic-host": "absent", "dependency-injection": "absent", "configuration": "absent", "options": "absent", "logging": "absent", "microsoft-extensions-telemetry": "unknown", "opentelemetry": "unknown" },
-      "expectedLocations": {}
+      "expectedLocations": {},
+      "expectedVersions": { "microsoft-extensions-telemetry": "9.0.0", "opentelemetry": "2.0.0" }
     }
   ]
 }

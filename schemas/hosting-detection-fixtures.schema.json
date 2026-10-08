@@ -37,7 +37,8 @@
             "telemetry-tracing": { "enum": ["detected", "absent", "unknown"] },
             "telemetry-metrics": { "enum": ["detected", "absent", "unknown"] }
           } },
-          "expectedLocations": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 0 } }
+          "expectedLocations": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 0 } },
+          "expectedVersions": { "type": "object", "additionalProperties": { "type": ["string", "null"] } }
         }
       }
     }
