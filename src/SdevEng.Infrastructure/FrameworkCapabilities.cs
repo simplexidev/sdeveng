@@ -18,7 +18,40 @@ public static class FrameworkCapabilities
             .Concat(DetectCaching(compilation, packageVersions))
             .Concat(DetectTelemetry(compilation, packageVersions))
             .Concat(DetectTelemetryComposition(compilation, packageVersions))
-            .Concat(DetectPublishSettings(projectProperties)).ToArray();
+            .Concat(DetectPublishSettings(projectProperties))
+            .Concat(DetectReflection(compilation)).ToArray();
+
+    static FrameworkCapabilityFact[] DetectReflection(Compilation? compilation)
+    {
+        const string id = "reflection-sensitive";
+        if (compilation is null || compilation.Language != LanguageNames.CSharp ||
+            compilation.GetDiagnostics().Any(item => item.Severity == DiagnosticSeverity.Error))
+            return [new(id, "unknown", "limited-analysis-unavailable-or-incomplete-csharp-compilation")];
+        var locations = new List<FrameworkCapabilityLocation>();
+        foreach (var tree in compilation.SyntaxTrees)
+        {
+            var model = compilation.GetSemanticModel(tree);
+            foreach (var call in tree.GetRoot().DescendantNodes().OfType<InvocationExpressionSyntax>())
+            {
+                if (model.GetSymbolInfo(call).Symbol is not IMethodSymbol method) continue;
+                var type = method.ContainingType.ToDisplayString();
+                var framework = method.ContainingAssembly.Name is "System.Private.CoreLib" or "System.Runtime" or
+                    "mscorlib" or "System.Reflection" or "System.Reflection.Extensions";
+                var sensitive = framework && ((type == "System.Type" && method.Name is
+                    "GetType" or "GetMethod" or "GetMethods" or "GetProperty" or "GetProperties" or
+                    "GetField" or "GetFields" or "GetConstructor" or "GetConstructors" or "MakeGenericType") ||
+                    (type == "System.Activator" && method.Name == "CreateInstance") ||
+                    (type == "System.Reflection.Assembly" && method.Name is "Load" or "LoadFrom" or "LoadFile" or "GetType" or "GetTypes") ||
+                    (type == "System.Reflection.MethodInfo" && method.Name == "MakeGenericMethod"));
+                if (!sensitive) continue;
+                var span = call.GetLocation().GetLineSpan();
+                locations.Add(new(tree.FilePath, span.StartLinePosition.Line + 1, span.StartLinePosition.Character + 1));
+            }
+        }
+        return [new(id, locations.Count > 0 ? "detected" : "absent",
+            locations.Count > 0 ? "limited-analysis-resolved-reflection-sensitive-calls-not-aot-safety-proof" :
+                "limited-analysis-no-listed-reflection-calls-not-aot-safety-proof", Locations: locations.Take(64).ToArray())];
+    }
 
     static FrameworkCapabilityFact[] DetectPublishSettings(IReadOnlyDictionary<string, string?>? properties)
     {

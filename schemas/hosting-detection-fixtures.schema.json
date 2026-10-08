@@ -24,6 +24,7 @@
             "options": { "enum": ["detected", "absent", "unknown"] },
             "logging": { "enum": ["detected", "absent", "unknown"] },
             "channels": { "enum": ["detected", "absent", "unknown"] },
+            "reflection-sensitive": { "enum": ["detected", "absent", "unknown"] },
             "localization": { "enum": ["detected", "absent", "unknown"] },
             "background-service": { "enum": ["detected", "absent", "unknown"] },
             "hosted-service": { "enum": ["detected", "absent", "unknown"] },

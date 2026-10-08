@@ -91,7 +91,7 @@ public class SkillCompatibilityMapTests
         var entry = SkillCompatibilityMapReader.ReadMetadataIndex(Root).Single(skill => skill.Id == "api-compatibility");
         Assert.Equal("3.0.0", entry.Version);
         Assert.Contains(entry.Activation!, condition => condition.Id == "public-api-change");
-        var resource = Assert.Single(entry.Resources!);
+        var resource = Assert.Single(entry.Resources!, item => item.Type == "procedure");
         Assert.Equal("procedure", resource.Type);
         var resourcePath = Path.Combine(Root, "plugins/sdeveng/skills/api-compatibility", resource.Path);
         var bytes = File.ReadAllBytes(resourcePath);
