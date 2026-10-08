@@ -43,9 +43,9 @@
       "aliases": ["Avalonia framework"],
       "releaseUri": "https://github.com/AvaloniaUI/Avalonia/releases",
       "documentationUri": "https://docs.avaloniaui.net/",
-      "supportedMajorVersions": "unknown",
+      "supportedMajorVersions": [11],
       "sourceUri": "https://github.com/AvaloniaUI/Avalonia",
-      "sourceRevision": "unknown",
+      "sourceRevision": "d6edb46ce04f983892a61d3abf906014d3f5ec8d",
       "sourceHash": "unknown",
       "capturedAt": "unknown",
       "consumingSkillIds": ["api-compatibility"]

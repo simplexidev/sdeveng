@@ -38,7 +38,7 @@ public static class Repository
         return RepositoryFileCatalog.Create(files, terms);
     }
 
-    public static async Task<object> Describe(string root, OutputSettings limits)
+    public static async Task<object> Describe(string root, OutputSettings limits, JsonNode? provenance = null)
     {
         var repositoryRoot = await Git.RepositoryRoot(root);
         var tracked = await Git.TrackedWithIgnoreRules(repositoryRoot);
@@ -73,7 +73,7 @@ public static class Repository
                 ownedFiles,
                 projectReferences = references,
                 packageReferences = packages,
-                frameworkCapabilities = await Projects.FrameworkCapabilities(repositoryRoot, path, evaluation)
+                frameworkCapabilities = await Projects.FrameworkCapabilities(repositoryRoot, path, evaluation, provenance)
             });
         }
         return new
@@ -308,7 +308,7 @@ public static class Projects
 {
     private static readonly object WorkspaceRegistrationLock = new();
     private static bool workspaceRegistered;
-    public static async Task<FrameworkCapabilityFact[]> FrameworkCapabilities(string root, string project, JsonNode evaluation)
+    public static async Task<FrameworkCapabilityFact[]> FrameworkCapabilities(string root, string project, JsonNode evaluation, JsonNode? provenance = null)
     {
         var outputType = evaluation["Properties"]?["OutputType"]?.GetValue<string>();
         var projectProperties = evaluation["Properties"]?.AsObject().ToDictionary(item => item.Key,
@@ -316,9 +316,12 @@ public static class Projects
         var packageVersions = evaluation["Items"]?["PackageReference"]?.AsArray()
             .ToDictionary(item => item!["Identity"]!.GetValue<string>(),
                 item => item?["Version"]?.GetValue<string>() ?? item?["Metadata"]?["Version"]?.GetValue<string>(), StringComparer.OrdinalIgnoreCase);
+        var avaloniaFiles = evaluation["Items"]?["AvaloniaResource"]?.AsArray()
+            .Select(item => item?["Identity"]?.GetValue<string>()).OfType<string>()
+            .Where(file => Path.GetExtension(file) is ".axaml" or ".xaml").ToArray();
         if (Path.GetExtension(project) != ".csproj" ||
             !string.IsNullOrEmpty(evaluation["Properties"]?["TargetFrameworks"]?.GetValue<string>()))
-            return SdevEng.FrameworkCapabilities.Detect(outputType, null, packageVersions, projectProperties);
+            return SdevEng.FrameworkCapabilities.Detect(outputType, null, packageVersions, projectProperties, avaloniaFiles, provenance);
         lock (WorkspaceRegistrationLock)
         {
             if (!workspaceRegistered)
@@ -334,11 +337,11 @@ public static class Projects
         {
             var loaded = await workspace.OpenProjectAsync(Path.GetFullPath(project, root));
             var compilation = await loaded.GetCompilationAsync();
-            return SdevEng.FrameworkCapabilities.Detect(outputType, failed ? null : compilation, packageVersions, projectProperties);
+            return SdevEng.FrameworkCapabilities.Detect(outputType, failed ? null : compilation, packageVersions, projectProperties, avaloniaFiles, provenance);
         }
         catch (Exception exception) when (exception is InvalidOperationException or IOException or ArgumentException)
         {
-            return SdevEng.FrameworkCapabilities.Detect(outputType, null, packageVersions, projectProperties);
+            return SdevEng.FrameworkCapabilities.Detect(outputType, null, packageVersions, projectProperties, avaloniaFiles, provenance);
         }
     }
     public static string[] Discover(string root) => SafeFiles.Enumerate(root).Where(x => Path.GetExtension(x) is ".csproj" or ".fsproj" or ".vbproj").Order(StringComparer.Ordinal).ToArray();
@@ -598,7 +601,7 @@ public static class Projects
     }
     public static async Task<JsonNode> Evaluate(string root, string project)
     {
-        var result = await Processes.Run("dotnet", ["msbuild", project, "-nologo", "-getProperty:TargetFramework,TargetFrameworks,RuntimeIdentifier,RuntimeIdentifiers,PublishTrimmed,PublishAot,OutputType,IsTestProject,Nullable,ManagePackageVersionsCentrally,Deterministic,EnableNETAnalyzers,RestorePackagesWithLockFile,EnablePackageValidation,PackageValidationBaselineVersion,IsTestingPlatformApplication,TestingPlatformDotnetTestSupport,UseMicrosoftTestingPlatformRunner", "-getItem:ProjectReference,Compile,PackageReference"], root);
+        var result = await Processes.Run("dotnet", ["msbuild", project, "-nologo", "-getProperty:TargetFramework,TargetFrameworks,RuntimeIdentifier,RuntimeIdentifiers,PublishTrimmed,PublishAot,OutputType,IsTestProject,Nullable,ManagePackageVersionsCentrally,Deterministic,EnableNETAnalyzers,RestorePackagesWithLockFile,EnablePackageValidation,PackageValidationBaselineVersion,IsTestingPlatformApplication,TestingPlatformDotnetTestSupport,UseMicrosoftTestingPlatformRunner", "-getItem:ProjectReference,Compile,PackageReference,AvaloniaResource"], root);
         if (result.ExitCode != 0) throw new InvalidOperationException($"MSBuild evaluation failed for {Path.GetFileName(project)}; graph cannot safely be narrowed.");
         return JsonNode.Parse(result.Output) ?? throw new InvalidOperationException("Empty MSBuild response.");
     }
@@ -707,7 +710,7 @@ public record Affected(string[] Projects, string Reason, IReadOnlyDictionary<str
 
 public static class DotnetFacts
 {
-    public static async Task<object> Inspect(string root, string? explicitProject)
+    public static async Task<object> Inspect(string root, string? explicitProject, JsonNode? provenance = null)
     {
         root = Path.GetFullPath(root);
         var projects = explicitProject is null ? Projects.Discover(root) : IsSolution(explicitProject) ? await Projects.InSolution(root, explicitProject) : ResolveTargets(root, explicitProject);
@@ -722,7 +725,7 @@ public static class DotnetFacts
             var references = items?["ProjectReference"]?.AsArray().Select(item => item?["FullPath"]?.GetValue<string>()).OfType<string>().Select(path => Rel(root, path)).Order(StringComparer.Ordinal).ToArray() ?? [];
             var packages = items?["PackageReference"]?.AsArray().Select(item => new { id = item?["Identity"]?.GetValue<string>(), version = ItemValue(item, "Version") }).OrderBy(item => item.id, StringComparer.Ordinal).ToArray() ?? [];
             var profile = TestProfileFor(root, properties, packages.Select(package => package.id).OfType<string>());
-            rows.Add(new { path = Rel(root, project), language = Path.GetExtension(project) switch { ".fsproj" => "F#", ".vbproj" => "Visual Basic", _ => "C#" }, targetFrameworks, isTest = IsTrue(properties["IsTestProject"]), testPlatform = profile.Platform, testFramework = profile.Framework, testCommandMode = profile.CommandMode, projectReferences = references, packageReferences = packages, frameworkCapabilities = await Projects.FrameworkCapabilities(root, project, evaluation) });
+            rows.Add(new { path = Rel(root, project), language = Path.GetExtension(project) switch { ".fsproj" => "F#", ".vbproj" => "Visual Basic", _ => "C#" }, targetFrameworks, isTest = IsTrue(properties["IsTestProject"]), testPlatform = profile.Platform, testFramework = profile.Framework, testCommandMode = profile.CommandMode, projectReferences = references, packageReferences = packages, frameworkCapabilities = await Projects.FrameworkCapabilities(root, project, evaluation, provenance) });
             edges.AddRange(references.Select(reference => new { from = Rel(root, project), to = reference }));
         }
         JsonNode? globalJson = null; var globalJsonPath = Path.Combine(root, "global.json"); if (File.Exists(globalJsonPath)) globalJson = JsonNode.Parse(File.ReadAllText(globalJsonPath));

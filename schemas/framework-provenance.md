@@ -33,11 +33,26 @@ unchanged; the legacy fixture preserves that baseline. Supported majors are
 recorded only where the repository has an explicit target/API profile:
 .NET 10 from the `net10.0` target and Microsoft.Extensions 10 from its pinned
 10.0.12 package. Other majors are not inferred from release listings. The
-System.CommandLine, Avalonia and Terminal.Gui boundaries remain `unknown` until
-their profiles are verified. Source hash and capture time remain `unknown`,
+System.CommandLine and Terminal.Gui boundaries remain `unknown` until
+their profiles are verified. Avalonia major 11 static detection is pinned to
+11.3.0 revision `d6edb46ce04f983892a61d3abf906014d3f5ec8d`. The inspected API
+sources are `src/Avalonia.Controls/Application.cs` and
+`src/Avalonia.Controls/ApplicationLifetimes/{IClassicDesktopStyleApplicationLifetime,ISingleViewApplicationLifetime,IControlledApplicationLifetime,IActivatableApplicationLifetime}.cs`
+in that upstream revision. No upstream content is bundled. Source hash and capture time remain `unknown`,
 without inventing a timestamp from the inspection date. Additional framework
 runtime bindings are deferred. Existing drift output
 and changed-path classifications remain compatible, with automaticAction=none.
+
+Discovery emits `avalonia-lifetime` and `avalonia-structure` alongside the package
+fact. Lifetime evidence names resolved static lifetime types, not a running or
+configured lifetime; resolved classic desktop start/setup calls also identify
+that lifetime (pinned `ApplicationLifetimes/ClassicDesktopStyleApplicationLifetime.cs`).
+Structure uses evaluated `AvaloniaResource` XAML items and
+resolved Application/Control subclasses: `xaml`, `code-only`, or `mixed` (an
+additional UI class without a same-named XAML companion). No UI classes/items
+means absent; missing evaluation/compilation means unknown. Unsupported majors
+remain unknown even when source files resemble Avalonia. Resources, themes and
+compiled bindings are deferred.
 
 `upstream dotnet-skills drift|refresh [--observations-file <path>]` compares local
 observations only. `refresh` emits a PLAN with current pins, observed references,

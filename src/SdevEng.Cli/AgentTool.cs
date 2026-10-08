@@ -1622,7 +1622,7 @@ public static class AgentTool
             command.ValidateCommand(command.Command);
             switch (command.Command)
             {
-                case "repo describe": return Result.Ok(await Repository.Describe(root, settings.Output));
+                case "repo describe": return Result.Ok(await Repository.Describe(root, settings.Output, JsonNode.Parse(File.ReadAllText(Path.Combine(toolkit, "upstream/dotnet-skills.json")))));
                 case "repo changed-files": return Result.Ok(await Git.Changed(root, command.Get("base")));
                 case "repo summary": return Result.Ok(await Repository.Summary(root, command.Get("base"), settings.Output));
                 case "repo locate":
@@ -1935,7 +1935,7 @@ public static class AgentTool
             return name switch
             {
                 "dotnet verify" or "dotnet format" or "dotnet package-audit" or "dotnet dependencies" or "dotnet api-check" or "dotnet release-verify" => await Dotnet(name, command, root, artifacts, settings),
-                "dotnet inspect" => Result.Ok(await DotnetFacts.Inspect(root, command.Get("project"))),
+                "dotnet inspect" => Result.Ok(await DotnetFacts.Inspect(root, command.Get("project"), JsonNode.Parse(File.ReadAllText(Path.Combine(toolkit, "upstream/dotnet-skills.json"))))),
                 "dotnet semantic-model" => Result.Ok(await Projects.SemanticModel(root, command.Get("project") ?? throw new ArgumentException("dotnet semantic-model requires --project SOLUTION."))),
                 "dotnet relationships" => Result.Ok((await Projects.SemanticModel(root, command.Get("project") ?? throw new ArgumentException("dotnet relationships requires --project SOLUTION.")))
                     .Relationships(command.Get("path") ?? throw new ArgumentException("dotnet relationships requires --path PROJECT."), settings.Output.MaxItems)),
