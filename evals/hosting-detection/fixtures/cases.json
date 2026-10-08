@@ -98,6 +98,27 @@
       "packageVersions": {},
       "expected": { "generic-host": "unknown", "dependency-injection": "unknown", "configuration": "unknown", "options": "unknown", "logging": "unknown" },
       "expectedLocations": {}
+    },
+    {
+      "id": "supported-http-resilience-package-with-factory-registration",
+      "source": "using Microsoft.Extensions.DependencyInjection; var services = new ServiceCollection(); services.AddHttpClient();",
+      "packageVersions": { "Microsoft.Extensions.Http": "10.0.0", "Microsoft.Extensions.Http.Resilience": "10.0.0" },
+      "expected": { "generic-host": "absent", "dependency-injection": "absent", "configuration": "absent", "options": "absent", "logging": "absent", "http-client-factory": "detected", "http-client-resilience": "detected" },
+      "expectedLocations": { "http-client-factory": 1 }
+    },
+    {
+      "id": "unsupported-http-resilience-package-version",
+      "source": "System.Console.WriteLine(1);",
+      "packageVersions": { "Microsoft.Extensions.Http.Resilience": "9.0.0" },
+      "expected": { "generic-host": "absent", "dependency-injection": "absent", "configuration": "absent", "options": "absent", "logging": "absent", "http-client-resilience": "unknown" },
+      "expectedLocations": {}
+    },
+    {
+      "id": "dynamic-http-client-registration-with-resilience-package",
+      "source": "dynamic services = new object(); services.AddHttpClient();",
+      "packageVersions": { "Microsoft.Extensions.Http.Resilience": "10.0.0" },
+      "expected": { "generic-host": "unknown", "dependency-injection": "unknown", "configuration": "unknown", "options": "unknown", "logging": "unknown", "http-client-factory": "unknown", "http-client-typed": "unknown", "http-client-named": "unknown", "http-client-resilience": "detected" },
+      "expectedLocations": {}
     }
   ]
 }

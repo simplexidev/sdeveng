@@ -27,7 +27,8 @@
             "hosted-service": { "enum": ["detected", "absent", "unknown"] },
             "http-client-factory": { "enum": ["detected", "absent", "unknown"] },
             "http-client-typed": { "enum": ["detected", "absent", "unknown"] },
-            "http-client-named": { "enum": ["detected", "absent", "unknown"] }
+            "http-client-named": { "enum": ["detected", "absent", "unknown"] },
+            "http-client-resilience": { "enum": ["detected", "absent", "unknown"] }
           } },
           "expectedLocations": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 0 } }
         }
