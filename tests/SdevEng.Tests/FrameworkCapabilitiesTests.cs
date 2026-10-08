@@ -70,6 +70,33 @@ public sealed class FrameworkCapabilitiesTests
     }
 
     [Fact]
+    public async Task ChannelsFactAndReferenceRequireResolvedChannelUse()
+    {
+        var source = "var channel = System.Threading.Channels.Channel.CreateUnbounded<int>();";
+        var facts = FrameworkCapabilities.Detect("Exe", Compile(source));
+        var channels = facts.Single(item => item.Id == "channels");
+        Assert.Equal("detected", channels.Status);
+        Assert.Equal("roslyn-resolved-api-use", channels.Evidence);
+        Assert.Single(channels.Locations!);
+        Assert.True(JsonSchema.FromFile(Path.Combine(AgentTool.FindToolkit(), "schemas/framework-capabilities.schema.json"))
+            .Evaluate(JsonSerializer.SerializeToNode(facts, AgentTool.Json)).IsValid);
+        Assert.Equal("absent", FrameworkCapabilities.Detect("Exe", Compile("System.Console.WriteLine(1);"))
+            .Single(item => item.Id == "channels").Status);
+        Assert.Equal("unknown", FrameworkCapabilities.Detect("Exe", null).Single(item => item.Id == "channels").Status);
+
+        var root = AgentTool.FindToolkit();
+        var service = new SkillActivationService();
+        var context = new SkillActivationContext("coder", [], [], [], [new("microsoft-extensions", "10.0.0"), new("channels", "1.0.0")]);
+        var metadata = Assert.Single(service.Activate(root, context), item => item.Id == "microsoft-extensions");
+        const string path = "references/channels.md";
+        Assert.Contains(metadata.Resources!, item => item.Path == path && Assert.Single(item.Activation!).Id == "channels");
+        Assert.Equal("loaded", (await service.LoadReferenceAsync(root, context, "microsoft-extensions", path)).Status);
+        Assert.Equal("resource-not-activated", (await service.LoadReferenceAsync(root,
+            context with { Frameworks = [new("microsoft-extensions", "10.0.0")] }, "microsoft-extensions", path)).OmissionReason);
+        SkillCompatibilityMapReader.ValidateResources(root, [metadata]);
+    }
+
+    [Fact]
     public async Task TelemetryReferenceRequiresDetectedCompositionAndIsHashValidated()
     {
         var root = AgentTool.FindToolkit();
@@ -533,7 +560,8 @@ public sealed class FrameworkCapabilitiesTests
                 if (row["path"]!.GetValue<string>() == "CommandLine/CommandLine.csproj")
                     Assert.Equal("2.0.0", facts[3]!["version"]!.GetValue<string>());
                 Assert.True(JsonSchema.FromFile(Path.Combine(AgentTool.FindToolkit(), "schemas/framework-capabilities.schema.json")).Evaluate(facts).IsValid);
-                Assert.Equal(22, facts.AsArray().Count);
+                Assert.Equal(23, facts.AsArray().Count);
+                Assert.Contains(facts.AsArray(), fact => fact!["id"]!.GetValue<string>() == "channels");
                 foreach (var id in new[] { "memory-cache", "distributed-cache" })
                 {
                     var cache = facts.AsArray().Single(fact => fact!["id"]!.GetValue<string>() == id)!;

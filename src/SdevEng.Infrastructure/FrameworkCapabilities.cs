@@ -9,12 +9,42 @@ public static class FrameworkCapabilities
     public static FrameworkCapabilityFact[] Detect(string? outputType, Compilation? compilation,
         IReadOnlyDictionary<string, string?>? packageVersions = null)
         => DetectConsole(outputType, compilation, packageVersions)
+            .Concat(DetectChannels(compilation))
             .Concat(DetectHosting(compilation, packageVersions))
             .Concat(DetectHttpClients(compilation, packageVersions))
             .Concat(DetectHttpResilience(compilation, packageVersions))
             .Concat(DetectCaching(compilation, packageVersions))
             .Concat(DetectTelemetry(compilation, packageVersions))
             .Concat(DetectTelemetryComposition(compilation, packageVersions)).ToArray();
+
+    static FrameworkCapabilityFact[] DetectChannels(Compilation? compilation)
+    {
+        const string id = "channels";
+        if (compilation is null || compilation.Language != LanguageNames.CSharp ||
+            compilation.GetDiagnostics().Any(item => item.Severity == DiagnosticSeverity.Error))
+            return [new(id, "unknown", "unavailable-or-incomplete-csharp-compilation")];
+
+        var locations = new List<FrameworkCapabilityLocation>();
+        var indirect = false;
+        foreach (var tree in compilation.SyntaxTrees)
+        {
+            var model = compilation.GetSemanticModel(tree);
+            foreach (var call in tree.GetRoot().DescendantNodes().OfType<InvocationExpressionSyntax>())
+            {
+                var method = model.GetSymbolInfo(call).Symbol as IMethodSymbol;
+                if (method is not null && method.ContainingAssembly.Name == "System.Threading.Channels" &&
+                    method.ContainingNamespace.ToDisplayString().StartsWith("System.Threading.Channels", StringComparison.Ordinal))
+                {
+                    var span = call.GetLocation().GetLineSpan();
+                    locations.Add(new(tree.FilePath, span.StartLinePosition.Line + 1, span.StartLinePosition.Character + 1));
+                }
+                else if (method is null && call.Expression.ToString().Contains("Channel", StringComparison.Ordinal)) indirect = true;
+            }
+        }
+        return [new(id, locations.Count > 0 ? "detected" : indirect ? "unknown" : "absent",
+            locations.Count > 0 ? "roslyn-resolved-api-use" : indirect ? "unresolved-channel-api" : "roslyn-no-channel-api",
+            Locations: locations.Take(64).ToArray())];
+    }
 
     static FrameworkCapabilityFact[] DetectTelemetryComposition(Compilation? compilation,
         IReadOnlyDictionary<string, string?>? packages)
