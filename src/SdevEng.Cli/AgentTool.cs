@@ -2026,7 +2026,7 @@ public static class AgentTool
             var artifacts = Path.Combine(root, ".agent-tool");
             return command.Command switch
             {
-                "upstream status" => Result.Ok(new { plugins = JsonNode.Parse(File.ReadAllText(Path.Combine(toolkit, "upstream/dotnet-skills.json"))), tools = JsonNode.Parse(File.ReadAllText(Path.Combine(toolkit, "upstream/tools.json"))), versions = JsonNode.Parse(File.ReadAllText(Path.Combine(toolkit, "upstream/versions.json"))) }),
+                "upstream status" => Result.Ok(new { plugins = FrameworkProvenance.Read(JsonNode.Parse(File.ReadAllText(Path.Combine(toolkit, "upstream/dotnet-skills.json"))) ?? throw new FormatException("Framework provenance manifest is empty.")), tools = JsonNode.Parse(File.ReadAllText(Path.Combine(toolkit, "upstream/tools.json"))), versions = JsonNode.Parse(File.ReadAllText(Path.Combine(toolkit, "upstream/versions.json"))) }),
                 "upstream update" => await Upstream(toolkit, artifacts, command.Flag("dry-run"), _commitReader),
                 "upstream dotnet-skills" => await DotnetSkillsDrift.Run(toolkit, artifacts, command.Words.Skip(2).SingleOrDefault(), command.Flag("dry-run"), _commitReader, command.Get("observations-file")),
                 _ => throw new ArgumentException("Unknown command. Use --help.")
