@@ -6,14 +6,8 @@ namespace SdevEng.Tests;
 public class FrameworkProvenanceTests
 {
     static string Root => AgentTool.FindToolkit();
-    static JsonObject Legacy() => JsonNode.Parse(File.ReadAllText(Path.Combine(Root, "upstream/dotnet-skills.json")))!.AsObject();
-    static JsonObject Current()
-    {
-        var manifest = Legacy();
-        manifest["manifestVersion"] = 3;
-        manifest["frameworks"] = new JsonArray(JsonNode.Parse(File.ReadAllText(Path.Combine(Root, "tests/SdevEng.Tests/Fixtures/FrameworkProvenance/framework.json"))));
-        return manifest;
-    }
+    static JsonObject Legacy() => JsonNode.Parse(File.ReadAllText(Path.Combine(Root, "tests/SdevEng.Tests/Fixtures/FrameworkProvenance/legacy-v2.json")))!.AsObject();
+    static JsonObject Current() => JsonNode.Parse(File.ReadAllText(Path.Combine(Root, "upstream/dotnet-skills.json")))!.AsObject();
     static bool Valid(JsonNode manifest) => JsonSchema.FromFile(Path.Combine(Root, "schemas/dotnet-skills-provenance.schema.json"))
         .Evaluate(manifest, new() { RequireFormatValidation = true }).IsValid;
 
@@ -29,9 +23,13 @@ public class FrameworkProvenanceTests
             {
                 var original = manifest.ToJsonString();
                 File.WriteAllText(path, original);
-                await DotnetSkillsDrift.Run(directory, Path.Combine(directory, "artifacts"), "status", true);
+                var result = await CommandTestRuntime.Execute(Cli.Parse(["upstream", "dotnet-skills", "status", "--dry-run"]),
+                    directory, directory, new Settings(new(), new(), new(), new()));
+                Assert.Equal(0, result.ExitCode);
+                var data = System.Text.Json.JsonSerializer.SerializeToNode(result.Data, AgentTool.Json)!;
+                Assert.Equal(manifest["snapshot"]!["commit"]!.GetValue<string>(), data["pinned"]!.GetValue<string>());
                 Assert.Equal(original, File.ReadAllText(path));
-                Assert.False(Directory.Exists(Path.Combine(directory, "artifacts")));
+                Assert.False(Directory.Exists(Path.Combine(directory, ".agent-tool")));
             }
             var invalid = Current();
             invalid["frameworks"]![0]!["sourceHash"] = "bad";
@@ -59,6 +57,22 @@ public class FrameworkProvenanceTests
         Assert.True(JsonNode.DeepEquals(Current(), current));
     }
 
+    [Fact]
+    public void MigratedInventoryUsesHistoricalPinAndExplicitUnknowns()
+    {
+        var manifest = FrameworkProvenance.Read(Current());
+        Assert.Equal(3, manifest["manifestVersion"]!.GetValue<int>());
+        var entry = Assert.Single(manifest["frameworks"]!.AsArray())!;
+        Assert.Equal("dotnet", entry["frameworkId"]!.GetValue<string>());
+        Assert.Equal(".NET", Assert.Single(entry["aliases"]!.AsArray())!.GetValue<string>());
+        Assert.Equal(manifest["snapshot"]!["url"]!.GetValue<string>(), entry["sourceUri"]!.GetValue<string>());
+        Assert.Equal(manifest["snapshot"]!["commit"]!.GetValue<string>(), entry["sourceRevision"]!.GetValue<string>());
+        foreach (var field in new[] { "supportedMajorVersions", "sourceHash", "capturedAt" })
+            Assert.Equal("unknown", entry[field]!.GetValue<string>());
+        foreach (var skill in entry["consumingSkillIds"]!.AsArray())
+            Assert.True(File.Exists(Path.Combine(Root, "plugins/sdeveng/skills", skill!.GetValue<string>(), "SKILL.md")));
+    }
+
     [Theory]
     [InlineData("dotnet")]
     [InlineData("microsoft.extensions")]
@@ -68,7 +82,8 @@ public class FrameworkProvenanceTests
     public void FrameworkVariantsSupportKnownVersionsAndHashes(string id)
     {
         var manifest = Current();
-        var entry = manifest["frameworks"]![0]!;
+        var entry = JsonNode.Parse(File.ReadAllText(Path.Combine(Root, "tests/SdevEng.Tests/Fixtures/FrameworkProvenance/framework.json")))!;
+        manifest["frameworks"]![0] = entry;
         entry["frameworkId"] = id;
         entry["supportedMajorVersions"] = new JsonArray(10, 11);
         entry["sourceHash"] = "sha256:" + new string('a', 64);

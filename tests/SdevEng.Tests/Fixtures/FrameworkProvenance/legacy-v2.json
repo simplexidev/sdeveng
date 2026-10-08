@@ -1,18 +1,6 @@
 {
   "$schema": "../schemas/dotnet-skills-provenance.schema.json",
-  "manifestVersion": 3,
-  "frameworks": [
-    {
-      "frameworkId": "dotnet",
-      "aliases": [".NET"],
-      "supportedMajorVersions": "unknown",
-      "sourceUri": "https://github.com/dotnet/skills",
-      "sourceRevision": "4ed5f7c121da8dd31af31a35cef05070948c6556",
-      "sourceHash": "unknown",
-      "capturedAt": "unknown",
-      "consumingSkillIds": ["api-compatibility", "run-dotnet-tests"]
-    }
-  ],
+  "manifestVersion": 2,
   "snapshot": {
     "repository": "dotnet/skills",
     "url": "https://github.com/dotnet/skills",
