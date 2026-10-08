@@ -2,6 +2,97 @@
   "schemaVersion": 1,
   "cases": [
     {
+      "id": "function-collection-initializer", "references": true,
+      "source": "using Microsoft.Extensions.AI; _ = new ChatOptions { Tools = { AIFunctionFactory.Create(() => 42) } };",
+      "packages": { "Microsoft.Extensions.AI": "10.0.0" },
+      "package": "detected", "registration": "absent", "version": "10.0.0", "locations": 0,
+      "tools": "detected", "toolLocations": 1
+    },
+    {
+      "id": "spread-tools", "references": true,
+      "source": "using Microsoft.Extensions.AI; AITool[] tools = []; _ = new ChatOptions { Tools = [..tools] };",
+      "packages": { "Microsoft.Extensions.AI": "10.0.0" },
+      "package": "detected", "registration": "absent", "version": "10.0.0", "locations": 0,
+      "tools": "unknown", "toolLocations": 0
+    },
+    {
+      "id": "function-options", "references": true,
+      "source": "using Microsoft.Extensions.AI; _ = new ChatOptions { Tools = [AIFunctionFactory.Create(() => 42)] };",
+      "packages": { "Microsoft.Extensions.AI": "10.0.0" },
+      "package": "detected", "registration": "absent", "version": "10.0.0", "locations": 0,
+      "tools": "detected", "toolLocations": 1
+    },
+    {
+      "id": "function-list-add", "references": true,
+      "source": "using Microsoft.Extensions.AI; var options = new ChatOptions { Tools = [] }; options.Tools.Add(AIFunctionFactory.Create(() => 42));",
+      "packages": { "Microsoft.Extensions.AI": "10.0.0" },
+      "package": "detected", "registration": "absent", "version": "10.0.0", "locations": 0,
+      "tools": "detected", "toolLocations": 1
+    },
+    {
+      "id": "function-list-initializer", "references": true,
+      "source": "using Microsoft.Extensions.AI; var options = new ChatOptions(); options.Tools = new System.Collections.Generic.List<AITool> { AIFunctionFactory.Create(() => 42) };",
+      "packages": { "Microsoft.Extensions.AI": "10.0.0" },
+      "package": "detected", "registration": "absent", "version": "10.0.0", "locations": 0,
+      "tools": "detected", "toolLocations": 1
+    },
+    {
+      "id": "function-created-only", "references": true,
+      "source": "using Microsoft.Extensions.AI; _ = AIFunctionFactory.Create(() => 42);",
+      "packages": { "Microsoft.Extensions.AI": "10.0.0" },
+      "package": "detected", "registration": "absent", "version": "10.0.0", "locations": 0,
+      "tools": "absent", "toolLocations": 0
+    },
+    {
+      "id": "function-middleware-only", "references": true,
+      "source": "using Microsoft.Extensions.AI; _ = new ChatClientBuilder(new Fake()).UseFunctionInvocation().Build();",
+      "packages": { "Microsoft.Extensions.AI": "10.0.0" },
+      "package": "detected", "registration": "absent", "version": "10.0.0", "locations": 0,
+      "tools": "absent", "toolLocations": 0
+    },
+    {
+      "id": "empty-tools", "references": true,
+      "source": "using Microsoft.Extensions.AI; _ = new ChatOptions { Tools = [] };",
+      "packages": { "Microsoft.Extensions.AI": "10.0.0" },
+      "package": "detected", "registration": "absent", "version": "10.0.0", "locations": 0,
+      "tools": "absent", "toolLocations": 0
+    },
+    {
+      "id": "local-tools-lookalike", "references": true,
+      "source": "_ = new ChatOptions { Tools = [1] }; class ChatOptions { public int[]? Tools { get; set; } }",
+      "packages": { "Microsoft.Extensions.AI": "10.0.0" },
+      "package": "detected", "registration": "absent", "version": "10.0.0", "locations": 0,
+      "tools": "absent", "toolLocations": 0
+    },
+    {
+      "id": "unresolved-tools", "references": true,
+      "source": "using Microsoft.Extensions.AI; _ = new ChatOptions { Tools = [Missing.Create()] };",
+      "packages": { "Microsoft.Extensions.AI": "10.0.0" },
+      "package": "detected", "registration": "unknown", "version": "10.0.0", "locations": 0,
+      "tools": "unknown", "toolLocations": 0
+    },
+    {
+      "id": "dynamic-tools", "references": true,
+      "source": "using Microsoft.Extensions.AI; dynamic options = new ChatOptions(); options.Tools.Add(AIFunctionFactory.Create(() => 42));",
+      "packages": { "Microsoft.Extensions.AI": "10.0.0" },
+      "package": "detected", "registration": "unknown", "version": "10.0.0", "locations": 0,
+      "tools": "unknown", "toolLocations": 0
+    },
+    {
+      "id": "indirect-tools", "references": true,
+      "source": "using Microsoft.Extensions.AI; System.Collections.Generic.IList<AITool> tools = []; _ = new ChatOptions { Tools = tools };",
+      "packages": { "Microsoft.Extensions.AI": "10.0.0" },
+      "package": "detected", "registration": "absent", "version": "10.0.0", "locations": 0,
+      "tools": "unknown", "toolLocations": 0
+    },
+    {
+      "id": "unsupported-tools", "references": true,
+      "source": "using Microsoft.Extensions.AI; _ = new ChatOptions { Tools = [AIFunctionFactory.Create(() => 42)] };",
+      "packages": { "Microsoft.Extensions.AI": "9.0.0" },
+      "package": "unknown", "registration": "unknown", "version": "9.0.0", "locations": 0,
+      "tools": "unknown", "toolLocations": 0
+    },
+    {
       "id": "bare-builder", "references": true,
       "source": "using Microsoft.Extensions.AI; _ = new ChatClientBuilder(new Fake()).Build();",
       "packages": { "Microsoft.Extensions.AI": "10.0.0" },
@@ -67,7 +158,8 @@
       "id": "package-present-unused", "references": true,
       "source": "System.Console.WriteLine(1);",
       "packages": { "Microsoft.Extensions.AI": "10.0.0" },
-      "package": "detected", "registration": "absent", "version": "10.0.0", "locations": 0
+      "package": "detected", "registration": "absent", "version": "10.0.0", "locations": 0,
+      "tools": "absent", "toolLocations": 0
     },
     {
       "id": "abstractions-only-di-registration", "references": true,

@@ -49,6 +49,18 @@ public sealed class MicrosoftExtensionsAIDetectionTests
             var package = facts.Single(fact => fact.Id == "microsoft-extensions-ai");
             var registration = facts.Single(fact => fact.Id == "chat-client-registration");
             var composition = facts.Single(fact => fact.Id == "chat-client-composition");
+            var tools = facts.Single(fact => fact.Id == "chat-tool-registration");
+            if (row["tools"] is { } expectedTools)
+            {
+                Assert.Equal(expectedTools.GetValue<string>(), tools.Status);
+                Assert.Equal(row["toolLocations"]!.GetValue<int>(), tools.Locations?.Length ?? 0);
+                Assert.Equal(package.Version, tools.Version);
+                if (tools.Status == "detected")
+                {
+                    Assert.Equal("roslyn-static-tool-registration-not-runtime-proof", tools.Evidence);
+                    Assert.All(tools.Locations!, location => Assert.Equal("Program.cs", location.Path));
+                }
+            }
             if (row["composition"] is { } expectedComposition)
             {
                 Assert.Equal(expectedComposition.GetValue<string>(), composition.Status);
@@ -62,7 +74,7 @@ public sealed class MicrosoftExtensionsAIDetectionTests
                 .Evaluate(JsonSerializer.SerializeToNode(facts, AgentTool.Json)).IsValid);
             var context = new SkillActivationContext("coder", [], [], [],
                 new[] { new SkillFrameworkFact("microsoft-extensions", "10.0.0") }
-                .Concat(new[] { package, registration, composition }.Where(fact => fact.Status == "detected")
+                .Concat(new[] { package, registration, composition, tools }.Where(fact => fact.Status == "detected")
                     .Select(fact => new SkillFrameworkFact(fact.Id, fact.Version!))).ToArray());
             var service = new SkillActivationService();
             var loaded = await service.LoadReferenceAsync(root, context, "microsoft-extensions", "references/ai.md");
@@ -71,6 +83,7 @@ public sealed class MicrosoftExtensionsAIDetectionTests
         }
         Assert.Equal("unknown", FrameworkCapabilities.Detect("Exe", null).Single(fact => fact.Id == "chat-client-registration").Status);
         Assert.Equal("unknown", FrameworkCapabilities.Detect("Exe", null).Single(fact => fact.Id == "chat-client-composition").Status);
+        Assert.Equal("unknown", FrameworkCapabilities.Detect("Exe", null).Single(fact => fact.Id == "chat-tool-registration").Status);
     }
 
     [Theory]
@@ -94,11 +107,25 @@ public sealed class MicrosoftExtensionsAIDetectionTests
     }
 
     [Fact]
+    public void ToolRegistrationLocationsRemainBounded()
+    {
+        var compilation = Compile("using Microsoft.Extensions.AI; var options = new ChatOptions { Tools = [] }; " +
+            string.Join(" ", Enumerable.Repeat("options.Tools.Add(AIFunctionFactory.Create(() => 42));", 70)));
+        Assert.DoesNotContain(compilation.GetDiagnostics(), diagnostic => diagnostic.Severity == DiagnosticSeverity.Error);
+        var facts = FrameworkCapabilities.Detect("Exe", compilation);
+        var tools = facts.Single(fact => fact.Id == "chat-tool-registration");
+        Assert.Equal("detected", tools.Status);
+        Assert.Equal(64, tools.Locations!.Length);
+        Assert.True(JsonSchema.FromFile(Path.Combine(AgentTool.FindToolkit(), "schemas/framework-capabilities.schema.json"))
+            .Evaluate(JsonSerializer.SerializeToNode(facts, AgentTool.Json)).IsValid);
+    }
+
+    [Fact]
     public async Task NormalDiscoveryExposesAIRegistrationAndPackageVersions()
     {
         using var repo = new TemporaryGitRepository();
         foreach (var (name, source) in new[] {
-            ("Registered", "using Microsoft.Extensions.DependencyInjection; using Microsoft.Extensions.AI; var services = new ServiceCollection(); services.AddChatClient(new Fake()).UseLogging();" + Fake),
+            ("Registered", "using Microsoft.Extensions.DependencyInjection; using Microsoft.Extensions.AI; var services = new ServiceCollection(); services.AddChatClient(new Fake()).UseLogging(); _ = new ChatOptions { Tools = [AIFunctionFactory.Create(() => 42)] };" + Fake),
             ("Unused", "System.Console.WriteLine(1);"),
             ("Unresolved", "Missing.ConfigureChatClient();") })
         {
@@ -128,6 +155,9 @@ public sealed class MicrosoftExtensionsAIDetectionTests
                 Assert.Equal(expected, registration["status"]!.GetValue<string>());
                 var composition = facts.AsArray().Single(fact => fact!["id"]!.GetValue<string>() == "chat-client-composition")!;
                 Assert.Equal(expected, composition["status"]!.GetValue<string>());
+                var tools = facts.AsArray().Single(fact => fact!["id"]!.GetValue<string>() == "chat-tool-registration")!;
+                Assert.Equal(expected, tools["status"]!.GetValue<string>());
+                if (expected == "detected") Assert.EndsWith("Registered/Program.cs", tools["locations"]![0]!["path"]!.GetValue<string>());
                 if (expected == "detected") Assert.EndsWith("Registered/Program.cs", composition["locations"]![0]!["path"]!.GetValue<string>());
                 if (expected == "detected") Assert.EndsWith("Registered/Program.cs", registration["locations"]![0]!["path"]!.GetValue<string>());
             }
