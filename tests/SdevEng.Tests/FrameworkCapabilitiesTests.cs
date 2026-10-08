@@ -9,6 +9,39 @@ namespace SdevEng.Tests;
 
 public sealed class FrameworkCapabilitiesTests
 {
+    const string Worker = "class Worker : Microsoft.Extensions.Hosting.BackgroundService { protected override System.Threading.Tasks.Task ExecuteAsync(System.Threading.CancellationToken stoppingToken) => System.Threading.Tasks.Task.Delay(-1, stoppingToken); }";
+
+    [Theory]
+    [InlineData("services.AddHostedService<Worker>();", "detected", "detected")]
+    [InlineData("services.AddHostedService<Worker>(s => new Worker());", "detected", "detected")]
+    [InlineData("services.AddSingleton<Microsoft.Extensions.Hosting.IHostedService, Worker>();", "detected", "detected")]
+    [InlineData("services.AddSingleton<Worker>();", "absent", "absent")]
+    [InlineData("", "absent", "absent")]
+    [InlineData("Missing.AddHostedService<Worker>();", "unknown", "unknown")]
+    [InlineData("dynamic d = services; d.AddHostedService<Worker>();", "unknown", "unknown")]
+    public void HostedServicesRequireResolvedIdentityAndRegistration(string registration, string background, string hosted)
+    {
+        var facts = FrameworkCapabilities.Detect("Exe", Compile("using Microsoft.Extensions.DependencyInjection; var services = new ServiceCollection(); " + registration + Worker));
+        Assert.Equal(background, facts.Single(fact => fact.Id == "background-service").Status);
+        Assert.Equal(hosted, facts.Single(fact => fact.Id == "hosted-service").Status);
+        Assert.Equal(hosted == "detected" ? 1 : 0, facts.Single(fact => fact.Id == "hosted-service").Locations?.Length ?? 0);
+        Assert.True(JsonSchema.FromFile(Path.Combine(AgentTool.FindToolkit(), "schemas/framework-capabilities.schema.json"))
+            .Evaluate(JsonSerializer.SerializeToNode(facts, AgentTool.Json)).IsValid);
+    }
+
+    [Fact]
+    public void HostedServicesRejectUnsupportedVersionsAndUnavailableCompilation()
+    {
+        var source = "using Microsoft.Extensions.DependencyInjection; var s = new ServiceCollection(); s.AddHostedService<Worker>(); " + Worker;
+        foreach (var id in new[] { "background-service", "hosted-service" })
+        {
+            var fact = FrameworkCapabilities.Detect("Exe", Compile(source), new Dictionary<string, string?>
+            { ["Microsoft.Extensions.Hosting.Abstractions"] = "9.0.0" }).Single(item => item.Id == id);
+            Assert.Equal("unknown", fact.Status);
+            Assert.Equal("unsupported-microsoft-extensions-version", fact.Evidence);
+            Assert.Equal("unknown", FrameworkCapabilities.Detect("Exe", null).Single(item => item.Id == id).Status);
+        }
+    }
     [Theory]
     [InlineData("using Microsoft.Extensions.DependencyInjection; var s = new ServiceCollection(); s.AddLogging();", "detected", 1)]
     [InlineData("using Microsoft.Extensions.Logging; var b = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder(); b.Logging.AddConsole().SetMinimumLevel(LogLevel.Debug);", "detected", 2)]
@@ -235,9 +268,9 @@ public sealed class FrameworkCapabilitiesTests
         repo.Write("App.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net10.0</TargetFramework><OutputType>Exe</OutputType><EnableDefaultCompileItems>false</EnableDefaultCompileItems></PropertyGroup><ItemGroup><Compile Include=\"Program.cs\" /></ItemGroup></Project>");
         var project = "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net10.0</TargetFramework><OutputType>Exe</OutputType></PropertyGroup><ItemGroup><PackageReference Include=\"Microsoft.Extensions.Hosting\" Version=\"10.0.12\" /></ItemGroup></Project>";
         repo.Write("Hosted/Hosted.csproj", project);
-        repo.Write("Hosted/Program.cs", "using Microsoft.Extensions.DependencyInjection; using Microsoft.Extensions.Logging; var builder = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder(); builder.Services.AddSingleton<object>(); builder.Services.Configure<object>(builder.Configuration.GetSection(\"App\")); builder.Logging.AddConsole();");
+        repo.Write("Hosted/Program.cs", "using Microsoft.Extensions.DependencyInjection; using Microsoft.Extensions.Logging; var builder = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder(); builder.Services.AddSingleton<object>(); builder.Services.Configure<object>(builder.Configuration.GetSection(\"App\")); builder.Logging.AddConsole(); builder.Services.AddHostedService<Worker>(); " + Worker);
         repo.Write("Unused/Unused.csproj", project);
-        repo.Write("Unused/Program.cs", "System.Console.WriteLine(1);");
+        repo.Write("Unused/Program.cs", "System.Console.WriteLine(1); " + Worker);
         repo.Write("CommandLine/CommandLine.csproj", "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net10.0</TargetFramework><OutputType>Exe</OutputType></PropertyGroup><ItemGroup><PackageReference Include=\"System.CommandLine\" Version=\"2.0.0\" /></ItemGroup></Project>");
         repo.Write("CommandLine/Program.cs", "System.Console.WriteLine(1);");
         repo.Write("Broken/Broken.csproj", project);
@@ -273,8 +306,15 @@ public sealed class FrameworkCapabilitiesTests
                 if (row["path"]!.GetValue<string>() == "CommandLine/CommandLine.csproj")
                     Assert.Equal("2.0.0", facts[3]!["version"]!.GetValue<string>());
                 Assert.True(JsonSchema.FromFile(Path.Combine(AgentTool.FindToolkit(), "schemas/framework-capabilities.schema.json")).Evaluate(facts).IsValid);
-                Assert.Equal(9, facts.AsArray().Count);
+                Assert.Equal(11, facts.AsArray().Count);
                 var path = row["path"]!.GetValue<string>();
+                foreach (var id in new[] { "background-service", "hosted-service" })
+                {
+                    Assert.Equal(path == "Hosted/Hosted.csproj" ? "detected" : path is "Broken/Broken.csproj" or "Unsupported/Unsupported.vbproj" ? "unknown" : "absent",
+                        facts.AsArray().Single(fact => fact!["id"]!.GetValue<string>() == id)!["status"]!.GetValue<string>());
+                    if (path == "Hosted/Hosted.csproj")
+                        Assert.EndsWith("Hosted/Program.cs", facts.AsArray().Single(fact => fact!["id"]!.GetValue<string>() == id)!["locations"]![0]!["path"]!.GetValue<string>());
+                }
                 var hosted = facts.AsArray().Single(fact => fact!["id"]!.GetValue<string>() == "generic-host")!;
                 var di = facts.AsArray().Single(fact => fact!["id"]!.GetValue<string>() == "dependency-injection")!;
                 Assert.Equal(path == "Hosted/Hosted.csproj" ? "detected" : path is "Broken/Broken.csproj" or "Unsupported/Unsupported.vbproj" ? "unknown" : "absent", hosted["status"]!.GetValue<string>());

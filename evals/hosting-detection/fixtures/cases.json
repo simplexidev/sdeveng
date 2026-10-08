@@ -2,6 +2,48 @@
   "schemaVersion": 1,
   "cases": [
     {
+      "id": "registered-cancellable-worker",
+      "source": "using Microsoft.Extensions.DependencyInjection; var b = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder(); b.Services.AddHostedService<Worker>(); class Worker : Microsoft.Extensions.Hosting.BackgroundService { protected override System.Threading.Tasks.Task ExecuteAsync(System.Threading.CancellationToken stoppingToken) => System.Threading.Tasks.Task.Delay(-1, stoppingToken); }",
+      "packageVersions": {},
+      "expected": { "generic-host": "detected", "dependency-injection": "absent", "configuration": "absent", "options": "absent", "logging": "absent", "background-service": "detected", "hosted-service": "detected" },
+      "expectedLocations": { "generic-host": 1, "background-service": 1, "hosted-service": 1 }
+    },
+    {
+      "id": "registered-interface-shutdown-defect",
+      "source": "using Microsoft.Extensions.DependencyInjection; var s = new ServiceCollection(); s.AddSingleton<Microsoft.Extensions.Hosting.IHostedService, Service>(); class Service : Microsoft.Extensions.Hosting.IHostedService { public System.Threading.Tasks.Task StartAsync(System.Threading.CancellationToken token) => System.Threading.Tasks.Task.CompletedTask; public System.Threading.Tasks.Task StopAsync(System.Threading.CancellationToken token) => System.Threading.Tasks.Task.Delay(-1); }",
+      "packageVersions": {},
+      "expected": { "generic-host": "absent", "dependency-injection": "detected", "configuration": "absent", "options": "absent", "logging": "absent", "background-service": "absent", "hosted-service": "detected" },
+      "expectedLocations": { "dependency-injection": 1, "hosted-service": 1 }
+    },
+    {
+      "id": "unregistered-worker",
+      "source": "System.Console.WriteLine(1); class Worker : Microsoft.Extensions.Hosting.BackgroundService { protected override System.Threading.Tasks.Task ExecuteAsync(System.Threading.CancellationToken token) => System.Threading.Tasks.Task.CompletedTask; }",
+      "packageVersions": {},
+      "expected": { "generic-host": "absent", "dependency-injection": "absent", "configuration": "absent", "options": "absent", "logging": "absent", "background-service": "absent", "hosted-service": "absent" },
+      "expectedLocations": {}
+    },
+    {
+      "id": "name-only-background-service",
+      "source": "System.Console.WriteLine(1); class BackgroundService {} class Worker : BackgroundService {} interface IHostedService {}",
+      "packageVersions": {},
+      "expected": { "generic-host": "absent", "dependency-injection": "absent", "configuration": "absent", "options": "absent", "logging": "absent", "background-service": "absent", "hosted-service": "absent" },
+      "expectedLocations": {}
+    },
+    {
+      "id": "unresolved-hosted-registration",
+      "source": "Missing.AddHostedService<Worker>();",
+      "packageVersions": {},
+      "expected": { "generic-host": "unknown", "dependency-injection": "unknown", "configuration": "unknown", "options": "unknown", "logging": "unknown", "background-service": "unknown", "hosted-service": "unknown" },
+      "expectedLocations": {}
+    },
+    {
+      "id": "unsupported-hosted-registration",
+      "source": "using Microsoft.Extensions.DependencyInjection; var s = new ServiceCollection(); s.AddHostedService<Worker>(); class Worker : Microsoft.Extensions.Hosting.BackgroundService { protected override System.Threading.Tasks.Task ExecuteAsync(System.Threading.CancellationToken token) => System.Threading.Tasks.Task.CompletedTask; }",
+      "packageVersions": { "Microsoft.Extensions.Hosting.Abstractions": "9.0.0" },
+      "expected": { "generic-host": "absent", "dependency-injection": "absent", "configuration": "absent", "options": "absent", "logging": "absent", "background-service": "unknown", "hosted-service": "unknown" },
+      "expectedLocations": {}
+    },
+    {
       "id": "host-di-config-options-logging",
       "source": "using Microsoft.Extensions.DependencyInjection; using Microsoft.Extensions.Logging; var b = Microsoft.Extensions.Hosting.Host.CreateApplicationBuilder(); b.Services.AddScoped<object>(); b.Services.Configure<object>(b.Configuration.GetSection(\"App\")); b.Logging.AddConsole();",
       "packageVersions": { "Microsoft.Extensions.Hosting": "10.0.12" },

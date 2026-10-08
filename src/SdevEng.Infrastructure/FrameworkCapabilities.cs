@@ -53,6 +53,27 @@ public static class FrameworkCapabilities
                 locations.Count > 0 ? "roslyn-static-composition" : indirect ? "indirect-static-composition" : "roslyn-no-static-composition",
                 version, locations.Take(64).ToArray());
         }
+        bool HostedRegistration(IMethodSymbol method, bool background)
+        {
+            var hosted = compilation?.GetTypeByMetadataName("Microsoft.Extensions.Hosting.IHostedService");
+            var worker = compilation?.GetTypeByMetadataName("Microsoft.Extensions.Hosting.BackgroundService");
+            if (hosted?.ContainingAssembly.Name != "Microsoft.Extensions.Hosting.Abstractions" ||
+                worker?.ContainingAssembly.Name != "Microsoft.Extensions.Hosting.Abstractions") return false;
+            ITypeSymbol? implementation = null;
+            if (method.ContainingAssembly.Name == "Microsoft.Extensions.Hosting.Abstractions" &&
+                method.ContainingType.ToDisplayString() == "Microsoft.Extensions.DependencyInjection.ServiceCollectionHostedServiceExtensions" &&
+                method.Name == "AddHostedService") implementation = method.TypeArguments.FirstOrDefault();
+            else if (method.ContainingAssembly.Name == "Microsoft.Extensions.DependencyInjection.Abstractions" &&
+                method.ContainingType.ToDisplayString() == "Microsoft.Extensions.DependencyInjection.ServiceCollectionServiceExtensions" &&
+                method.Name == "AddSingleton" && SymbolEqualityComparer.Default.Equals(method.TypeArguments.FirstOrDefault(), hosted))
+                implementation = method.TypeArguments.LastOrDefault();
+            if (implementation is not INamedTypeSymbol type) return false;
+            if (!background) return SymbolEqualityComparer.Default.Equals(type, hosted) ||
+                type.AllInterfaces.Any(item => SymbolEqualityComparer.Default.Equals(item, hosted));
+            for (var current = type; current is not null; current = current.BaseType)
+                if (SymbolEqualityComparer.Default.Equals(current, worker)) return true;
+            return false;
+        }
         return [Fact("generic-host", "Microsoft.Extensions.Hosting", method =>
             method.ContainingAssembly.Name == "Microsoft.Extensions.Hosting" &&
             ((method.ContainingType.ToDisplayString() == "Microsoft.Extensions.Hosting.Host" &&
@@ -101,7 +122,9 @@ public static class FrameworkCapabilities
                  method.TypeArguments.Any(type => type.ContainingAssembly.Name == "Microsoft.Extensions.Logging.Abstractions" &&
                      type.OriginalDefinition.ToDisplayString() is "Microsoft.Extensions.Logging.ILogger" or
                          "Microsoft.Extensions.Logging.ILogger<TCategoryName>" or "Microsoft.Extensions.Logging.ILoggerProvider" or
-                         "Microsoft.Extensions.Logging.ILoggerFactory")))];
+                         "Microsoft.Extensions.Logging.ILoggerFactory"))),
+            Fact("background-service", "Microsoft.Extensions.Hosting.Abstractions", method => HostedRegistration(method, true)),
+            Fact("hosted-service", "Microsoft.Extensions.Hosting.Abstractions", method => HostedRegistration(method, false))];
     }
 
     static FrameworkCapabilityFact[] DetectConsole(string? outputType, Compilation? compilation,
