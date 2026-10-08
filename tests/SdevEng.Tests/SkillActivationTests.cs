@@ -6,6 +6,35 @@ namespace SdevEng.Tests;
 public sealed class SkillActivationTests
 {
     [Fact]
+    public async Task AvaloniaSkillActivatesAndLoadsOnlyForVerifiedPackageVersion()
+    {
+        var root = AgentTool.FindToolkit();
+        var metadata = SkillCompatibilityMapReader.ReadMetadataIndex(root)
+            .Single(skill => skill.Id == "avalonia");
+        Assert.Equal(new[] { new SkillActivationCondition("avalonia", "11.3.0") }, metadata.Activation);
+        Assert.Empty(metadata.Resources!);
+        SkillCompatibilityMapReader.ValidateResources(root, [metadata]);
+        var service = new SkillActivationService();
+        SkillActivationContext Context(string? version) => new("coder", [], [], [],
+            version is null ? [] : [new("avalonia", version)]);
+        Assert.Contains(service.Activate(root, Context("11.3.0")), skill => skill.Id == "avalonia");
+        Assert.DoesNotContain(service.Activate(root, Context("12.0.0")), skill => skill.Id == "avalonia");
+        Assert.DoesNotContain(service.Activate(root, Context(null)), skill => skill.Id == "avalonia");
+        var body = SkillCompatibilityMapReader.ReadSelectedSkill(root, "avalonia", "test", "1", "coder");
+        Assert.Contains("11.3.0", body, StringComparison.Ordinal);
+        Assert.Contains("dotnet-skills-provenance.md", body, StringComparison.Ordinal);
+        Assert.Contains("code-only", body, StringComparison.Ordinal);
+        var schema = JsonSchema.FromFile(Path.Combine(root, "schemas/skill-metadata.schema.json"));
+        Assert.True(schema.Evaluate(JsonSerializer.SerializeToNode(metadata, new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = System.Text.Json.JsonNamingPolicy.CamelCase,
+            DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+        })!).IsValid);
+        var loaded = await service.LoadReferenceAsync(root, Context("11.3.0"), "avalonia", "references/lifetime.md");
+        Assert.Equal("unknown-reference", loaded.OmissionReason);
+    }
+
+    [Fact]
     public void SystemCommandLineSkillLoadsOnlyForResolvedVersionAndItsReferenceHashIsValid()
     {
         var root = AgentTool.FindToolkit();

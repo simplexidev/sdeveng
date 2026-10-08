@@ -58,6 +58,17 @@
       "migrationStatus": "retained"
     },
     {
+      "oldId": "avalonia",
+      "oldPath": "plugins/sdeveng/skills/avalonia/SKILL.md",
+      "canonicalId": "avalonia",
+      "canonicalPath": "plugins/sdeveng/skills/avalonia/SKILL.md",
+      "version": "3.0.0",
+      "aliases": [
+        "sdeveng-engineering-toolkit:avalonia"
+      ],
+      "migrationStatus": "retained"
+    },
+    {
       "oldId": "benchmark",
       "oldPath": "plugins/sdeveng/skills/benchmark/SKILL.md",
       "canonicalId": "benchmark",
