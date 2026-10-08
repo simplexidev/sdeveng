@@ -5,4 +5,4 @@ safety: Do not probe a real terminal or infer package APIs from SDK/TFM.
 negativeTrigger: No System.CommandLine package fact, or a package version other than 2.0.0.
 budgets: { tokens: 3000, turns: 4, toolCalls: 6 }
 fixture: fixtures/scenario.json
-proof: tests/SdevEng.Tests/SkillActivationTests.cs: SystemCommandLineSkillLoadsOnlyForResolvedVersionAndItsReferenceHashIsValid
+proof: "tests/SdevEng.Tests/SkillActivationTests.cs: SystemCommandLineSkillLoadsOnlyForResolvedVersionAndItsReferenceHashIsValid"
