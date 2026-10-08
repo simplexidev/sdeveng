@@ -20,7 +20,28 @@ public static class FrameworkCapabilities
             .Concat(DetectTelemetryComposition(compilation, packageVersions))
             .Concat(DetectPublishSettings(projectProperties))
             .Concat(DetectReflection(compilation))
-            .Concat(DetectMicrosoftExtensionsAI(compilation, packageVersions)).ToArray();
+            .Concat(DetectMicrosoftExtensionsAI(compilation, packageVersions))
+            .Concat(DetectAvalonia(compilation, packageVersions)).ToArray();
+
+    static FrameworkCapabilityFact[] DetectAvalonia(Compilation? compilation,
+        IReadOnlyDictionary<string, string?>? packages)
+    {
+        const string packageId = "Avalonia";
+        var version = packages?.GetValueOrDefault(packageId) ?? compilation?.ReferencedAssemblyNames
+            .FirstOrDefault(item => item.Name == packageId)?.Version.ToString();
+        var complete = compilation is not null && compilation.Language == LanguageNames.CSharp &&
+            !compilation.GetDiagnostics().Any(item => item.Severity == DiagnosticSeverity.Error);
+        if (version is null)
+            return [new("avalonia", complete ? "absent" : "unknown",
+                complete ? "resolved-package-not-present" : "package-evidence-unavailable")];
+
+        if (!System.Version.TryParse(version, out _))
+            return [new("avalonia", "unknown", "unsupported-package-version", version)];
+
+        // The generalized provenance registry currently marks Avalonia majors unknown;
+        // do not treat package presence as verified API compatibility.
+        return [new("avalonia", "unknown", "unsupported-package-version", version)];
+    }
 
     static FrameworkCapabilityFact[] DetectMicrosoftExtensionsAI(Compilation? compilation,
         IReadOnlyDictionary<string, string?>? packages)

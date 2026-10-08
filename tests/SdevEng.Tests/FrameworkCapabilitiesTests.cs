@@ -13,6 +13,24 @@ public sealed class FrameworkCapabilitiesTests
 {
     const string Worker = "class Worker : Microsoft.Extensions.Hosting.BackgroundService { protected override System.Threading.Tasks.Task ExecuteAsync(System.Threading.CancellationToken stoppingToken) => System.Threading.Tasks.Task.Delay(-1, stoppingToken); }";
 
+    [Fact]
+    public void AvaloniaPackageMajorIsReportedButUnpinnedMajorsRemainUnsupported()
+    {
+        var package = new Dictionary<string, string?> { ["Avalonia"] = "12.0.0" };
+        var detected = FrameworkCapabilities.Detect("Exe", Compile("System.Console.WriteLine(1);"), package);
+        var fact = Assert.Single(detected, item => item.Id == "avalonia");
+        Assert.Equal("unknown", fact.Status);
+        Assert.Equal("unsupported-package-version", fact.Evidence);
+        Assert.Equal("12.0.0", fact.Version);
+
+        var absent = Assert.Single(FrameworkCapabilities.Detect("Exe", Compile("System.Console.WriteLine(1);")), item => item.Id == "avalonia");
+        Assert.Equal("absent", absent.Status);
+        var unresolved = Assert.Single(FrameworkCapabilities.Detect("Exe", null), item => item.Id == "avalonia");
+        Assert.Equal("unknown", unresolved.Status);
+        Assert.True(JsonSchema.FromFile(Path.Combine(AgentTool.FindToolkit(), "schemas/framework-capabilities.schema.json"))
+            .Evaluate(JsonSerializer.SerializeToNode(detected, AgentTool.Json)).IsValid);
+    }
+
     [Theory]
     [InlineData("_ = System.Type.GetType(\"Widget\");", "detected", 1)]
     [InlineData("_ = typeof(string).GetMethods(); _ = System.Activator.CreateInstance(typeof(object));", "detected", 2)]
@@ -702,7 +720,7 @@ public sealed class FrameworkCapabilitiesTests
                 if (row["path"]!.GetValue<string>() == "CommandLine/CommandLine.csproj")
                     Assert.Equal("2.0.0", facts[3]!["version"]!.GetValue<string>());
                 Assert.True(JsonSchema.FromFile(Path.Combine(AgentTool.FindToolkit(), "schemas/framework-capabilities.schema.json")).Evaluate(facts).IsValid);
-                Assert.Equal(31, facts.AsArray().Count);
+                Assert.Equal(32, facts.AsArray().Count);
                 foreach (var id in new[] { "microsoft-extensions-ai", "chat-client-registration", "chat-client-composition", "chat-tool-registration" })
                     Assert.Equal(path is "Broken/Broken.csproj" or "Unsupported/Unsupported.vbproj" ? "unknown" : "absent",
                         facts.AsArray().Single(fact => fact!["id"]!.GetValue<string>() == id)!["status"]!.GetValue<string>());
