@@ -1,8 +1,8 @@
 skill: microsoft-extensions
 scenario: Guide a .NET service using a single Generic Host, dependency lifetimes, configuration-bound options, and logging providers.
-expected: Require resolved Microsoft.Extensions 10 facts before version-specific API advice. Keep one host/service provider, explain lifetime and options choices, and distinguish static composition locations from runtime proof.
-safety: Use evaluated symbols and package facts only; dynamic/reflection wiring remains unknown and no host is executed.
-proof: "tests/SdevEng.Tests/FrameworkCapabilitiesTests.cs: HostingFixturesUseResolvedSymbolsAndValidateContract"
+expected: Require resolved Microsoft.Extensions 10 facts before version-specific API advice. Keep one host/service provider, explain lifetime and options choices, and distinguish static composition locations from runtime proof. Cover bounded channel capacity, cancellation and completion; culture-aware localization registration and fallback resources; and secrets hygiene at configuration boundaries.
+safety: Use evaluated symbols and package facts only; dynamic/reflection wiring remains unknown and no host is executed. Never expose secret values or raw environment/configuration dumps; synthetic examples use redacted values.
+proof: "tests/SdevEng.Tests/FrameworkCapabilitiesTests.cs: ChannelsFactAndReferenceRequireResolvedChannelUse, LocalizationFactAndReferenceRequireResolvedRegistration, SecretsConfigurationReferenceRequiresResolvedConfigurationUse"
 caching: Discover references/caching.md in canonical metadata; load only with a supported detected memory-cache fact. Unsupported or unused packages supply no registration fact. Preserve hosting and resilience resource hashes and legacy aliases.
 telemetry: Detect OpenTelemetry 1 logging, tracing and metric composition independently from installed packages; retain source locations and versions, never infer runtime emission or export.
 composition-proof: "tests/SdevEng.Tests/FrameworkCapabilitiesTests.cs: TelemetryCompositionRequiresResolvedSymbols; CachingReferenceIsDiscoveredAndLoadedOnlyForMatchingFacts"

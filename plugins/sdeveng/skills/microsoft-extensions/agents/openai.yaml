@@ -1,6 +1,6 @@
 interface:
   display_name: "Microsoft.Extensions"
-  short_description: Use version-matched Microsoft.Extensions 10 hosting and DI guidance.
+  short_description: Use version-matched Microsoft.Extensions 10 hosting, DI, and configuration hygiene guidance.
   default_prompt: "Use $microsoft-extensions."
 policy:
   allow_implicit_invocation: true
