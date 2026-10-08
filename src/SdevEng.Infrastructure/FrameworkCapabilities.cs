@@ -8,6 +8,64 @@ public static class FrameworkCapabilities
 {
     public static FrameworkCapabilityFact[] Detect(string? outputType, Compilation? compilation,
         IReadOnlyDictionary<string, string?>? packageVersions = null)
+        => DetectConsole(outputType, compilation, packageVersions)
+            .Concat(DetectHosting(compilation, packageVersions)).ToArray();
+
+    static FrameworkCapabilityFact[] DetectHosting(Compilation? compilation,
+        IReadOnlyDictionary<string, string?>? packages)
+    {
+        var valid = compilation is not null && compilation.Language == LanguageNames.CSharp &&
+            !compilation.GetDiagnostics().Any(item => item.Severity == DiagnosticSeverity.Error);
+        FrameworkCapabilityFact Fact(string id, string assembly, Func<IMethodSymbol, bool> matches)
+        {
+            var version = packages?.GetValueOrDefault(assembly) ?? compilation?.ReferencedAssemblyNames
+                .FirstOrDefault(item => item.Name == assembly)?.Version.ToString();
+            if (!valid) return new(id, "unknown", "unavailable-or-incomplete-csharp-compilation", version);
+            if (version is not null && (!Version.TryParse(version, out var parsed) || parsed.Major != 10))
+                return new(id, "unknown", "unsupported-microsoft-extensions-version", version);
+            var locations = new List<FrameworkCapabilityLocation>();
+            var indirect = false;
+            foreach (var tree in compilation!.SyntaxTrees)
+            {
+                var model = compilation.GetSemanticModel(tree);
+                foreach (var call in tree.GetRoot().DescendantNodes().Where(node => node is InvocationExpressionSyntax or BaseObjectCreationExpressionSyntax))
+                {
+                    var method = model.GetSymbolInfo(call).Symbol as IMethodSymbol;
+                    if (method is null) { indirect = true; continue; }
+                    method = method.ReducedFrom ?? method;
+                    if (matches(method))
+                    {
+                        var span = call.GetLocation().GetLineSpan();
+                        locations.Add(new(tree.FilePath, span.StartLinePosition.Line + 1, span.StartLinePosition.Character + 1));
+                    }
+                    else if (method.Locations.Any(item => item.IsInSource) ||
+                        method.ContainingType.TypeKind == TypeKind.Delegate ||
+                        method.ContainingNamespace.ToDisplayString().StartsWith("System.Reflection", StringComparison.Ordinal))
+                        indirect = true;
+                }
+            }
+            return new(id, locations.Count > 0 ? "detected" : indirect ? "unknown" : "absent",
+                locations.Count > 0 ? "roslyn-static-composition" : indirect ? "indirect-static-composition" : "roslyn-no-static-composition",
+                version, locations.Take(64).ToArray());
+        }
+        return [Fact("generic-host", "Microsoft.Extensions.Hosting", method =>
+            method.ContainingAssembly.Name == "Microsoft.Extensions.Hosting" &&
+            ((method.ContainingType.ToDisplayString() == "Microsoft.Extensions.Hosting.Host" &&
+              method.Name is "CreateDefaultBuilder" or "CreateApplicationBuilder" or "CreateEmptyApplicationBuilder") ||
+             method.ContainingType.ToDisplayString() is "Microsoft.Extensions.Hosting.HostBuilder" or "Microsoft.Extensions.Hosting.HostApplicationBuilder")),
+            Fact("dependency-injection", "Microsoft.Extensions.DependencyInjection.Abstractions", method =>
+                (method.ContainingAssembly.Name == "Microsoft.Extensions.DependencyInjection.Abstractions" &&
+                method.ContainingNamespace.ToDisplayString() is "Microsoft.Extensions.DependencyInjection" or "Microsoft.Extensions.DependencyInjection.Extensions" &&
+                method.Name is "AddSingleton" or "AddScoped" or "AddTransient" or "TryAddSingleton" or "TryAddScoped" or "TryAddTransient" or
+                    "AddKeyedSingleton" or "AddKeyedScoped" or "AddKeyedTransient" or "TryAdd" or "TryAddEnumerable" &&
+                method.Parameters.FirstOrDefault()?.Type.ToDisplayString() == "Microsoft.Extensions.DependencyInjection.IServiceCollection") ||
+                (method.Name == "Add" && method.ContainingType.ToDisplayString() ==
+                    "System.Collections.Generic.ICollection<Microsoft.Extensions.DependencyInjection.ServiceDescriptor>" &&
+                 method.ContainingType.TypeArguments[0].ContainingAssembly.Name == "Microsoft.Extensions.DependencyInjection.Abstractions"))];
+    }
+
+    static FrameworkCapabilityFact[] DetectConsole(string? outputType, Compilation? compilation,
+        IReadOnlyDictionary<string, string?>? packageVersions)
     {
         var commandLineVersion = packageVersions?.GetValueOrDefault("System.CommandLine");
         FrameworkCapabilityFact[] Facts(string plain, string host, string redirected, string evidence) =>
