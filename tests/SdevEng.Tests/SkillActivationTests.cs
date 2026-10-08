@@ -5,6 +5,25 @@ namespace SdevEng.Tests;
 
 public sealed class SkillActivationTests
 {
+    [Fact]
+    public void SystemCommandLineSkillLoadsOnlyForResolvedVersionAndItsReferenceHashIsValid()
+    {
+        var root = AgentTool.FindToolkit();
+        var metadata = SkillCompatibilityMapReader.ReadMetadataIndex(root)
+            .Single(skill => skill.Id == "system-commandline");
+        Assert.Equal(new[] { new SkillActivationCondition("system-commandline", "2.0.0") }, metadata.Activation);
+        SkillCompatibilityMapReader.ValidateResources(root, [metadata]);
+        var service = new SkillActivationService();
+        SkillActivationContext Context(string? version) => new("coder", [], [], [],
+            version is null ? [] : [new("system-commandline", version)]);
+        Assert.Contains(service.Activate(root, Context("2.0.0")), skill => skill.Id == "system-commandline");
+        Assert.DoesNotContain(service.Activate(root, Context("1.0.0")), skill => skill.Id == "system-commandline");
+        Assert.DoesNotContain(service.Activate(root, Context(null)), skill => skill.Id == "system-commandline");
+        var body = SkillCompatibilityMapReader.ReadSelectedSkill(root, "system-commandline", "test", "1", "coder");
+        Assert.Contains("2.0.0", body, StringComparison.Ordinal);
+        Assert.Contains("references/api-generation.md", body, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData(0)]
     [InlineData(26)]

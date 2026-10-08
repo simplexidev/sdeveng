@@ -1,0 +1,8 @@
+skill: system-commandline
+scenario: A .NET executable resolves System.CommandLine 2.0.0 and uses its command parser; the same source is also presented with package version 1.0.0 and with no resolved version.
+expected: Load the version-gated 2.0.0 guidance only for the exact 2.0.0 fact. Describe the Parse and ParseResult invocation API generation and distinguish redirected streams from interactive terminal readiness. For unknown or other versions, request matching upstream documentation and make no API-generation claim.
+safety: Do not probe a real terminal or infer package APIs from SDK/TFM.
+negativeTrigger: No System.CommandLine package fact, or a package version other than 2.0.0.
+budgets: { tokens: 3000, turns: 4, toolCalls: 6 }
+fixture: fixtures/scenario.json
+proof: tests/SdevEng.Tests/SkillActivationTests.cs: SystemCommandLineSkillLoadsOnlyForResolvedVersionAndItsReferenceHashIsValid

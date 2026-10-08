@@ -333,6 +333,17 @@
       "migrationStatus": "retained"
     },
     {
+      "oldId": "system-commandline",
+      "oldPath": "plugins/sdeveng/skills/system-commandline/SKILL.md",
+      "canonicalId": "system-commandline",
+      "canonicalPath": "plugins/sdeveng/skills/system-commandline/SKILL.md",
+      "version": "3.0.0",
+      "aliases": [
+        "sdeveng-engineering-toolkit:system-commandline"
+      ],
+      "migrationStatus": "retained"
+    },
+    {
       "oldId": "versioning",
       "oldPath": "plugins/sdeveng/skills/versioning/SKILL.md",
       "canonicalId": "versioning",

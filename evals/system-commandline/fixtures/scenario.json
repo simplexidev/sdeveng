@@ -1,0 +1,15 @@
+{
+  "resolvedFacts": {
+    "supported": { "id": "system-commandline", "version": "2.0.0" },
+    "unsupported": { "id": "system-commandline", "version": "1.0.0" },
+    "unknown": null
+  },
+  "expectations": {
+    "supportedActivation": true,
+    "unsupportedActivation": false,
+    "unknownActivation": false,
+    "api": "Command.Parse(args), then ParseResult.Invoke or InvokeAsync",
+    "redirectedStreamsProveInteractiveTerminal": false,
+    "terminalProbeAllowed": false
+  }
+}

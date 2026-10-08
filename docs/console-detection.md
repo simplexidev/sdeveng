@@ -14,5 +14,9 @@ and multi-targeted executable projects remain unknown. Non-console output types
 are absent. Consumers must only route detected facts to requested capabilities;
 unknown facts must not activate framework-specific guidance.
 
-Redirected/interactive assumptions and System.CommandLine version detection and
-version-gated skill guidance are deferred. No terminal probing is performed.
+`console-redirection` is detected from entry-point references to the standard
+console redirection properties; this is a source fact, not a terminal probe or
+proof of interactive readiness. `system-commandline` reports the resolved
+package version when present. The `system-commandline` skill is gated to the
+resolved 2.0.0 package; unknown and other versions do not activate it. No
+terminal probing is performed.

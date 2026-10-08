@@ -190,6 +190,7 @@
         { "kind": "agent-tool", "id": "dotnet build-plan", "scope": "Constructs affected restore/build/binlog commands without executing them." },
         { "kind": "agent-tool", "id": "dotnet format", "scope": "Checks or applies formatting to changed C# files." },
         { "kind": "skill", "id": "run-dotnet-tests", "scope": "Selects exact targeted test commands." },
+        { "kind": "skill", "id": "system-commandline", "scope": "Provides System.CommandLine 2.0.0 guidance only for that resolved package version." },
         { "kind": "upstream", "id": "dotnet-advanced", "scope": "Optional advanced C# workflows." }
       ],
       "opportunities": { "deterministic": "Keep project evaluation, compiler diagnostics and formatting tool-driven.", "jev": "No fit for compiler facts or code generation.", "agent": "Implement and diagnose within project conventions." },
